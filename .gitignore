@@ -30,3 +30,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Build/test artifacts
+bin/
+codequality/
+dependency-check/
+unit-tests.xml

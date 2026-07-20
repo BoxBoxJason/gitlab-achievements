@@ -60,6 +60,19 @@ The app is a single stateless Go binary plus a PostgreSQL database. It isn't tie
 - Docker / Docker Compose
 - Bare binary + systemd unit, for a plain VM/server install
 
+## Development
+
+Check the [CONTRIBUTING.md](./CONTRIBUTING.md) file for guidelines on how to contribute to this project.
+
+Quick start:
+
+```bash
+make build   # build the binary into ./bin
+make test    # run unit tests
+make lint    # run golangci-lint
+make package # build the container image (via podman/docker)
+```
+
 ## Status
 
 Early design stage: see [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
