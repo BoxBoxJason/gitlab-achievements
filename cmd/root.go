@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
+	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
 
 	"github.com/spf13/cobra"
@@ -60,7 +61,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	rootCmd.Flags().StringVar(&cfg.GitLabReadToken, "gitlab-read-token", os.Getenv("GITLAB_READ_TOKEN"), "Read-only GitLab token (read_api scope)")
 	rootCmd.Flags().StringVar(&cfg.GitLabWriteToken, "gitlab-write-token", os.Getenv("GITLAB_WRITE_TOKEN"), "Write-capable GitLab token (api scope), scoped down by role")
 	rootCmd.Flags().StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
-	rootCmd.Flags().StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "PostgreSQL connection string")
+	rootCmd.Flags().StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
 	rootCmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", os.Getenv("WEBHOOK_SECRET"), "Secret token used to validate incoming GitLab webhook deliveries")
 	rootCmd.Flags().StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
 	rootCmd.Flags().StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
@@ -85,13 +86,32 @@ func run(cfg *config.Config) error {
 		return fmt.Errorf("failed to set up logger: %w", err)
 	}
 
-	defer func() { _ = logger.Sync() }()
+	defer logger.Sync() //nolint:errcheck // ignore sync errors on exit
 
 	logger.Info("configuration loaded",
 		zap.String("gitlab_url", cfg.GitLabURL),
 		zap.String("achievements_namespace", cfg.AchievementsNamespace),
 		zap.String("listen_addr", cfg.ListenAddr),
 	)
+
+	conn, err := db.Open(cfg.DatabaseDSN)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return fmt.Errorf("failed to access underlying database connection: %w", err)
+	}
+
+	defer sqlDB.Close() //nolint:errcheck // ignore close errors on exit
+
+	err = db.Migrate(conn)
+	if err != nil {
+		return fmt.Errorf("failed to migrate database schema: %w", err)
+	}
+
+	logger.Info("database connected and migrated")
 	logger.Warn("gitlab-achievements does not implement bootstrap, backfill, or event ingestion yet: this is scaffolding only")
 
 	return nil
