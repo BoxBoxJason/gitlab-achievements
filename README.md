@@ -14,7 +14,7 @@ Inspired by [BoxBoxJason/achievements](https://github.com/boxboxjason/achievemen
 3. **Event-driven**: from then on, it reacts to incoming webhook events in near real time, no polling.
 4. **Reconciliation** *(planned)*: a periodic sync will re-check recent activity to catch any event the webhook pipeline missed (delivery failures, downtime, etc.).
 
-All state (achievement progress, award history, sync cursors, processed-event idempotency) is stored in PostgreSQL to keep the impact on the GitLab instance itself minimal. The bot reads from GitLab, but GitLab never has to do extra work to serve it beyond normal API/webhook traffic.
+All state (achievement progress, award history, sync cursors, processed-event idempotency) is stored in a local SQL database (PostgreSQL, SQLite, MySQL/MariaDB, or SQL Server) to keep the impact on the GitLab instance itself minimal. The bot reads from GitLab, but GitLab never has to do extra work to serve it beyond normal API/webhook traffic.
 
 ## Why two tokens
 
@@ -54,7 +54,7 @@ IDE-local categories from the VS Code extension (installed extensions, themes, d
 
 ## Deployment
 
-The app is a single stateless Go binary plus a PostgreSQL database. It isn't tied to any one deployment platform. Supported/planned targets (see the deployment issue for details):
+The app is a single Go binary plus a SQL database. It isn't tied to any one deployment platform or DBMS: the database is selected via the `--database-dsn`/`DATABASE_DSN` scheme (`postgres://`, `sqlite://`, `mysql://`, or `sqlserver://`). Supported/planned deployment targets (see the deployment issue for details):
 
 - Kubernetes (Helm chart)
 - Docker / Docker Compose

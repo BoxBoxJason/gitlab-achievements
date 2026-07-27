@@ -11,7 +11,7 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 	cfg := &config.Config{}
 	rootCmd := buildRootCmd(cfg)
 
-	rootCmd.SetArgs([]string{
+	err := rootCmd.ParseFlags([]string{
 		"--gitlab-url", "https://gitlab.example.com",
 		"--gitlab-read-token", "read-token",
 		"--gitlab-write-token", "write-token",
@@ -19,10 +19,7 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 		"--database-dsn", "postgres://localhost/achievements",
 		"--webhook-secret", "s3cr3t",
 	})
-	rootCmd.SilenceUsage = true
-	rootCmd.SilenceErrors = true
-
-	if err := rootCmd.Execute(); err != nil {
+	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
