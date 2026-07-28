@@ -47,8 +47,12 @@ func IsTransient(err error) bool {
 		return false
 	}
 
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) {
 		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
 
 	_, ok := errors.AsType[*url.Error](err)
