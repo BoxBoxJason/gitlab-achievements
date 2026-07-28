@@ -52,3 +52,6 @@ linters:
       excludes:
         - G117 # secret pattern matches in exported structs (required for API client)
         - G704 # SSRF false positives on client HTTP calls (required for API client)
+    gomoddirectives:
+      replace-allow-list:
+        - gitlab.com/gitlab-org/api/client-go/v2 # temporary: unreleased achievements/system-hooks support, see go.mod
