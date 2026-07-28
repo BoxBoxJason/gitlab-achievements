@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetCommit retrieves a single commit by SHA.
 func (c *ReadClient) GetCommit(pid any, sha string, opt *gitlab.GetCommitOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Commit, error) {
 	commit, _, err := c.raw.Commits.GetCommit(pid, sha, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
 
-	return commit, err
+	return commit, nil
 }
 
 // ListCommits iterates every commit matching opt. Set opt.Pagination =

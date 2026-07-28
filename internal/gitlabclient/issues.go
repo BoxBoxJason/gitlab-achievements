@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetIssue retrieves a single issue by its project-scoped IID.
 func (c *ReadClient) GetIssue(pid any, issue int64, options ...gitlab.RequestOptionFunc) (*gitlab.Issue, error) {
 	i, _, err := c.raw.Issues.GetIssue(pid, issue, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get issue: %w", err)
+	}
 
-	return i, err
+	return i, nil
 }
 
 // ListProjectIssues iterates every issue in a project matching opt. Set

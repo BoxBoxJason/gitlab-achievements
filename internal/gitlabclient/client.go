@@ -65,5 +65,10 @@ func newRawClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*gitl
 	allOpts = append(allOpts, gitlab.WithBaseURL(baseURL))
 	allOpts = append(allOpts, opts...)
 
-	return gitlab.NewClient(token, allOpts...)
+	raw, err := gitlab.NewClient(token, allOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gitlab client: %w", err)
+	}
+
+	return raw, nil
 }

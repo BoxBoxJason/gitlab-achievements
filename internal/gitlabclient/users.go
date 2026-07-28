@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetUser retrieves a single user by ID.
 func (c *ReadClient) GetUser(user int64, opt *gitlab.GetUserOptions, options ...gitlab.RequestOptionFunc) (*gitlab.User, error) {
 	u, _, err := c.raw.Users.GetUser(user, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
 
-	return u, err
+	return u, nil
 }
 
 // ListUsers iterates every user matching opt. Set opt.Pagination = "keyset"

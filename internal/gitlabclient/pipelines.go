@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetPipeline retrieves a single pipeline by ID.
 func (c *ReadClient) GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error) {
 	p, _, err := c.raw.Pipelines.GetPipeline(pid, pipeline, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pipeline: %w", err)
+	}
 
-	return p, err
+	return p, nil
 }
 
 // ListProjectPipelines iterates every pipeline in a project matching opt.

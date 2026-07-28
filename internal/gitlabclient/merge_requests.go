@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -10,8 +11,11 @@ import (
 // IID.
 func (c *ReadClient) GetMergeRequest(pid any, mergeRequest int64, opt *gitlab.GetMergeRequestsOptions, options ...gitlab.RequestOptionFunc) (*gitlab.MergeRequest, error) {
 	mr, _, err := c.raw.MergeRequests.GetMergeRequest(pid, mergeRequest, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get merge request: %w", err)
+	}
 
-	return mr, err
+	return mr, nil
 }
 
 // ListProjectMergeRequests iterates every merge request in a project

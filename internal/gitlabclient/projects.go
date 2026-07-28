@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetProject retrieves a single project by ID or path.
 func (c *ReadClient) GetProject(pid any, opt *gitlab.GetProjectOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Project, error) {
 	p, _, err := c.raw.Projects.GetProject(pid, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
 
-	return p, err
+	return p, nil
 }
 
 // ListProjects iterates every project matching opt. Set opt.Pagination =

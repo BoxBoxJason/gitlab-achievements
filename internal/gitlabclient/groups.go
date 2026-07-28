@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"fmt"
 	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -9,8 +10,11 @@ import (
 // GetGroup retrieves a single group by ID or full path.
 func (c *ReadClient) GetGroup(gid any, opt *gitlab.GetGroupOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Group, error) {
 	g, _, err := c.raw.Groups.GetGroup(gid, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get group: %w", err)
+	}
 
-	return g, err
+	return g, nil
 }
 
 // ListGroups iterates every group matching opt. Set opt.Pagination =
