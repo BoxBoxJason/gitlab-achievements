@@ -154,6 +154,53 @@ func TestProcess_TracksNightOwlAndEarlyBirdDays(t *testing.T) {
 	}
 }
 
+func TestClockWindows_AreExclusiveAtTheBoundaries(t *testing.T) {
+	// The two windows meet at 05:00 and early birds stop at 08:00. No
+	// moment may be both, or one late night would quietly earn two
+	// criteria at once.
+	cases := []struct {
+		hour      int
+		nightOwl  bool
+		earlyBird bool
+	}{
+		{hour: 0, nightOwl: true},
+		{hour: 4, nightOwl: true},
+		{hour: 5, earlyBird: true},
+		{hour: 7, earlyBird: true},
+		{hour: 8},
+		{hour: 23},
+	}
+
+	for _, testCase := range cases {
+		nightOwl, earlyBird := clockWindows(at(2024, time.May, 1, testCase.hour))
+
+		if nightOwl != testCase.nightOwl || earlyBird != testCase.earlyBird {
+			t.Errorf("at %02d:00 expected night owl %t and early bird %t, got %t and %t",
+				testCase.hour, testCase.nightOwl, testCase.earlyBird, nightOwl, earlyBird)
+		}
+	}
+}
+
+func TestProcess_ADayCanBeBothNightOwlAndEarlyBird(t *testing.T) {
+	conn := testConn(t)
+	eng := New(conn)
+
+	// No single moment is both, but a day someone worked through the small
+	// hours and was back before dawn is honestly both.
+	processAll(t, eng,
+		at(2024, time.May, 1, 2),
+		at(2024, time.May, 1, 6),
+	)
+
+	if got := counterOrZero(t, conn, catalog.CriteriaNightOwlDays); got != 1 {
+		t.Errorf("expected the day to count as a night owl day, got %d", got)
+	}
+
+	if got := counterOrZero(t, conn, catalog.CriteriaEarlyBirdDays); got != 1 {
+		t.Errorf("expected the same day to count as an early bird day, got %d", got)
+	}
+}
+
 func TestProcess_NightOwlDayCountsOnceHoweverBusy(t *testing.T) {
 	conn := testConn(t)
 	eng := New(conn)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/boxboxjason/gitlab-achievements/internal/catalog"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
+	"github.com/boxboxjason/gitlab-achievements/internal/engine"
 )
 
 // Client is everything bootstrap needs from the GitLab read and write
@@ -38,6 +39,10 @@ type Report struct {
 	Webhook      WebhookReport
 	Achievements AchievementsReport
 	NamespaceID  int64
+	// ExpTotalsCorrected counts users whose stored EXP total had to be
+	// re-derived because the catalog changed what a tier they already hold
+	// is worth. It is zero on any run that didn't retune the catalog.
+	ExpTotalsCorrected int
 }
 
 // Run verifies permissions and idempotently reconciles the achievement
@@ -55,22 +60,62 @@ func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config,
 		return nil, fmt.Errorf("failed to sync achievement definitions: %w", err)
 	}
 
+	corrected, err := repairExpTotals(ctx, conn, achievements)
+	if err != nil {
+		return nil, err
+	}
+
 	webhook, err := syncHooks(ctx, clients.Read, clients.Write, conn, cfg, webhookURL, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync event ingestion webhooks: %w", err)
 	}
 
 	return &Report{
-		NamespaceID:  namespaceID,
-		Achievements: achievements,
-		Webhook:      webhook,
+		NamespaceID:        namespaceID,
+		Achievements:       achievements,
+		Webhook:            webhook,
+		ExpTotalsCorrected: corrected,
 	}, nil
+}
+
+// repairExpTotals re-derives every user's EXP total when a definition sync
+// changed one, and only then.
+//
+// A tier's EXP reward is stored on its definition, so retuning the catalog
+// silently changes what tiers users already hold are worth. The engine
+// keeps a total in step as awards land, but nothing about a retune awards
+// anything, so without this a user who earns nothing new keeps the total
+// the old catalog gave them indefinitely.
+//
+// Newly created definitions can't affect anyone: nobody holds an award for
+// an achievement that didn't exist a moment ago. Updated and recreated ones
+// can, so those are what trigger the sweep.
+//
+// This also covers the upgrade that introduced EXP: every pre-existing
+// definition row comes out of the migration worth nothing, so the first
+// sync after it reports them all as updated and every user's total is built
+// from scratch on that same startup.
+func repairExpTotals(ctx context.Context, conn *gorm.DB, achievements AchievementsReport) (int, error) {
+	if achievements.Updated == 0 && achievements.Recreated == 0 {
+		return 0, nil
+	}
+
+	corrected, err := engine.RecomputeAll(ctx, conn)
+	if err != nil {
+		return 0, fmt.Errorf("failed to recompute EXP totals after a catalog change: %w", err)
+	}
+
+	return corrected, nil
 }
 
 // HourlyReport summarizes what RunHourlyReconciliation did.
 type HourlyReport struct {
 	Achievements AchievementsReport
 	Awards       AwardsReport
+	// ExpTotalsCorrected counts users whose stored EXP total had to be
+	// re-derived because a reconciled definition changed what a tier they
+	// already hold is worth.
+	ExpTotalsCorrected int
 }
 
 // RunHourlyReconciliation re-checks achievement existence and retries any
@@ -86,13 +131,19 @@ func RunHourlyReconciliation(ctx context.Context, write achievementWriter, conn 
 		return nil, fmt.Errorf("failed to reconcile achievement definitions: %w", err)
 	}
 
+	corrected, err := repairExpTotals(ctx, conn, achievements)
+	if err != nil {
+		return nil, err
+	}
+
 	awards, err := ReconcileAwards(ctx, write, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconcile award status: %w", err)
 	}
 
 	return &HourlyReport{
-		Achievements: achievements,
-		Awards:       awards,
+		Achievements:       achievements,
+		Awards:             awards,
+		ExpTotalsCorrected: corrected,
 	}, nil
 }

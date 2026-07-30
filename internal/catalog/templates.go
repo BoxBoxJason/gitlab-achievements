@@ -12,13 +12,22 @@ import (
 // This is the shape the VS Code Achievements extension's
 // StackingAchievementTemplate takes, minus the parts GitLab has no room
 // for. GitLab achievements are flat objects with a name, a description and
-// an avatar: there is no tier or level field, no EXP, no category, no
-// hidden flag, and no prerequisite links. So a ten-tier template is ten
-// separate GitLab achievements, and the tier only survives in the name and
-// in this app's own database.
+// an avatar: there is no tier or level field, no category, no hidden flag,
+// and no prerequisite links. So a ten-tier template is ten separate GitLab
+// achievements, and the tier only survives in the name and in this app's
+// own database. EXP survives the same way: GitLab has nowhere to put it, so
+// ExpCurve's output is stored locally and totalled per user by the engine.
 type Template struct {
 	// Curve maps a tier index to the threshold it requires.
 	Curve Curve
+	// ExpCurve maps a tier index to the EXP earning it is worth. Leave it
+	// nil for StandardInfernalCurve, which is the extension's default
+	// expFunction and what every template in this catalog uses: a tier's
+	// reward should track how hard tiers get in general, not how hard this
+	// particular criteria's own curve gets, or an easy-curve criteria would
+	// pay out an order of magnitude more than a hard-curve one for the same
+	// effort.
+	ExpCurve Curve
 	// CriteriaKey is the counter the tiers are earned off.
 	CriteriaKey string
 	// Title names the achievement, with a %s where the tier's numeral goes
@@ -39,8 +48,14 @@ type Template struct {
 }
 
 // Expand generates one Entry per tier in the template's range.
+//
+// Both curves are read at the tier's index, not at its displayed number, so
+// a template that raises MinTier to drop its easy tiers keeps the
+// thresholds and rewards the surviving tiers already had rather than
+// sliding the whole progression down.
 func (t Template) Expand() []Entry {
 	entries := make([]Entry, 0, t.MaxTier-t.MinTier+1)
+	expCurve := t.expCurve()
 
 	for index := t.MinTier; index <= t.MaxTier; index++ {
 		tier := index - t.MinTier + 1
@@ -53,10 +68,21 @@ func (t Template) Expand() []Entry {
 			AvatarPath:  t.AvatarPath,
 			Tier:        tier,
 			Threshold:   threshold,
+			Exp:         expCurve(index),
 		})
 	}
 
 	return entries
+}
+
+// expCurve returns the template's EXP curve, falling back to the catalog
+// default for the templates that don't set one (which is all of them).
+func (t Template) expCurve() Curve {
+	if t.ExpCurve == nil {
+		return StandardInfernalCurve
+	}
+
+	return t.ExpCurve
 }
 
 // maxTier is how deep every stacking template goes, matching the VS Code

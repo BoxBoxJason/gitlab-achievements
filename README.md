@@ -105,11 +105,17 @@ The catalog ports the tiered "stacking achievement" pattern from the VS Code ext
 
 18 criteria at 11 tiers each is **198 GitLab achievements**, created idempotently on the first bootstrap and reconciled cheaply thereafter. The thresholds follow the extension's four curves, built from powers of 2, 5 and 10 so tiers land on round numbers (`Committer` runs 1, 5, 10, 50, … 100,000). The top tiers are deliberately out of reach on most instances.
 
-Two things the extension has don't survive the move. **EXP has nowhere to live**: a GitLab achievement is a flat object with a name, description and avatar. No tier field, no points. So the progression exists only in this app's database and in the achievement names. And **anything that needs to watch an editor** (lines of code, files created, per-language breakdowns, tabs, extensions, themes, debugger sessions, terminal tasks, time spent) has no server-side equivalent at all. Two git criteria are missing for subtler reasons: an amend is indistinguishable from an ordinary commit once pushed, and the Events API doesn't report whether a push was forced.
+Two things the extension has don't survive the move intact. **EXP has nowhere to live on GitLab**: an achievement there is a flat object with a name, description and avatar. No tier field, no points. So every tier's EXP reward, and each user's running total, are kept in this app's database and nowhere else (see below). And **anything that needs to watch an editor** (lines of code, files created, per-language breakdowns, tabs, extensions, themes, debugger sessions, terminal tasks, time spent) has no server-side equivalent at all. Two git criteria are missing for subtler reasons: an amend is indistinguishable from an ordinary commit once pushed, and the Events API doesn't report whether a push was forced.
 
 The engagement criteria are derived from a per-user record of which days someone was active, rather than from a running total: two commits in one afternoon are one active day, and a streak can be extended by a day arriving between two known ones. That also makes them independent of the order activity is observed in, which matters because the backfill walks project by project rather than in date order. The streak awarded is the **longest** run a user ever managed, not their current one. GitLab awards aren't revoked, so a criteria that can fall as well as rise would mean nothing after the first time it was reached.
 
 Achievement icons are borrowed from the VS Code extension's own icon set where a criteria matches; the rest ship without an avatar for now.
+
+### EXP
+
+Every tier is worth EXP, on one curve shared by the whole catalog, so the same tier pays the same whatever criteria it was earned in and the easiest curve to climb isn't also the most rewarding to farm. A user's total is written to their row in the same transaction that records the award, so a crash can't leave someone holding a tier they weren't paid for.
+
+The total is **derived, not accumulated**: it is always recomputed as the sum of what the tiers a user holds are worth. That is what makes a backfill awarding tiers in arbitrary order, a catalog retune changing what an old tier pays, and hiding superseded tiers from a profile all safe — none of them can drift the number. When a bootstrap or reconciliation pass finds a tier's reward changed, it re-derives the totals of everyone holding it on the spot.
 
 ## Deployment
 
@@ -134,7 +140,7 @@ make package # build the container image (via podman/docker)
 
 ## Status
 
-Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria; configurable threshold curves and EXP-style rewards are still open questions, as is the activity reconciliation job that would recover events lost to downtime. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total. Serving that total over HTTP, hiding superseded tiers on the profile, and the activity reconciliation job that would recover events lost to downtime are still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 

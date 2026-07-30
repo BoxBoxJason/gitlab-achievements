@@ -4,12 +4,23 @@ import "time"
 
 // User maps a GitLab user to the local records tracking their achievement
 // progress and awards.
+//
+// ExpTotal is the EXP the user has earned across every tier they hold. It
+// lives here because GitLab has nowhere to put it: an achievement is a flat
+// object with a name, a description and an avatar, with no points or level
+// field, so this column is the only record of the number anywhere.
+//
+// It is a cache of a derived value, not an independent one: it always
+// equals the sum of ExpReward over the user's awards, and the engine
+// recomputes it from those awards rather than accumulating it forward (see
+// engine.RecomputeEXP for why).
 type User struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Username     string `gorm:"not null"`
 	ID           int64  `gorm:"primarykey"`
 	GitLabUserID int64  `gorm:"uniqueIndex;not null"`
+	ExpTotal     int64  `gorm:"column:exp_total;not null;default:0"`
 }
 
 // AchievementDefinition is a local mirror of a GitLab achievement, tracking
@@ -22,6 +33,11 @@ type User struct {
 // the source of truth bootstrap uses both to find the GitLab-side
 // achievement ID on repeat startups and to detect catalog drift worth
 // pushing via achievementsUpdate.
+//
+// Threshold and ExpReward are local-only: GitLab stores neither, so they
+// are never pushed anywhere and drift in them is corrected by updating this
+// row alone. ExpReward is what earning this tier is worth towards its
+// holder's User.ExpTotal.
 type AchievementDefinition struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
@@ -33,6 +49,7 @@ type AchievementDefinition struct {
 	ID                  int64 `gorm:"primarykey"`
 	Tier                int64 `gorm:"not null;index:idx_criteria_tier,unique"`
 	Threshold           int64 `gorm:"not null"`
+	ExpReward           int64 `gorm:"column:exp_reward;not null;default:0"`
 }
 
 // ProgressCounter tracks a single user's running total for a given

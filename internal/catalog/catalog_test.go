@@ -38,6 +38,53 @@ func TestV1_EntriesAreWellFormed(t *testing.T) {
 		if e.Threshold < 1 {
 			t.Errorf("entry %+v has a non-positive Threshold", e)
 		}
+
+		// A tier worth nothing would be invisible in the only progression
+		// this app keeps, since GitLab shows no EXP of its own.
+		if e.Exp < 1 {
+			t.Errorf("entry %+v has a non-positive Exp", e)
+		}
+	}
+}
+
+func TestV1_ExpRisesWithTier(t *testing.T) {
+	// EXP is what makes two users with the same number of achievements
+	// comparable, so a hard-won tier has to be worth more than the easy one
+	// below it, whatever curve the criteria's thresholds follow.
+	previous := make(map[string]catalog.Entry)
+
+	for _, entry := range catalog.V1() {
+		earlier, seen := previous[entry.CriteriaKey]
+
+		if seen && entry.Tier > earlier.Tier && entry.Exp <= earlier.Exp {
+			t.Errorf("criteria %q tier %d is worth %d EXP, no more than tier %d's %d",
+				entry.CriteriaKey, entry.Tier, entry.Exp, earlier.Tier, earlier.Exp)
+		}
+
+		if !seen || entry.Tier > earlier.Tier {
+			previous[entry.CriteriaKey] = entry
+		}
+	}
+}
+
+func TestV1_TheSameTierIsWorthTheSameEverywhere(t *testing.T) {
+	// Every template shares one EXP curve, so effort is paid the same
+	// whatever criteria it went into. Otherwise the cheapest curve to
+	// climb would also be the most rewarding one to farm.
+	byTier := make(map[int64]catalog.Entry)
+
+	for _, entry := range catalog.V1() {
+		reference, seen := byTier[entry.Tier]
+		if !seen {
+			byTier[entry.Tier] = entry
+
+			continue
+		}
+
+		if entry.Exp != reference.Exp {
+			t.Errorf("tier %d is worth %d EXP for %q but %d for %q",
+				entry.Tier, entry.Exp, entry.CriteriaKey, reference.Exp, reference.CriteriaKey)
+		}
 	}
 }
 

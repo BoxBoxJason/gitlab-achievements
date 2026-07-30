@@ -102,6 +102,7 @@ func createAchievement(ctx context.Context, write achievementWriter, conn *gorm.
 		AvatarPath:          entry.AvatarPath,
 		Tier:                entry.Tier,
 		Threshold:           entry.Threshold,
+		ExpReward:           entry.Exp,
 	}
 
 	err = conn.Create(&def).Error
@@ -221,10 +222,15 @@ func pushAchievementUpdate(ctx context.Context, write achievementWriter, achieve
 // reconcileAchievement pushes any Name/Description/avatar drift to GitLab
 // (see detectAchievementDrift) and keeps existing (the local row) in sync
 // with entry.
+//
+// Threshold and EXP drift are local-only: GitLab stores neither, so a
+// retuned curve updates this row and makes no API call. Retuned EXP does
+// mean every user already holding the tier has a stale total, which is what
+// the RecomputeAll call on the callers' side repairs.
 func reconcileAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry) (bool, error) {
 	drift := detectAchievementDrift(live, existing, entry)
 
-	if !drift.any() && existing.Threshold == entry.Threshold {
+	if !drift.any() && existing.Threshold == entry.Threshold && existing.ExpReward == entry.Exp {
 		return false, nil
 	}
 
@@ -238,6 +244,7 @@ func reconcileAchievement(ctx context.Context, write achievementWriter, conn *go
 	existing.Name = entry.Name
 	existing.Description = entry.Description
 	existing.Threshold = entry.Threshold
+	existing.ExpReward = entry.Exp
 	existing.AvatarPath = entry.AvatarPath
 
 	err := conn.Save(existing).Error
