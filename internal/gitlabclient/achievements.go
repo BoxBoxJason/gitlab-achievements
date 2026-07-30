@@ -2,15 +2,34 @@ package gitlabclient
 
 import (
 	"fmt"
+	"iter"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
+
+// ListAchievements iterates every achievement defined in the namespace at
+// fullPath.
+func (c *WriteClient) ListAchievements(fullPath string, opt *gitlab.ListAchievementsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Achievement, error] {
+	return iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.Achievement, *gitlab.Response, error) {
+		return c.raw.Achievements.ListAchievements(fullPath, opt, withExtra(options, reqOpts...)...)
+	})
+}
 
 // CreateAchievement creates a new achievement in the given namespace.
 func (c *WriteClient) CreateAchievement(namespaceID int64, opt *gitlab.CreateAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error) {
 	a, _, err := c.raw.Achievements.CreateAchievement(namespaceID, opt, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create achievement: %w", err)
+	}
+
+	return a, nil
+}
+
+// UpdateAchievement updates an existing achievement's name and/or description.
+func (c *WriteClient) UpdateAchievement(achievementID int64, opt *gitlab.UpdateAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error) {
+	a, _, err := c.raw.Achievements.UpdateAchievement(achievementID, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update achievement: %w", err)
 	}
 
 	return a, nil

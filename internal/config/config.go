@@ -29,8 +29,12 @@ type Config struct {
 	AchievementsNamespace string
 	DatabaseDSN           string
 	WebhookSecret         string
-	ListenAddr            string
-	LogLevel              string
+	// PublicURL is the externally reachable base URL this app is deployed
+	// at, used to build the system hook URL registered with GitLab on
+	// bootstrap (see the README's "how it works" section).
+	PublicURL  string
+	ListenAddr string
+	LogLevel   string
 }
 
 // Validate checks that the configuration is complete and well-formed. It
@@ -47,10 +51,14 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if strings.TrimSpace(c.GitLabURL) != "" {
-		parsed, err := url.ParseRequestURI(c.GitLabURL)
+	for _, urlField := range []requiredField{{"gitlab-url", c.GitLabURL}, {"public-url", c.PublicURL}} {
+		if strings.TrimSpace(urlField.value) == "" {
+			continue
+		}
+
+		parsed, err := url.ParseRequestURI(urlField.value)
 		if err != nil || parsed.Host == "" {
-			errs = append(errs, fmt.Errorf("gitlab-url is not a valid absolute URL: %q", c.GitLabURL))
+			errs = append(errs, fmt.Errorf("%s is not a valid absolute URL: %q", urlField.name, urlField.value))
 		}
 	}
 
@@ -84,5 +92,6 @@ func (c *Config) requiredFields() []requiredField {
 		{"achievements-namespace", c.AchievementsNamespace},
 		{"database-dsn", c.DatabaseDSN},
 		{"webhook-secret", c.WebhookSecret},
+		{"public-url", c.PublicURL},
 	}
 }

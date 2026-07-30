@@ -53,4 +53,4 @@ require (
 // TODO: drop this replace once achievements/system-hooks support lands
 // upstream (gitlab.com/gitlab-org/api/client-go, branch
 // feat/achievements-service-support) and a release is cut.
-replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.51.1-0.20260727212829-f16e64706adc
+replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.53.1-0.20260730101059-f79576d7edc9

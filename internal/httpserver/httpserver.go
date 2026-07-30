@@ -1,0 +1,102 @@
+// Package httpserver exposes this app's HTTP surface: health and readiness
+// probes for now. Webhook ingestion (see the webhook event ingestion issue)
+// mounts its handler on WebhookPath once implemented.
+package httpserver
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"sync/atomic"
+)
+
+// WebhookPath is the path GitLab's system hook delivers events to.
+// Bootstrap registers the hook against this path; the receiving handler
+// itself is added by the webhook ingestion feature.
+const WebhookPath = "/webhooks/system"
+
+// Checker reports whether a dependency is currently reachable.
+type Checker func(ctx context.Context) error
+
+// Server serves this app's health and readiness endpoints.
+//
+// Readiness starts false: callers must call SetReady(true) once bootstrap
+// (permission checks, achievement/webhook registration) completes
+// successfully, so /readyz reports "not ready" until then rather than a
+// stale zero value.
+type Server struct {
+	mux         *http.ServeMux
+	dbCheck     Checker
+	gitlabCheck Checker
+	ready       atomic.Bool
+}
+
+// New builds a Server. dbCheck and gitlabCheck are consulted on every
+// /readyz request to confirm those dependencies are reachable right now,
+// not just at some point in the past.
+func New(dbCheck, gitlabCheck Checker) *Server {
+	srv := &Server{
+		mux:         http.NewServeMux(),
+		dbCheck:     dbCheck,
+		gitlabCheck: gitlabCheck,
+	}
+
+	srv.mux.HandleFunc("GET /healthz", srv.handleHealthz)
+	srv.mux.HandleFunc("GET /readyz", srv.handleReadyz)
+
+	return srv
+}
+
+// SetReady marks whether bootstrap has completed successfully. It is safe
+// to call concurrently with requests being served.
+func (s *Server) SetReady(ready bool) {
+	s.ready.Store(ready)
+}
+
+// Handler returns the server's routes, ready to be passed to http.Server.
+func (s *Server) Handler() http.Handler {
+	return s.mux
+}
+
+// handleHealthz reports whether the process is alive. It has no
+// dependencies of its own, so it always succeeds once the process is
+// serving requests at all.
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleReadyz reports whether the app is ready to serve traffic:
+// bootstrap has completed, and the database and GitLab are both reachable
+// right now.
+func (s *Server) handleReadyz(resp http.ResponseWriter, req *http.Request) {
+	if !s.ready.Load() {
+		writeUnready(resp, "bootstrap not complete")
+
+		return
+	}
+
+	ctx := req.Context()
+
+	dbErr := s.dbCheck(ctx)
+	if dbErr != nil {
+		writeUnready(resp, fmt.Sprintf("database unreachable: %v", dbErr))
+
+		return
+	}
+
+	gitlabErr := s.gitlabCheck(ctx)
+	if gitlabErr != nil {
+		writeUnready(resp, fmt.Sprintf("gitlab unreachable: %v", gitlabErr))
+
+		return
+	}
+
+	resp.WriteHeader(http.StatusOK)
+}
+
+func writeUnready(w http.ResponseWriter, reason string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusServiceUnavailable)
+
+	fmt.Fprintln(w, reason) //nolint:errcheck // best-effort write to a client that may have disconnected
+}

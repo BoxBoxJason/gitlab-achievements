@@ -13,6 +13,7 @@ func validConfig() *Config {
 		AchievementsNamespace: "achievements",
 		DatabaseDSN:           "postgres://user:pass@localhost:5432/achievements",
 		WebhookSecret:         "s3cr3t",
+		PublicURL:             "https://achievements.example.com",
 	}
 }
 
@@ -44,6 +45,7 @@ func TestValidate_MissingRequiredFields(t *testing.T) {
 		{"missing achievements-namespace", func(c *Config) { c.AchievementsNamespace = "" }, "achievements-namespace is required"},
 		{"missing database-dsn", func(c *Config) { c.DatabaseDSN = "" }, "database-dsn is required"},
 		{"missing webhook-secret", func(c *Config) { c.WebhookSecret = "" }, "webhook-secret is required"},
+		{"missing public-url", func(c *Config) { c.PublicURL = "" }, "public-url is required"},
 		{"blank gitlab-url (whitespace only)", func(c *Config) { c.GitLabURL = "   " }, "gitlab-url is required"},
 	}
 
@@ -65,16 +67,29 @@ func TestValidate_MissingRequiredFields(t *testing.T) {
 }
 
 func TestValidate_InvalidURL(t *testing.T) {
-	cfg := validConfig()
-	cfg.GitLabURL = "not-a-url"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("expected an error for an invalid gitlab-url, got nil")
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{"invalid gitlab-url", func(c *Config) { c.GitLabURL = "not-a-url" }, `gitlab-url is not a valid absolute URL: "not-a-url"`},
+		{"invalid public-url", func(c *Config) { c.PublicURL = "not-a-url" }, `public-url is not a valid absolute URL: "not-a-url"`},
 	}
 
-	if !strings.Contains(err.Error(), "not a valid absolute URL") {
-		t.Errorf("expected error to mention invalid URL, got: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			tc.mutate(cfg)
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("expected an error, got nil")
+			}
+
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected error to contain %q, got: %v", tc.wantErr, err)
+			}
+		})
 	}
 }
 

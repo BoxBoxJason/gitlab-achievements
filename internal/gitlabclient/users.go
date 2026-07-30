@@ -17,6 +17,26 @@ func (c *ReadClient) GetUser(user int64, opt *gitlab.GetUserOptions, options ...
 	return u, nil
 }
 
+// CurrentUser retrieves the user identity the read token authenticates as.
+func (c *ReadClient) CurrentUser(options ...gitlab.RequestOptionFunc) (*gitlab.User, error) {
+	u, _, err := c.raw.Users.CurrentUser(options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	return u, nil
+}
+
+// CurrentUser retrieves the user identity the write token authenticates as.
+func (c *WriteClient) CurrentUser(options ...gitlab.RequestOptionFunc) (*gitlab.User, error) {
+	u, _, err := c.raw.Users.CurrentUser(options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	return u, nil
+}
+
 // ListUsers iterates every user matching opt. Set opt.Pagination = "keyset"
 // to use keyset pagination for large instances; the iterator follows
 // whichever pagination style the response returns.
