@@ -40,7 +40,7 @@ func TestAchievementDefinition_UniqueCriteriaTier(t *testing.T) {
 	conn := migratedTestDB(t)
 
 	first := &db.AchievementDefinition{
-		GitLabAchievementID: "gid://gitlab/Achievements::Achievement/1",
+		GitLabAchievementID: 1,
 		CriteriaKey:         "merge_requests_merged",
 		Tier:                1,
 		Threshold:           10,
@@ -50,7 +50,7 @@ func TestAchievementDefinition_UniqueCriteriaTier(t *testing.T) {
 	}
 
 	second := &db.AchievementDefinition{
-		GitLabAchievementID: "gid://gitlab/Achievements::Achievement/2",
+		GitLabAchievementID: 2,
 		CriteriaKey:         "merge_requests_merged",
 		Tier:                1,
 		Threshold:           20,
@@ -92,7 +92,7 @@ func TestAward_UniqueUserAchievement(t *testing.T) {
 	}
 
 	definition := &db.AchievementDefinition{
-		GitLabAchievementID: "gid://gitlab/Achievements::Achievement/3",
+		GitLabAchievementID: 3,
 		CriteriaKey:         "issues_closed",
 		Tier:                1,
 		Threshold:           5,

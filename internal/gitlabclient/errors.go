@@ -19,7 +19,7 @@ func IsNotFound(err error) bool {
 // IsPermissionError reports whether err represents an authentication or
 // authorization failure (401/403): the token is missing, invalid, expired,
 // or lacks the scope/role required for the call. These are not worth
-// retrying — they need operator intervention (rotate the token, fix its
+// retrying. They need operator intervention (rotate the token, fix its
 // role) rather than a backoff.
 func IsPermissionError(err error) bool {
 	return gitlab.HasStatusCode(err, http.StatusUnauthorized) ||
@@ -62,7 +62,7 @@ func IsTransient(err error) bool {
 
 // MutationError wraps the user-facing messages returned inside a GraphQL
 // mutation payload's `errors` field. GitLab returns these alongside a 200
-// OK response — a permission problem such as "you don't have permission to
+// OK response, a permission problem such as "you don't have permission to
 // award this achievement" surfaces here, not as an IsPermissionError
 // transport failure.
 type MutationError struct {

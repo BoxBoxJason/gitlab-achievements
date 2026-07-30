@@ -13,7 +13,7 @@ type pageFunc[T any] func(options ...gitlab.RequestOptionFunc) ([]T, *gitlab.Res
 // iteratePages walks every page of a List call, yielding one item at a
 // time instead of materializing the full collection in memory. It follows
 // whichever pagination style the response actually uses (keyset, offset, or
-// GraphQL cursor — see gitlab.WithNext), so keyset pagination is used
+// GraphQL cursor, see gitlab.WithNext), so keyset pagination is used
 // automatically whenever the caller requested it (opt.Pagination =
 // "keyset") and the endpoint supports it.
 //

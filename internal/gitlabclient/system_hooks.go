@@ -16,6 +16,16 @@ func (c *WriteClient) ListSystemHooks(options ...gitlab.RequestOptionFunc) ([]*g
 	return hooks, nil
 }
 
+// GetSystemHook retrieves a single system hook by ID.
+func (c *WriteClient) GetSystemHook(hook int64, options ...gitlab.RequestOptionFunc) (*gitlab.Hook, error) {
+	h, _, err := c.raw.SystemHooks.GetHook(hook, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system hook: %w", err)
+	}
+
+	return h, nil
+}
+
 // AddSystemHook registers a new system hook.
 func (c *WriteClient) AddSystemHook(opt *gitlab.AddHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Hook, error) {
 	hook, _, err := c.raw.SystemHooks.AddHook(opt, options...)
@@ -24,4 +34,14 @@ func (c *WriteClient) AddSystemHook(opt *gitlab.AddHookOptions, options ...gitla
 	}
 
 	return hook, nil
+}
+
+// EditSystemHook updates an existing system hook.
+func (c *WriteClient) EditSystemHook(hook int64, opt *gitlab.EditHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Hook, error) {
+	h, _, err := c.raw.SystemHooks.EditHook(hook, opt, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to edit system hook: %w", err)
+	}
+
+	return h, nil
 }

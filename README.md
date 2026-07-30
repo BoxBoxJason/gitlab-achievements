@@ -9,10 +9,11 @@ Inspired by [BoxBoxJason/achievements](https://github.com/boxboxjason/achievemen
 
 ## How it works
 
-1. **Bootstrap**: on first start, the app verifies its GitLab permissions, creates the achievement definitions it needs (via the GitLab Achievements GraphQL API), and registers a [system webhook](https://docs.gitlab.com/administration/system_hooks/) pointing back at itself.
-2. **Backfill**: it walks the instance's history (users, projects, commits, merge requests, issues, pipelines, etc.) once to award achievements for activity that happened before the bot existed.
-3. **Event-driven**: from then on, it reacts to incoming webhook events in near real time, no polling.
-4. **Reconciliation** *(planned)*: a periodic sync will re-check recent activity to catch any event the webhook pipeline missed (delivery failures, downtime, etc.).
+1. **Bootstrap**: on every start, the app verifies its GitLab permissions (read token validity, write token instance-admin + Maintainer/Owner on the achievements namespace), idempotently creates or updates the achievement definitions it needs (via the GitLab Achievements GraphQL API), and registers a [system webhook](https://docs.gitlab.com/administration/system_hooks/) pointing back at itself, at `--public-url`/`PUBLIC_URL` plus its ingestion path. Bootstrap is strictly required: any failure here (bad permissions, a rejected mutation) fails startup rather than serving traffic in a half-working state. `/healthz` and `/readyz` are exposed once the app starts serving.
+2. **Ongoing self-healing**: bootstrap's checks don't just run once. The system hook's GitLab ID is cached locally and re-verified roughly every 5 minutes, healing it if it was altered or deleted; achievement existence and award confirmation status are re-checked roughly every hour, recreating any achievement deleted on GitLab's side and retrying any award GitLab hasn't yet confirmed. Both loops log failures and retry on the next tick rather than crashing the process.
+3. **Backfill**: it walks the instance's history (users, projects, commits, merge requests, issues, pipelines, etc.) once to award achievements for activity that happened before the bot existed.
+4. **Event-driven**: from then on, it reacts to incoming webhook events in near real time, no polling.
+5. **Activity reconciliation** *(planned)*: a periodic sync will re-check recent activity to catch any event the webhook pipeline missed (delivery failures, downtime, etc.).
 
 All state (achievement progress, award history, sync cursors, processed-event idempotency) is stored in a local SQL database (PostgreSQL, SQLite, MySQL/MariaDB, or SQL Server) to keep the impact on the GitLab instance itself minimal. The bot reads from GitLab, but GitLab never has to do extra work to serve it beyond normal API/webhook traffic.
 
@@ -32,7 +33,7 @@ This keeps the blast radius of the write-capable credential as small as GitLab's
 GitLab webhooks come in three tiers:
 
 | Tier | Coverage | Required role | Availability |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Project hooks | One project | Maintainer/Owner on the project | All tiers |
 | Group hooks | One group's projects | Owner on the group | **Premium/Ultimate only** |
 | System hooks | Entire instance | Instance Admin | All tiers |
@@ -51,6 +52,9 @@ The initial achievement set adapts the tiered "stacking achievement" pattern fro
 - **Engagement streaks**: consecutive days active, night-owl / early-bird activity timing
 
 IDE-local categories from the VS Code extension (installed extensions, themes, debugger sessions, tab counts, etc.) don't apply here, since this bot only sees what the GitLab server sees.
+
+> [!NOTE]
+> The catalog bootstrap syncs today (`internal/catalog`) is a small placeholder used to exercise the create/update reconciliation logic end to end, not this full set. See the achievement catalog issue.
 
 ## Deployment
 
@@ -75,7 +79,7 @@ make package # build the container image (via podman/docker)
 
 ## Status
 
-Early design stage: see [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early design stage: scaffolding, the GitLab client, and self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints) are implemented; backfill and webhook event ingestion are not yet. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 

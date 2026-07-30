@@ -15,14 +15,24 @@ type User struct {
 // AchievementDefinition is a local mirror of a GitLab achievement, tracking
 // which criteria and tier it corresponds to and the progress threshold a
 // user's counter must reach to earn it.
+//
+// Name, Description, and AvatarPath mirror the last values pushed to
+// GitLab. The Achievements GraphQL API exposes no way to list or look up
+// existing achievements by name, so this row (keyed by CriteriaKey+Tier) is
+// the source of truth bootstrap uses both to find the GitLab-side
+// achievement ID on repeat startups and to detect catalog drift worth
+// pushing via achievementsUpdate.
 type AchievementDefinition struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	GitLabAchievementID string `gorm:"uniqueIndex;not null"`
 	CriteriaKey         string `gorm:"not null;index:idx_criteria_tier,unique"`
-	ID                  int64  `gorm:"primarykey"`
-	Tier                int64  `gorm:"not null;index:idx_criteria_tier,unique"`
-	Threshold           int64  `gorm:"not null"`
+	Name                string `gorm:"not null"`
+	Description         string
+	AvatarPath          string
+	GitLabAchievementID int64 `gorm:"uniqueIndex;not null"`
+	ID                  int64 `gorm:"primarykey"`
+	Tier                int64 `gorm:"not null;index:idx_criteria_tier,unique"`
+	Threshold           int64 `gorm:"not null"`
 }
 
 // ProgressCounter tracks a single user's running total for a given

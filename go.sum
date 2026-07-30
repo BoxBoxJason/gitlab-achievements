@@ -144,8 +144,8 @@ github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
-gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.51.1-0.20260727212829-f16e64706adc h1:35atAN9dhYmgtgOcvXrjfrJhsvR9a89J7UpvoH/H7RQ=
-gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.51.1-0.20260727212829-f16e64706adc/go.mod h1:P0sRPwCAGIek6HIU0JH5W9Ic5+z3eWvCWwXeg7Pwr7o=
+gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.53.1-0.20260730101059-f79576d7edc9 h1:1dwhOpRO+B8UieW4GGczOXljFMm07ggMz5jw3y8MRP0=
+gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.53.1-0.20260730101059-f79576d7edc9/go.mod h1:P0sRPwCAGIek6HIU0JH5W9Ic5+z3eWvCWwXeg7Pwr7o=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=

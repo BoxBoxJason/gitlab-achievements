@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -18,6 +20,7 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 		"--achievements-namespace", "achievements",
 		"--database-dsn", "postgres://localhost/achievements",
 		"--webhook-secret", "s3cr3t",
+		"--public-url", "https://achievements.example.com",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -40,6 +43,32 @@ func TestRun_InvalidConfig(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "invalid configuration") {
 		t.Errorf("expected error to mention invalid configuration, got: %v", err)
+	}
+}
+
+func TestRun_BootstrapFailure(t *testing.T) {
+	gitlabServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer gitlabServer.Close()
+
+	cfg := &config.Config{
+		GitLabURL:             gitlabServer.URL,
+		GitLabReadToken:       "read-token",
+		GitLabWriteToken:      "write-token",
+		AchievementsNamespace: "achievements",
+		DatabaseDSN:           "sqlite://:memory:",
+		WebhookSecret:         "s3cr3t",
+		PublicURL:             "https://achievements.example.com",
+	}
+
+	err := run(cfg)
+	if err == nil {
+		t.Fatal("expected an error for a GitLab instance rejecting both tokens, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "bootstrap failed") {
+		t.Errorf("expected error to mention bootstrap failure, got: %v", err)
 	}
 }
 
