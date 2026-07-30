@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
 )
@@ -14,10 +16,28 @@ type fakeWriteAll struct {
 	fakeHookManager
 }
 
+// fakeReadAll is everything bootstrap reads: the permission checks plus the
+// group and project enumeration the hook sweep walks.
+type fakeReadAll struct {
+	fakeReadVerifier
+	fakeTargetLister
+}
+
+func validReadAll() *fakeReadAll {
+	return &fakeReadAll{
+		fakeReadVerifier: *validReadVerifier(),
+		fakeTargetLister: fakeTargetLister{
+			groups:        []*gitlab.Group{{ID: 1}},
+			groupProjects: map[int64][]*gitlab.Project{1: {{ID: 10}}},
+		},
+	}
+}
+
 func testCfg() *config.Config {
 	return &config.Config{
 		AchievementsNamespace: "achievements",
 		WebhookSecret:         "s3cr3t",
+		HookScope:             string(config.HookScopeProject),
 	}
 }
 
@@ -25,13 +45,13 @@ func TestRun_Success(t *testing.T) {
 	conn := testConn(t)
 
 	clients := Client{
-		Read: validReadVerifier(),
+		Read: validReadAll(),
 		Write: &fakeWriteAll{
 			fakeWriteVerifier: *validWriteVerifier(),
 		},
 	}
 
-	report, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	report, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -44,8 +64,8 @@ func TestRun_Success(t *testing.T) {
 		t.Errorf("expected at least one achievement to be created, got %+v", report.Achievements)
 	}
 
-	if !report.Webhook.Created {
-		t.Errorf("expected the webhook to be created")
+	if report.Webhook.Created == 0 {
+		t.Errorf("expected at least one webhook to be created, got %+v", report.Webhook)
 	}
 }
 
@@ -58,11 +78,11 @@ func TestRun_StopsAtPermissionFailure(t *testing.T) {
 	writeAll := &fakeWriteAll{fakeWriteVerifier: *badWrite}
 
 	clients := Client{
-		Read:  validReadVerifier(),
+		Read:  validReadAll(),
 		Write: writeAll,
 	}
 
-	_, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -88,11 +108,11 @@ func TestRun_StopsAtAchievementFailure(t *testing.T) {
 	}
 
 	clients := Client{
-		Read:  validReadVerifier(),
+		Read:  validReadAll(),
 		Write: writeAll,
 	}
 
-	_, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}

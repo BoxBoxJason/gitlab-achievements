@@ -75,6 +75,7 @@ func Migrate(conn *gorm.DB) error {
 		&ActivityDay{},
 		&Award{},
 		&ProcessedEvent{},
+		&RegisteredHook{},
 		&SyncState{},
 	)
 	if err != nil {

@@ -125,3 +125,53 @@ func doRequest(t *testing.T, s *httpserver.Server, method, path string) *httptes
 
 	return rec
 }
+
+func TestMountWebhook_RoutesDeliveriesToTheHandler(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+
+	var called bool
+
+	srv.MountWebhook(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, httptest.NewRequest(http.MethodPost, httpserver.WebhookPath, nil))
+
+	if !called {
+		t.Error("expected the delivery to reach the mounted handler")
+	}
+
+	if resp.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.Code)
+	}
+}
+
+func TestMountWebhook_RejectsMethodsGitLabNeverUses(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+	srv.MountWebhook(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("expected a GET not to reach the webhook handler")
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, httptest.NewRequest(http.MethodGet, httpserver.WebhookPath, nil))
+
+	if resp.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for a method GitLab never delivers with, got %d", resp.Code)
+	}
+}
+
+func TestHandler_WebhookPathIsNotServedWhenNothingIsMounted(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, httptest.NewRequest(http.MethodPost, httpserver.WebhookPath, nil))
+
+	if resp.Code != http.StatusNotFound {
+		t.Errorf("expected 404 with no receiver mounted, got %d", resp.Code)
+	}
+}

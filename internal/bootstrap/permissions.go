@@ -29,8 +29,9 @@ type writeVerifier interface {
 //   - the read token must authenticate and be able to read the achievements
 //     namespace
 //   - the write token must authenticate, belong to an instance admin
-//     (required to manage system hooks), and hold at least Maintainer on
-//     the achievements namespace (required to create/update achievements)
+//     (required to enumerate every group and project on the instance and to
+//     manage webhooks across them), and hold at least Maintainer on the
+//     achievements namespace (required to create/update achievements)
 //
 // Every problem found is reported together, not just the first one, so an
 // operator can fix a misconfiguration in a single pass.
@@ -51,7 +52,7 @@ func verifyPermissions(ctx context.Context, read readVerifier, write writeVerifi
 	if err != nil {
 		errs = append(errs, fmt.Errorf("write token: %w", err))
 	} else if !writeUser.IsAdmin {
-		errs = append(errs, fmt.Errorf("write token: user %q is not an instance admin, required to manage system hooks", writeUser.Username))
+		errs = append(errs, fmt.Errorf("write token: user %q is not an instance admin, required to manage webhooks across the instance", writeUser.Username))
 	}
 
 	if namespace != nil && writeUser != nil {

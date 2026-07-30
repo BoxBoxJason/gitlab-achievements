@@ -1,7 +1,7 @@
 // Package bootstrap self-configures everything this app needs on the
 // GitLab side on startup: it verifies both tokens actually have the access
 // they claim, then idempotently creates/updates the achievement catalog
-// and registers the system webhook that feeds event ingestion.
+// and registers the webhooks that feed event ingestion.
 //
 // Bootstrap is strictly required: any failure here (bad permissions, a
 // rejected mutation) is returned to the caller, which is expected to fail
@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/catalog"
@@ -21,7 +22,10 @@ import (
 // Client is everything bootstrap needs from the GitLab read and write
 // clients, satisfied by *gitlabclient.ReadClient and *gitlabclient.WriteClient.
 type Client struct {
-	Read  readVerifier
+	Read interface {
+		readVerifier
+		hookTargetLister
+	}
 	Write interface {
 		writeVerifier
 		achievementWriter
@@ -31,16 +35,16 @@ type Client struct {
 
 // Report summarizes what a bootstrap run did.
 type Report struct {
-	NamespaceID  int64
-	Achievements AchievementsReport
 	Webhook      WebhookReport
+	Achievements AchievementsReport
+	NamespaceID  int64
 }
 
 // Run verifies permissions and idempotently reconciles the achievement
-// catalog and system hook against the configured GitLab instance.
-// webhookURL is the fully-qualified URL GitLab should deliver system hook
+// catalog and the event ingestion webhooks against the configured GitLab
+// instance. webhookURL is the fully-qualified URL GitLab should deliver
 // events to (the app's public URL plus its ingestion path).
-func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
+func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string, logger *zap.Logger) (*Report, error) {
 	namespaceID, err := verifyPermissions(ctx, clients.Read, clients.Write, cfg.AchievementsNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("permission verification failed: %w", err)
@@ -51,9 +55,9 @@ func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config,
 		return nil, fmt.Errorf("failed to sync achievement definitions: %w", err)
 	}
 
-	webhook, err := syncSystemHook(ctx, clients.Write, conn, webhookURL, cfg.WebhookSecret)
+	webhook, err := syncHooks(ctx, clients.Read, clients.Write, conn, cfg, webhookURL, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sync system hook: %w", err)
+		return nil, fmt.Errorf("failed to sync event ingestion webhooks: %w", err)
 	}
 
 	return &Report{
@@ -71,8 +75,8 @@ type HourlyReport struct {
 
 // RunHourlyReconciliation re-checks achievement existence and retries any
 // award GitLab hasn't yet confirmed. It is meant to be called on a
-// recurring ~1h cadence (see ReconcileWebhook for the equivalent ~5m
-// webhook check), using the namespace ID resolved once by an earlier Run.
+// recurring ~1h cadence (see ReconcileWebhooks for the equivalent webhook
+// sweep), using the namespace ID resolved once by an earlier Run.
 // namespaceFullPath must be the same namespace the ID was resolved from
 // (cfg.AchievementsNamespace), since listing achievements is a GraphQL
 // lookup keyed by full path rather than numeric ID.

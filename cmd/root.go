@@ -21,10 +21,12 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/bootstrap"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
+	"github.com/boxboxjason/gitlab-achievements/internal/engine"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
 	"github.com/boxboxjason/gitlab-achievements/internal/scheduler"
+	"github.com/boxboxjason/gitlab-achievements/internal/webhook"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -37,12 +39,21 @@ const (
 	// readHeaderTimeout bounds how long the server waits to read request
 	// headers, mitigating slow-loris style connections.
 	readHeaderTimeout = 5 * time.Second
-	// webhookReconcileInterval sets how often the system hook is re-checked
-	// and repaired if it was altered or deleted after bootstrap.
-	webhookReconcileInterval = 5 * time.Minute
+	// webhookReconcileInterval sets how often the event ingestion hooks are
+	// re-checked, repaired if they were altered or deleted, and registered
+	// on groups and projects created since the last sweep.
+	//
+	// The sweep touches every group (or every project) on the instance, at
+	// roughly one API call per target, so it is paced hourly: running it
+	// often enough to notice a deleted hook within minutes would mean a
+	// permanent background load on someone's production GitLab.
+	webhookReconcileInterval = time.Hour
 	// achievementReconcileInterval sets how often achievement existence and
 	// award status are re-checked and repaired after bootstrap.
 	achievementReconcileInterval = time.Hour
+	// webhookShutdownTimeout bounds how long shutdown waits for activity
+	// already accepted from GitLab to be evaluated before giving up on it.
+	webhookShutdownTimeout = 15 * time.Second
 )
 
 const shortHashLength = 7
@@ -100,9 +111,10 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
 	flags.StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
 	flags.StringVar(&cfg.WebhookSecret, "webhook-secret", os.Getenv("WEBHOOK_SECRET"), "Secret token used to validate incoming GitLab webhook deliveries")
-	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register the GitLab system hook")
+	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register its GitLab webhooks")
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
 	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
+	flags.StringVar(&cfg.HookScope, "hook-scope", envOrDefault("HOOK_SCOPE", string(config.DefaultHookScope)), "Which webhooks to register for event ingestion (auto, group, project); auto picks group hooks where the license allows them")
 	flags.StringVar(&cfg.BackfillMode, "backfill", envOrDefault("BACKFILL", string(config.DefaultBackfillMode)), "Whether the server walks the instance's history itself (auto, off, force)")
 	flags.StringVar(&cfg.BackfillSince, "backfill-since", os.Getenv("BACKFILL_SINCE"), "How far back the historical backfill reaches, as a date (2006-01-02) or duration (720h); empty walks everything")
 	flags.Float64Var(&cfg.BackfillRate, "backfill-rate", envFloatOrDefault("BACKFILL_RATE", config.DefaultBackfillRate), "Requests per second the historical backfill is allowed to issue")
@@ -163,12 +175,18 @@ func run(cfg *config.Config) error {
 
 	webhookURL := cfg.PublicURL + httpserver.WebhookPath
 
+	// Captured before bootstrap registers the hooks, since that is the
+	// moment GitLab may start delivering events: it becomes the ceiling on
+	// what the historical walk counts, so the two paths never both count
+	// the same activity. See backfill.Options.Until.
+	liveFrom := time.Now()
+
 	readClient, writeClient, report, err := bootstrapApp(ctx, cfg, conn, webhookURL, logger)
 	if err != nil {
 		return err
 	}
 
-	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, logger)
+	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, liveFrom, logger)
 }
 
 // openDatabase connects to the database, verifies the connection, and
@@ -207,7 +225,7 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 		return nil, nil, nil, fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
-	report, err := bootstrap.Run(ctx, bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL)
+	report, err := bootstrap.Run(ctx, bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL, logger)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("bootstrap failed: %w", err)
 	}
@@ -217,18 +235,20 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 		zap.Int("achievements_created", report.Achievements.Created),
 		zap.Int("achievements_updated", report.Achievements.Updated),
 		zap.Int("achievements_unchanged", report.Achievements.Unchanged),
-		zap.Int64("webhook_id", report.Webhook.HookID),
-		zap.Bool("webhook_created", report.Webhook.Created),
+		zap.String("hook_scope", string(report.Webhook.Scope)),
+		zap.Int("hook_targets", report.Webhook.Targets),
+		zap.Int("hooks_created", report.Webhook.Created),
+		zap.Int("hooks_updated", report.Webhook.Updated),
+		zap.Int("hook_targets_skipped", report.Webhook.Skipped),
 	)
-	logger.Warn("gitlab-achievements does not implement webhook event ingestion yet: bootstrap and backfill only")
 
 	return readClient, writeClient, report, nil
 }
 
-// newHTTPServer builds the *http.Server exposing /healthz and /readyz,
-// wired to check the database connection and GitLab reachability on every
-// /readyz request.
-func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, logger *zap.Logger) *http.Server {
+// newHTTPServer builds the *http.Server exposing /healthz, /readyz, and the
+// webhook ingestion endpoint, wired to check the database connection and
+// GitLab reachability on every /readyz request.
+func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, logger *zap.Logger) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
@@ -245,6 +265,7 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 			logger.Warn(reason, zap.Error(err))
 		},
 	)
+	srv.MountWebhook(receiver)
 	srv.SetReady(true)
 
 	return &http.Server{
@@ -254,10 +275,10 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 	}
 }
 
-// serve starts the HTTP server exposing /healthz and /readyz and the
-// background reconciliation loops that keep GitLab-side state healed after
-// bootstrap, blocking until SIGINT/SIGTERM is received, then shuts down
-// gracefully.
+// serve starts the HTTP server exposing /healthz, /readyz, and webhook
+// ingestion, along with the background reconciliation loops that keep
+// GitLab-side state healed after bootstrap. It blocks until SIGINT/SIGTERM
+// is received, then shuts down gracefully.
 func serve(
 	ctx context.Context,
 	cfg *config.Config,
@@ -267,12 +288,20 @@ func serve(
 	writeClient *gitlabclient.WriteClient,
 	report *bootstrap.Report,
 	webhookURL string,
+	liveFrom time.Time,
 	logger *zap.Logger,
 ) error {
-	httpSrv := newHTTPServer(cfg, sqlDB, readClient, logger)
+	// The queue and the engine behind it are what live deliveries are
+	// evaluated by; the backfill builds its own engine, since the two count
+	// different windows of the same instance's activity.
+	queue := webhook.NewQueue(engine.New(conn), webhook.Options{Logger: logger})
+	queue.Start(ctx)
 
-	startReconciliationLoops(ctx, cfg, conn, writeClient, report.NamespaceID, webhookURL, logger)
-	startBackfill(ctx, cfg, conn, writeClient, logger)
+	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue, logger)
+	httpSrv := newHTTPServer(cfg, sqlDB, readClient, receiver, logger)
+
+	startReconciliationLoops(ctx, cfg, conn, readClient, writeClient, report.NamespaceID, webhookURL, logger)
+	startBackfill(ctx, cfg, conn, writeClient, liveFrom, logger)
 
 	serveErr := make(chan error, 1)
 
@@ -308,34 +337,73 @@ func serve(
 		if shutdownErr != nil {
 			return fmt.Errorf("failed to shut down http server gracefully: %w", shutdownErr)
 		}
+
+		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see below
 	}
 
 	return nil
 }
 
+// drainQueue gives activity already accepted from GitLab a chance to be
+// evaluated before the process exits.
+//
+// It runs after the HTTP server has stopped, so nothing new is arriving,
+// and on a context of its own for the same reason the server's shutdown
+// does: the one that triggered shutdown is already cancelled. Activity
+// still queued when the deadline passes is reported rather than dropped
+// silently, since GitLab has already been told those deliveries succeeded
+// and will not send them again.
+func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
+	drainCtx, cancel := context.WithTimeout(context.Background(), webhookShutdownTimeout)
+	defer cancel()
+
+	err := queue.Shutdown(drainCtx)
+	stats := queue.Stats()
+
+	if err != nil {
+		logger.Error("gave up draining accepted webhook activity, it was not evaluated",
+			zap.Int("pending", stats.Pending),
+			zap.Error(err),
+		)
+
+		return
+	}
+
+	logger.Info("webhook activity drained",
+		zap.Int64("accepted", stats.Accepted),
+		zap.Int64("processed", stats.Processed),
+		zap.Int64("failed", stats.Failed),
+		zap.Int64("rejected", stats.Rejected),
+	)
+}
+
 // startReconciliationLoops launches the background jobs that keep GitLab-side
-// state healed after bootstrap's one-time check: a system hook deleted or
-// altered on GitLab's side, an achievement deleted, or an award GitLab
-// didn't confirm is repaired on its own cadence instead of only at the next
-// process restart. Both loops stop when ctx is cancelled.
+// state healed after bootstrap's one-time check: a hook deleted or altered
+// on GitLab's side, a group or project created since the last sweep, an
+// achievement deleted, or an award GitLab didn't confirm is repaired on its
+// own cadence instead of only at the next process restart. Both loops stop
+// when ctx is cancelled.
 func startReconciliationLoops(
 	ctx context.Context,
 	cfg *config.Config,
 	conn *gorm.DB,
+	readClient *gitlabclient.ReadClient,
 	writeClient *gitlabclient.WriteClient,
 	namespaceID int64,
 	webhookURL string,
 	logger *zap.Logger,
 ) {
 	go scheduler.Every(ctx, webhookReconcileInterval, func(ctx context.Context) error {
-		webhook, err := bootstrap.ReconcileWebhook(ctx, writeClient, conn, webhookURL, cfg.WebhookSecret)
+		hooks, err := bootstrap.ReconcileWebhooks(ctx, readClient, writeClient, conn, cfg, webhookURL, logger)
 		if err != nil {
 			return fmt.Errorf("webhook reconciliation failed: %w", err)
 		}
 
-		logger.Debug("webhook reconciliation complete",
-			zap.Int64("webhook_id", webhook.HookID),
-			zap.Bool("webhook_recreated", webhook.Created),
+		logger.Info("webhook reconciliation complete",
+			zap.String("hook_scope", string(hooks.Scope)),
+			zap.Int("hook_targets", hooks.Targets),
+			zap.Int("hooks_created", hooks.Created),
+			zap.Int("hook_targets_skipped", hooks.Skipped),
 		)
 
 		return nil

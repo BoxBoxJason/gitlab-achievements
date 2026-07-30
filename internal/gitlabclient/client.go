@@ -9,8 +9,9 @@
 //     pipelines, events).
 //   - WriteClient wraps an api-scoped token, expected to belong to a service
 //     account whose GitLab role/membership is restricted separately, and
-//     only exposes the mutations this project needs: managing system hooks
-//     and awarding/revoking achievements.
+//     only exposes the mutations this project needs: managing the group and
+//     project webhooks that feed event ingestion, and awarding/revoking
+//     achievements.
 //
 // Neither type embeds the underlying *gitlab.Client, so callers cannot reach
 // past the curated method set to call an operation the token isn't meant

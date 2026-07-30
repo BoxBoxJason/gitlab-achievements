@@ -13,6 +13,25 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
 )
 
+// groupProject builds a project the walk covers: one owned by a group.
+// Projects in personal namespaces are deliberately out of scope (see
+// ownedByGroup), so every fixture that expects to be walked needs one.
+func groupProject(id int64) *gitlab.Project {
+	return &gitlab.Project{
+		ID:        id,
+		Namespace: &gitlab.ProjectNamespace{ID: 100 + id, Kind: "group"},
+	}
+}
+
+// userProject builds a project in a personal namespace, which the walk
+// skips.
+func userProject(id int64) *gitlab.Project {
+	return &gitlab.Project{
+		ID:        id,
+		Namespace: &gitlab.ProjectNamespace{ID: 100 + id, Kind: "user"},
+	}
+}
+
 // fakeReader serves a canned instance to the walk and records what it was
 // asked for, so tests can assert on the request shape (resume cursors,
 // look-back filters) as well as on the activity produced.
@@ -148,7 +167,7 @@ func oneProjectInstance() *fakeReader {
 	createdAt := time.Date(2024, time.May, 3, 10, 0, 0, 0, time.UTC)
 
 	return &fakeReader{
-		projects: []*gitlab.Project{{ID: 1}},
+		projects: []*gitlab.Project{groupProject(1)},
 		events: map[int64][]*gitlab.ProjectEvent{
 			1: {{
 				ID: 100, AuthorID: 10, AuthorUsername: "alice", ProjectID: 1,
@@ -276,7 +295,7 @@ func TestRun_ResumesAfterTheLastFinishedProject(t *testing.T) {
 	conn := testConn(t)
 
 	read := oneProjectInstance()
-	read.projects = []*gitlab.Project{{ID: 1}, {ID: 2}}
+	read.projects = []*gitlab.Project{groupProject(1), groupProject(2)}
 	read.events[2] = []*gitlab.ProjectEvent{{
 		ID: 200, AuthorID: 11, ProjectID: 2, TargetType: "Issue", ActionName: "opened",
 		CreatedAt: "2024-05-04T10:00:00Z",
@@ -408,7 +427,7 @@ func TestRun_SkipsProjectsItCannotRead(t *testing.T) {
 	conn := testConn(t)
 
 	read := oneProjectInstance()
-	read.projects = []*gitlab.Project{{ID: 1}, {ID: 2}}
+	read.projects = []*gitlab.Project{groupProject(1), groupProject(2)}
 	read.eventsErr = map[int64]error{1: statusErr(http.StatusForbidden)}
 	read.events[2] = []*gitlab.ProjectEvent{{
 		ID: 200, AuthorID: 11, ProjectID: 2, TargetType: "Issue", ActionName: "opened",
@@ -450,7 +469,7 @@ func TestRun_StopsAndKeepsItsPlaceOnAnInstanceWideFailure(t *testing.T) {
 	conn := testConn(t)
 
 	read := oneProjectInstance()
-	read.projects = []*gitlab.Project{{ID: 1}, {ID: 2}}
+	read.projects = []*gitlab.Project{groupProject(1), groupProject(2)}
 	read.eventsErr = map[int64]error{2: statusErr(http.StatusInternalServerError)}
 	read.events[2] = []*gitlab.ProjectEvent{}
 
@@ -529,5 +548,109 @@ func TestRun_RequestsKeysetPaginatedProjectsInIDOrder(t *testing.T) {
 
 	if opt.Pagination != keysetPagination || opt.OrderBy != "id" || opt.Sort != "asc" {
 		t.Errorf("expected keyset pagination in ascending ID order, which is what makes the cursor resumable, got %+v", opt)
+	}
+}
+
+func TestRun_SkipsProjectsInPersonalNamespaces(t *testing.T) {
+	conn := testConn(t)
+	read := oneProjectInstance()
+	read.projects = []*gitlab.Project{userProject(1)}
+	processor := &recorder{}
+
+	report, err := Run(t.Context(), read, conn, processor, Options{})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(processor.events) != 0 {
+		t.Errorf("expected a personal-namespace project to contribute no activity, got %v", processor.kinds())
+	}
+
+	if report.Projects != 0 || report.ProjectsSkipped != 1 {
+		t.Errorf("expected the project to be skipped, got %+v", report)
+	}
+}
+
+func TestRun_SkipsProjectsWithNoNamespaceReported(t *testing.T) {
+	conn := testConn(t)
+	read := oneProjectInstance()
+	read.projects = []*gitlab.Project{{ID: 1}}
+	processor := &recorder{}
+
+	_, err := Run(t.Context(), read, conn, processor, Options{})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(processor.events) != 0 {
+		t.Errorf("expected a project with no namespace to be skipped rather than assumed group-owned, got %v", processor.kinds())
+	}
+}
+
+func TestRun_StopsAtTheCeilingWhereLiveIngestionTakesOver(t *testing.T) {
+	conn := testConn(t)
+	read := oneProjectInstance()
+
+	// The fixture's event and pipeline are both dated 2024-05-03T10:00Z, so
+	// a ceiling an hour earlier leaves the walk nothing to count.
+	ceiling := time.Date(2024, time.May, 3, 9, 0, 0, 0, time.UTC)
+	pipelineCreatedAt := time.Date(2024, time.May, 3, 10, 0, 0, 0, time.UTC)
+	read.pipelines = map[int64][]*gitlab.PipelineInfo{1: {{ID: 500, ProjectID: 1, CreatedAt: &pipelineCreatedAt}}}
+
+	processor := &recorder{}
+
+	_, err := Run(t.Context(), read, conn, processor, Options{Until: ceiling})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(processor.events) != 0 {
+		t.Errorf("expected activity at or after the ceiling to be left to live ingestion, got %v", processor.kinds())
+	}
+
+	if len(read.detailFetches) != 0 {
+		t.Errorf("expected a pipeline above the ceiling not to be fetched at all, got %v", read.detailFetches)
+	}
+}
+
+func TestRun_CountsActivityBelowTheCeiling(t *testing.T) {
+	conn := testConn(t)
+	read := oneProjectInstance()
+
+	pipelineCreatedAt := time.Date(2024, time.May, 3, 10, 0, 0, 0, time.UTC)
+	read.pipelines = map[int64][]*gitlab.PipelineInfo{1: {{ID: 500, ProjectID: 1, CreatedAt: &pipelineCreatedAt}}}
+
+	processor := &recorder{}
+
+	ceiling := time.Date(2024, time.May, 4, 0, 0, 0, 0, time.UTC)
+
+	_, err := Run(t.Context(), read, conn, processor, Options{Until: ceiling})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	want := []activity.Kind{activity.KindPush, activity.KindCommit, activity.KindPipelineRun, activity.KindPipelineSucceeded}
+	if len(processor.kinds()) != len(want) {
+		t.Errorf("expected %v below the ceiling, got %v", want, processor.kinds())
+	}
+}
+
+func TestRun_CountsActivityWhoseDateGitLabDidNotReport(t *testing.T) {
+	conn := testConn(t)
+	read := oneProjectInstance()
+	read.events[1][0].CreatedAt = ""
+	processor := &recorder{}
+
+	ceiling := time.Date(2024, time.May, 3, 9, 0, 0, 0, time.UTC)
+
+	_, err := Run(t.Context(), read, conn, processor, Options{Until: ceiling})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// An undated record can't be placed relative to the ceiling. Counting it
+	// here is the choice that keeps it from falling out of both paths.
+	if len(processor.events) == 0 {
+		t.Error("expected an undated event to be counted rather than dropped by the ceiling")
 	}
 }
