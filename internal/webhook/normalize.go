@@ -124,6 +124,12 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 //
 // Pushes GitLab can't attribute to a user are dropped, as every achievement
 // is awarded to one.
+//
+// A branch deletion counts as a push, carrying no commits and creating
+// nothing. It is one (`git push --delete`), and counting it is what the
+// historical backfill does with the same event, which is the property that
+// matters: the two paths have to agree on what a push is, or a user's total
+// would depend on which of them happened to observe it.
 func normalizePush(event *gitlab.PushEvent, receivedAt time.Time) []activity.Event {
 	if event == nil || event.UserID == 0 {
 		return nil
@@ -133,6 +139,12 @@ func normalizePush(event *gitlab.PushEvent, receivedAt time.Time) []activity.Eve
 		OccurredAt: receivedAt,
 		// The ref is part of the key because creating two branches at the
 		// same commit produces two pushes that are otherwise identical.
+		//
+		// Keying on the resulting SHA does collapse a few genuinely
+		// distinct pushes: deleting the same branch twice, or force-pushing
+		// a ref back to a commit it already pointed at. Both are rare, and
+		// undercounting them is the right way to be wrong here, since the
+		// same key is what makes an ordinary redelivery count once.
 		DedupKey:      fmt.Sprintf("push:%d:%s:%s", event.ProjectID, event.Ref, event.After),
 		ActorUsername: event.UserUsername,
 		ActorID:       event.UserID,
@@ -290,10 +302,19 @@ func normalizeIssue(event *gitlab.IssueEvent, receivedAt time.Time) []activity.E
 // itself, plus its outcome once it has one.
 //
 // Pipeline events arrive on every status transition, all carrying the same
-// pipeline ID, so the run is counted once and its outcome once, whichever
-// transitions were delivered. The dedup key deliberately matches the one
-// the historical backfill derives for the same pipeline, so a pipeline seen
-// by both paths is counted once.
+// pipeline ID, so the run is counted once however many transitions were
+// delivered. The dedup key deliberately matches the one the historical
+// backfill derives for the same pipeline, so a pipeline seen by both paths
+// is counted once.
+//
+// Outcomes are keyed per outcome rather than per pipeline, which means a
+// pipeline that reaches more than one terminal state over its life counts
+// for each. That is a retried pipeline: retrying keeps the pipeline's ID
+// and moves it back out of its terminal state, so one that failed and was
+// retried into success counts as both a failure and a success. Keying the
+// outcome per pipeline instead would make it whichever terminal state
+// happened to arrive first, which is a worse answer: the failure did
+// happen, and so did the eventual success.
 func normalizePipeline(event *gitlab.PipelineEvent, receivedAt time.Time) []activity.Event {
 	if event == nil || event.User == nil || event.User.ID == 0 {
 		return nil
@@ -389,16 +410,20 @@ func activityFrom(base activity.Event, kind activity.Kind, count int64) activity
 
 // webhookTimeLayouts are the timestamp spellings GitLab uses across webhook
 // payloads. Unlike the REST API, which is consistently RFC 3339, webhook
-// payloads carry a space-separated form with a zone abbreviation, and some
-// resources report fractional seconds while others don't.
+// payloads carry a space-separated form with either a zone abbreviation or
+// a numeric offset.
+//
+// Three layouts cover every spelling seen, because two of them are broader
+// than they look: RFC 3339 accepts the fractional seconds some resources
+// report and others omit, and Go's MST reference matches any zone
+// abbreviation, "UTC" included. Layouts for those cases would never be
+// reached.
 //
 //nolint:gochecknoglobals // a package-level lookup table, read-only after init
 var webhookTimeLayouts = []string{
 	time.RFC3339,
 	"2006-01-02 15:04:05 MST",
 	"2006-01-02 15:04:05 -0700",
-	"2006-01-02T15:04:05.000Z",
-	"2006-01-02 15:04:05 UTC",
 }
 
 // parseEventTime reads a payload timestamp, falling back to fallback when

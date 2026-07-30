@@ -7,24 +7,23 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-// ListProjectHooks lists the webhooks registered on one project.
+// ListProjectHooks lists every webhook registered on one project,
+// following pagination to the end; see ListGroupHooks for why that matters
+// on a listing this small.
 func (c *WriteClient) ListProjectHooks(pid any, opt *gitlab.ListProjectHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, error) {
-	hooks, _, err := c.raw.Projects.ListProjectHooks(pid, opt, options...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list project hooks: %w", err)
+	var hooks []*gitlab.ProjectHook
+
+	for hook, err := range iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, *gitlab.Response, error) {
+		return c.raw.Projects.ListProjectHooks(pid, opt, withExtra(options, reqOpts...)...)
+	}) {
+		if err != nil {
+			return nil, fmt.Errorf("failed to list project hooks: %w", err)
+		}
+
+		hooks = append(hooks, hook)
 	}
 
 	return hooks, nil
-}
-
-// GetProjectHook retrieves a single project webhook by ID.
-func (c *WriteClient) GetProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error) {
-	h, _, err := c.raw.Projects.GetProjectHook(pid, hook, options...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project hook: %w", err)
-	}
-
-	return h, nil
 }
 
 // AddProjectHook registers a new webhook on a project.

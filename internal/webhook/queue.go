@@ -84,7 +84,11 @@ type Queue struct {
 	// is deliberately never closed: deliveries can still be in flight when
 	// shutdown begins, and a send on a closed channel would panic the
 	// server rather than fail the request.
-	done      chan struct{}
+	done chan struct{}
+	// stopWork ends the workers' context, and is called only once Shutdown
+	// has drained them (or given up waiting). Written by Start, read by
+	// Shutdown, which the Start-then-Shutdown contract orders.
+	stopWork  context.CancelFunc
 	opts      Options
 	wg        sync.WaitGroup
 	accepted  atomic.Int64
@@ -140,13 +144,25 @@ func (o *Options) applyDefaults() {
 	}
 }
 
-// Start launches the workers that drain the queue. They stop once the queue
-// is closed by Shutdown and everything already accepted has been evaluated,
-// or immediately when ctx is cancelled.
+// Start launches the workers that drain the queue. They stop once Shutdown
+// has closed the queue and everything already accepted has been evaluated.
+//
+// ctx supplies the workers' values, and deliberately not their lifetime
+// (see context.WithoutCancel). A Queue is ended by Shutdown, which drains
+// what it accepted before stopping the workers, and callers overwhelmingly
+// have only one context to hand: the one cancelled at SIGTERM. Honoring
+// that cancellation here would have the workers return the instant the
+// signal arrived, with the queue still full, and Shutdown would then find
+// nothing left to wait for and report success while discarding activity
+// GitLab was already told succeeded. Whichever context a caller passes,
+// only Shutdown decides when the draining stops.
 func (q *Queue) Start(ctx context.Context) {
+	workCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	q.stopWork = stop
+
 	for range q.opts.Workers {
 		q.wg.Go(func() {
-			q.work(ctx)
+			q.work(workCtx)
 		})
 	}
 }
@@ -211,7 +227,10 @@ func (q *Queue) Enqueue(ctx context.Context, events []activity.Event) error {
 // accepted to be evaluated, returning early if ctx expires first.
 //
 // Draining rather than dropping is what keeps a rolling restart from losing
-// the deliveries GitLab has already been told succeeded.
+// the deliveries GitLab has already been told succeeded. The workers'
+// context is cancelled only once that wait is over, either way: an
+// evaluation still running when ctx expires is abandoned rather than left
+// holding a database transaction open past the deadline the caller set.
 func (q *Queue) Shutdown(ctx context.Context) error {
 	q.closeOnce.Do(func() {
 		close(q.done)
@@ -226,8 +245,12 @@ func (q *Queue) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-drained:
+		q.stopWorkers()
+
 		return nil
 	case <-ctx.Done():
+		q.stopWorkers()
+
 		return fmt.Errorf("timed out draining queued activity: %w", ctx.Err())
 	}
 }
@@ -240,6 +263,14 @@ func (q *Queue) Stats() QueueStats {
 		Failed:    q.failed.Load(),
 		Rejected:  q.rejected.Load(),
 		Pending:   len(q.events),
+	}
+}
+
+// stopWorkers ends the workers' context, tolerating a Queue that was never
+// started so Shutdown stays safe to call unconditionally.
+func (q *Queue) stopWorkers() {
+	if q.stopWork != nil {
+		q.stopWork()
 	}
 }
 

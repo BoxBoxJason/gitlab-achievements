@@ -7,24 +7,28 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
-// ListGroupHooks lists the webhooks registered on one group.
+// ListGroupHooks lists every webhook registered on one group, following
+// pagination to the end rather than returning only the first page.
+//
+// A group is not expected to carry more hooks than a single page holds,
+// and GitLab's plan limits keep it that way, but a scan that silently
+// stopped at 100 would adopt nothing and register a duplicate hook on
+// every sweep. The result is collected rather than streamed because the
+// caller scans it whole, and it is bounded by those same limits.
 func (c *WriteClient) ListGroupHooks(gid any, opt *gitlab.ListGroupHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupHook, error) {
-	hooks, _, err := c.raw.Groups.ListGroupHooks(gid, opt, options...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list group hooks: %w", err)
+	var hooks []*gitlab.GroupHook
+
+	for hook, err := range iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.GroupHook, *gitlab.Response, error) {
+		return c.raw.Groups.ListGroupHooks(gid, opt, withExtra(options, reqOpts...)...)
+	}) {
+		if err != nil {
+			return nil, fmt.Errorf("failed to list group hooks: %w", err)
+		}
+
+		hooks = append(hooks, hook)
 	}
 
 	return hooks, nil
-}
-
-// GetGroupHook retrieves a single group webhook by ID.
-func (c *WriteClient) GetGroupHook(gid any, hook int64, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error) {
-	h, _, err := c.raw.Groups.GetGroupHook(gid, hook, options...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get group hook: %w", err)
-	}
-
-	return h, nil
 }
 
 // AddGroupHook registers a new webhook on a group.

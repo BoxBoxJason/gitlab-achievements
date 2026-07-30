@@ -8,6 +8,7 @@ import (
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
@@ -25,9 +26,10 @@ const (
 	// keysetPagination asks GitLab for keyset pagination, which stays cheap
 	// arbitrarily deep into a collection where offset pagination degrades.
 	keysetPagination = "keyset"
-	// namespaceKindGroup is what GitLab reports as a project namespace's kind
-	// when the project belongs to a group rather than to a user.
-	namespaceKindGroup = "group"
+	// hookSweepBurst lets a sweep start at full speed before the rate cap
+	// takes hold, so a small instance finishes in one breath rather than
+	// being paced as though it were a large one.
+	hookSweepBurst = 10
 )
 
 // paidPlans are the license plans on which group webhooks exist. Anything
@@ -57,7 +59,6 @@ type licenseReader interface {
 // synchronization needs.
 type groupHookManager interface {
 	ListGroupHooks(gid any, opt *gitlab.ListGroupHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupHook, error)
-	GetGroupHook(gid any, hook int64, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
 	AddGroupHook(gid any, opt *gitlab.AddGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
 	EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
 }
@@ -66,7 +67,6 @@ type groupHookManager interface {
 // synchronization needs.
 type projectHookManager interface {
 	ListProjectHooks(pid any, opt *gitlab.ListProjectHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, error)
-	GetProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
 	AddProjectHook(pid any, opt *gitlab.AddProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
 	EditProjectHook(pid any, hook int64, opt *gitlab.EditProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
 }
@@ -156,6 +156,7 @@ func syncHooks(
 		webhookURL: webhookURL,
 		secret:     cfg.WebhookSecret,
 		logger:     loggerOrNop(logger),
+		limiter:    sweepLimiter(cfg.HookRate),
 		report:     WebhookReport{Scope: scope},
 	}
 
@@ -209,9 +210,15 @@ func resolveHookScope(ctx context.Context, write licenseReader, configured confi
 // hookSync carries the state one synchronization pass threads through the
 // sweep.
 type hookSync struct {
-	read       hookTargetLister
-	write      hookManager
-	conn       *gorm.DB
+	read  hookTargetLister
+	write hookManager
+	conn  *gorm.DB
+	// limiter paces the sweep. Unlike the backfill, which reads through a
+	// rate-capped client of its own, the clients here are shared with the
+	// readiness probe and with achievement awarding, so the cap belongs on
+	// the workload rather than on the connection. May be nil, which paces
+	// nothing.
+	limiter    *rate.Limiter
 	logger     *zap.Logger
 	webhookURL string
 	secret     string
@@ -283,7 +290,7 @@ func (s *hookSync) syncProjects(ctx context.Context) error {
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
 
-		if !ownedByGroup(project) {
+		if !gitlabclient.ProjectOwnedByGroup(project) {
 			continue
 		}
 
@@ -294,22 +301,6 @@ func (s *hookSync) syncProjects(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// ownedByGroup reports whether a project lives in a group rather than in a
-// user's personal namespace.
-//
-// Personal-namespace projects are skipped on both tiers: a group hook can't
-// reach them, since a personal namespace is not a group, and covering them
-// only where project hooks happen to be in use would make a user's progress
-// depend on their instance's license. The historical backfill skips them for
-// the same reason, so the two paths cover the same set.
-//
-// A project whose namespace GitLab didn't report is skipped rather than
-// assumed group-owned: registering a hook is a write, and guessing wrong
-// puts one somewhere it doesn't belong.
-func ownedByGroup(project *gitlab.Project) bool {
-	return project != nil && project.Namespace != nil && project.Namespace.Kind == namespaceKindGroup
 }
 
 // syncTarget brings one group's or project's hook in line with the desired
@@ -332,6 +323,11 @@ func ownedByGroup(project *gitlab.Project) bool {
 // A transient failure is returned as-is rather than treated as "deleted",
 // so a hiccup can't leave a second hook registered on every retry.
 func (s *hookSync) syncTarget(ctx context.Context, target hookTarget) error {
+	err := s.pace(ctx)
+	if err != nil {
+		return err
+	}
+
 	storedID, found, err := loadHookID(s.conn, target.scope(), target.id())
 	if err != nil {
 		return err
@@ -367,25 +363,67 @@ func (s *hookSync) syncTarget(ctx context.Context, target hookTarget) error {
 	return nil
 }
 
+// sweepLimiter builds the sweep's rate cap, or none at all when the
+// configured rate is not positive.
+//
+// Config validation rejects a non-positive rate, so that case is a caller
+// that skipped it. Running unpaced is the honest answer there: it is what
+// this sweep did before it was capped, where a rate.Limit of 0 would
+// instead admit the first burst and then block forever.
+func sweepLimiter(perSecond float64) *rate.Limiter {
+	if perSecond <= 0 {
+		return nil
+	}
+
+	return rate.NewLimiter(rate.Limit(perSecond), hookSweepBurst)
+}
+
+// pace waits for the sweep's rate cap to admit the next target.
+//
+// The cap is applied per target rather than per request because that is
+// what the sweep's cost is proportional to: one or two calls each, over
+// every group or project on the instance, every hour for as long as the
+// app runs. Enumerating the targets is left unpaced, being one request per
+// hundred of them.
+func (s *hookSync) pace(ctx context.Context) error {
+	if s.limiter == nil {
+		return nil
+	}
+
+	err := s.limiter.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("hook sweep interrupted while pacing: %w", err)
+	}
+
+	return nil
+}
+
 // reuseStoredHook re-applies the desired configuration to the hook
 // identified by storedID. The second return value is false only when the
 // hook was confirmed deleted (404), signaling the caller should fall back
 // to recoverHook.
+//
+// The edit is issued straight off the stored ID, with no read to confirm
+// the hook is still there first: the edit 404s on a deleted hook just as a
+// read would, so the read only ever bought a second request per target on
+// every sweep. That matters at this scale, where the sweep touches every
+// project on the instance every hour.
+//
+// It is also unconditional. GitLab never returns a hook's token, so there
+// is no reading the remote state and concluding it already matches: a
+// rotated secret would be invisible, and the hooks would keep presenting
+// the old one until something forced an edit. Re-applying every time is
+// what makes drift and rotation heal on the same sweep.
 func (s *hookSync) reuseStoredHook(ctx context.Context, target hookTarget, storedID int64) (int64, bool, error) {
-	_, err := target.get(ctx, storedID)
+	hookID, err := target.edit(ctx, storedID, s.webhookURL, s.secret)
 
 	switch {
 	case err == nil:
-		hookID, editErr := target.edit(ctx, storedID, s.webhookURL, s.secret)
-		if editErr != nil {
-			return 0, false, fmt.Errorf("failed to update existing hook %d: %w", storedID, editErr)
-		}
-
 		return hookID, true, nil
 	case errors.Is(err, gitlab.ErrNotFound):
 		return 0, false, nil
 	default:
-		return 0, false, fmt.Errorf("failed to check stored hook %d: %w", storedID, err)
+		return 0, false, fmt.Errorf("failed to update stored hook %d: %w", storedID, err)
 	}
 }
 

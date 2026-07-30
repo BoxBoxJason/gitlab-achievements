@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -251,6 +252,50 @@ func TestQueue_DrainsWhatItAlreadyAcceptedOnShutdown(t *testing.T) {
 	}
 }
 
+func TestQueue_DrainsWhatItAcceptedEvenWhenTheProcessIsAlreadySignalled(t *testing.T) {
+	// The shutdown sequence a serving process actually runs: the workers'
+	// context is the one SIGTERM cancels, and the drain only starts after
+	// that, on a context of its own. Starting the workers on a context that
+	// dies first would have them return before the drain rather than
+	// because of it, leaving the queue full while Shutdown reported success
+	// on a WaitGroup that nobody was left in.
+	processor := &countingProcessor{}
+	queue := NewQueue(processor, Options{Workers: 4, Size: 1024})
+
+	// Whatever the workers run on, it must survive the signal that begins
+	// shutdown; the queue is drained by Shutdown, not by cancellation.
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	defer stopWorkers()
+
+	queue.Start(workerCtx)
+
+	events := make([]activity.Event, 0, 500)
+	for i := range 500 {
+		events = append(events, testEvent(strconv.Itoa(i)))
+	}
+
+	err := queue.Enqueue(context.Background(), events)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// SIGTERM: the context the rest of the process runs on is cancelled.
+	signalCtx, signal := context.WithCancel(context.Background())
+	signal()
+	<-signalCtx.Done()
+
+	drain(t, queue)
+
+	stats := queue.Stats()
+	if stats.Pending != 0 {
+		t.Errorf("expected nothing left queued after a successful drain, got %d", stats.Pending)
+	}
+
+	if processor.processed() != 500 {
+		t.Errorf("expected everything already accepted to be evaluated, got %d of 500", processor.processed())
+	}
+}
+
 func TestQueue_EmptyEnqueueIsANoOp(t *testing.T) {
 	queue := NewQueue(&countingProcessor{}, Options{Workers: 1})
 	queue.Start(t.Context())
@@ -272,27 +317,65 @@ func TestQueue_ShutdownIsSafeToCallTwice(t *testing.T) {
 }
 
 func TestQueue_StopsRetryingWhenTheProcessIsGoingAway(t *testing.T) {
+	// A queue that cannot make progress must still be bounded by the
+	// deadline its caller set, rather than sitting out a retry schedule
+	// measured in minutes. Shutdown reports the deadline it missed, and
+	// abandons the evaluation instead of leaving it running.
 	processor := &countingProcessor{failAlways: errors.New("database gone")}
-	queue := NewQueue(processor, Options{Workers: 1, MaxAttempts: 100, RetryBackoff: time.Second})
+	queue := NewQueue(processor, Options{Workers: 1, MaxAttempts: 100, RetryBackoff: time.Minute})
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	queue.Start(ctx)
+	queue.Start(t.Context())
 
 	err := queue.Enqueue(context.Background(), []activity.Event{testEvent("a")})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	// Give the worker a moment to pick the activity up, then cancel.
+	// Give the worker a moment to pick the activity up and start failing.
 	time.Sleep(50 * time.Millisecond)
-	cancel()
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer shutdownCancel()
 
+	started := time.Now()
+
 	err = queue.Shutdown(shutdownCtx)
+	if err == nil {
+		t.Fatal("expected shutdown to report the activity it could not evaluate in time")
+	}
+
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Errorf("expected shutdown to be bounded by its own deadline, took %v", elapsed)
+	}
+}
+
+func TestQueue_KeepsDrainingAfterTheContextItWasStartedOnIsCancelled(t *testing.T) {
+	// The workers' lifetime belongs to Shutdown, not to whatever context
+	// happened to be in scope at Start. A caller has only one context to
+	// hand, the one cancelled at SIGTERM, and honoring it here would empty
+	// the workers out from under a queue that is still full.
+	processor := &countingProcessor{}
+	queue := NewQueue(processor, Options{Workers: 2, Size: 256})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	queue.Start(ctx)
+
+	// SIGTERM lands before anything has been enqueued, let alone evaluated.
+	cancel()
+
+	events := make([]activity.Event, 0, 128)
+	for i := range 128 {
+		events = append(events, testEvent(strconv.Itoa(i)))
+	}
+
+	err := queue.Enqueue(context.Background(), events)
 	if err != nil {
-		t.Fatalf("expected a cancelled queue to stop promptly rather than sit out its backoff, got: %v", err)
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	drain(t, queue)
+
+	if processor.processed() != 128 {
+		t.Errorf("expected the drain to outlive the cancelled start context, got %d of 128", processor.processed())
 	}
 }

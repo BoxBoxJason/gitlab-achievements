@@ -150,6 +150,24 @@ func TestValidate_AppliesBackfillDefaults(t *testing.T) {
 	if cfg.BackfillRate != DefaultBackfillRate {
 		t.Errorf("expected default backfill rate %v, got %v", DefaultBackfillRate, cfg.BackfillRate)
 	}
+
+	if cfg.HookRate != DefaultHookRate {
+		t.Errorf("expected default hook rate %v, got %v", DefaultHookRate, cfg.HookRate)
+	}
+}
+
+func TestValidate_HookRateMustBePositive(t *testing.T) {
+	cfg := validConfig()
+	cfg.HookRate = -1
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an error for a non-positive rate, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "hook-rate must be greater than 0") {
+		t.Errorf("expected error to mention the rate, got: %v", err)
+	}
 }
 
 func TestValidate_BackfillMode(t *testing.T) {

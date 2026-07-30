@@ -98,7 +98,6 @@ type fakeHookManager struct {
 
 	addCalls     int
 	editCalls    int
-	getCalls     int
 	listCalls    int
 	licenseCalls int
 	lastToken    string
@@ -128,20 +127,6 @@ func (f *fakeHookManager) ListGroupHooks(gid any, _ *gitlab.ListGroupHooksOption
 	return f.groupHooks[groupID], nil
 }
 
-func (f *fakeHookManager) GetGroupHook(gid any, hook int64, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error) {
-	f.getCalls++
-
-	groupID, _ := gid.(int64)
-
-	for _, existing := range f.groupHooks[groupID] {
-		if existing.ID == hook {
-			return existing, nil
-		}
-	}
-
-	return nil, gitlab.ErrNotFound
-}
-
 func (f *fakeHookManager) AddGroupHook(gid any, opt *gitlab.AddGroupHookOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error) {
 	f.addCalls++
 
@@ -165,6 +150,10 @@ func (f *fakeHookManager) AddGroupHook(gid any, opt *gitlab.AddGroupHookOptions,
 	return hook, nil
 }
 
+// EditGroupHook mutates the hook in place, and reports gitlab.ErrNotFound
+// when it no longer exists: the sweep issues its edit straight off a stored
+// ID with no read first, so that 404 is the only thing telling it a hook was
+// deleted out of band.
 func (f *fakeHookManager) EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHookOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error) {
 	f.editCalls++
 
@@ -173,9 +162,17 @@ func (f *fakeHookManager) EditGroupHook(gid any, hook int64, opt *gitlab.EditGro
 	}
 
 	groupID, _ := gid.(int64)
-	f.lastToken = *opt.Token
 
-	return &gitlab.GroupHook{ID: hook, URL: *opt.URL, GroupID: groupID}, nil
+	for _, existing := range f.groupHooks[groupID] {
+		if existing.ID == hook {
+			f.lastToken = *opt.Token
+			existing.URL = *opt.URL
+
+			return existing, nil
+		}
+	}
+
+	return nil, gitlab.ErrNotFound
 }
 
 func (f *fakeHookManager) ListProjectHooks(pid any, _ *gitlab.ListProjectHooksOptions, _ ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, error) {
@@ -188,20 +185,6 @@ func (f *fakeHookManager) ListProjectHooks(pid any, _ *gitlab.ListProjectHooksOp
 	projectID, _ := pid.(int64)
 
 	return f.projectHooks[projectID], nil
-}
-
-func (f *fakeHookManager) GetProjectHook(pid any, hook int64, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error) {
-	f.getCalls++
-
-	projectID, _ := pid.(int64)
-
-	for _, existing := range f.projectHooks[projectID] {
-		if existing.ID == hook {
-			return existing, nil
-		}
-	}
-
-	return nil, gitlab.ErrNotFound
 }
 
 func (f *fakeHookManager) AddProjectHook(pid any, opt *gitlab.AddProjectHookOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error) {
@@ -235,9 +218,17 @@ func (f *fakeHookManager) EditProjectHook(pid any, hook int64, opt *gitlab.EditP
 	}
 
 	projectID, _ := pid.(int64)
-	f.lastToken = *opt.Token
 
-	return &gitlab.ProjectHook{ID: hook, URL: *opt.URL, ProjectID: projectID}, nil
+	for _, existing := range f.projectHooks[projectID] {
+		if existing.ID == hook {
+			f.lastToken = *opt.Token
+			existing.URL = *opt.URL
+
+			return existing, nil
+		}
+	}
+
+	return nil, gitlab.ErrNotFound
 }
 
 func (f *fakeHookManager) addError(targetID int64) error {
@@ -394,6 +385,13 @@ func TestSyncHooks_IsIdempotentAcrossSweeps(t *testing.T) {
 	// rather than a scan of every hook on the group.
 	if write.listCalls != 2 {
 		t.Errorf("expected the second sweep to look hooks up by stored id, got %d list calls", write.listCalls)
+	}
+
+	// And exactly one request per target, not two. This sweep runs hourly
+	// over every group (or every project) on the instance, so a redundant
+	// read before each edit is a permanent doubling of its cost.
+	if write.editCalls != 2 {
+		t.Errorf("expected one request per target on a steady-state sweep, got %d edit calls for 2 targets", write.editCalls)
 	}
 }
 

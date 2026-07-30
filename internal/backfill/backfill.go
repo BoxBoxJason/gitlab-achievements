@@ -56,9 +56,6 @@ const (
 	// work on a large project. This bounds re-walked work after an
 	// interruption without making the walk write-bound.
 	progressFlushRecords = 200
-	// namespaceKindGroup is what GitLab reports as a project namespace's
-	// kind when the project belongs to a group rather than to a user.
-	namespaceKindGroup = "group"
 )
 
 // historyReader is the subset of gitlabclient.ReadClient the walk needs.
@@ -86,6 +83,14 @@ type Options struct {
 	// exist, the two are given disjoint windows: callers set this to the
 	// moment live ingestion started, so anything after it belongs to the
 	// webhooks and anything before it to the walk.
+	//
+	// One ceiling cannot fit every hook, because hooks begin delivering as
+	// the registration sweep reaches them rather than all at once. Set
+	// before the sweep, this leaves a window covered by neither path; set
+	// after, it would be covered by both. Callers are expected to prefer
+	// the former: activity the walk missed can be recovered later, whereas
+	// a counter inflated by double-counting cannot be undone, since GitLab
+	// awards are never revoked.
 	//
 	// The zero value imposes no ceiling, which is what a one-off `backfill`
 	// invocation on an instance not yet serving wants.
@@ -221,7 +226,11 @@ func (r *runner) walkProjects(ctx context.Context) error {
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
 
-		if !ownedByGroup(project) {
+		// Skipped for the same reason the webhook sweep registers no hook
+		// on them, and deliberately via the same predicate: walking a
+		// project live ingestion cannot reach would award achievements for
+		// activity that stops counting the moment this run finishes.
+		if !gitlabclient.ProjectOwnedByGroup(project) {
 			r.report.ProjectsSkipped++
 
 			continue
@@ -234,19 +243,6 @@ func (r *runner) walkProjects(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// ownedByGroup reports whether a project lives in a group rather than in a
-// user's personal namespace.
-//
-// Projects in personal namespaces earn no achievements, because live
-// ingestion cannot reach them: on instances with group webhooks the hooks
-// are registered per top-level group, and a personal namespace is not a
-// group. Walking their history here would award achievements for activity
-// that stops counting the moment the backfill finishes, so the walk covers
-// exactly what the webhooks do.
-func ownedByGroup(project *gitlab.Project) bool {
-	return project != nil && project.Namespace != nil && project.Namespace.Kind == namespaceKindGroup
 }
 
 // walkProject pulls one project's history, in two phases so an interrupted

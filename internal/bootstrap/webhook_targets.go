@@ -27,15 +27,12 @@ type hookTarget interface {
 	scope() db.HookScope
 	// id is the GitLab ID of the group or project.
 	id() int64
-	// get retrieves one of the target's hooks, returning a wrapped
-	// gitlab.ErrNotFound when it no longer exists.
-	get(ctx context.Context, hookID int64) (hookRef, error)
 	// list returns every hook currently registered on the target.
 	list(ctx context.Context) ([]hookRef, error)
 	// add registers a new hook and returns its ID.
 	add(ctx context.Context, webhookURL, secret string) (int64, error)
 	// edit re-applies the desired configuration to an existing hook and
-	// returns its ID.
+	// returns its ID, wrapping gitlab.ErrNotFound when the hook is gone.
 	edit(ctx context.Context, hookID int64, webhookURL, secret string) (int64, error)
 }
 
@@ -49,15 +46,6 @@ type groupHookTarget struct {
 func (t *groupHookTarget) scope() db.HookScope { return db.HookScopeGroup }
 
 func (t *groupHookTarget) id() int64 { return t.groupID }
-
-func (t *groupHookTarget) get(ctx context.Context, hookID int64) (hookRef, error) {
-	hook, err := t.write.GetGroupHook(t.groupID, hookID, gitlab.WithContext(ctx))
-	if err != nil {
-		return hookRef{}, fmt.Errorf("group %d: %w", t.groupID, err)
-	}
-
-	return hookRef{id: hook.ID, url: hook.URL}, nil
-}
 
 func (t *groupHookTarget) list(ctx context.Context) ([]hookRef, error) {
 	hooks, err := t.write.ListGroupHooks(t.groupID, &gitlab.ListGroupHooksOptions{
@@ -103,15 +91,6 @@ type projectHookTarget struct {
 func (t *projectHookTarget) scope() db.HookScope { return db.HookScopeProject }
 
 func (t *projectHookTarget) id() int64 { return t.projectID }
-
-func (t *projectHookTarget) get(ctx context.Context, hookID int64) (hookRef, error) {
-	hook, err := t.write.GetProjectHook(t.projectID, hookID, gitlab.WithContext(ctx))
-	if err != nil {
-		return hookRef{}, fmt.Errorf("project %d: %w", t.projectID, err)
-	}
-
-	return hookRef{id: hook.ID, url: hook.URL}, nil
-}
 
 func (t *projectHookTarget) list(ctx context.Context) ([]hookRef, error) {
 	hooks, err := t.write.ListProjectHooks(t.projectID, &gitlab.ListProjectHooksOptions{

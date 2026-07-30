@@ -115,6 +115,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
 	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
 	flags.StringVar(&cfg.HookScope, "hook-scope", envOrDefault("HOOK_SCOPE", string(config.DefaultHookScope)), "Which webhooks to register for event ingestion (auto, group, project); auto picks group hooks where the license allows them")
+	flags.Float64Var(&cfg.HookRate, "hook-rate", envFloatOrDefault("HOOK_RATE", config.DefaultHookRate), "Groups or projects per second the webhook registration sweep works through")
 	flags.StringVar(&cfg.BackfillMode, "backfill", envOrDefault("BACKFILL", string(config.DefaultBackfillMode)), "Whether the server walks the instance's history itself (auto, off, force)")
 	flags.StringVar(&cfg.BackfillSince, "backfill-since", os.Getenv("BACKFILL_SINCE"), "How far back the historical backfill reaches, as a date (2006-01-02) or duration (720h); empty walks everything")
 	flags.Float64Var(&cfg.BackfillRate, "backfill-rate", envFloatOrDefault("BACKFILL_RATE", config.DefaultBackfillRate), "Requests per second the historical backfill is allowed to issue")
@@ -175,16 +176,28 @@ func run(cfg *config.Config) error {
 
 	webhookURL := cfg.PublicURL + httpserver.WebhookPath
 
-	// Captured before bootstrap registers the hooks, since that is the
-	// moment GitLab may start delivering events: it becomes the ceiling on
-	// what the historical walk counts, so the two paths never both count
-	// the same activity. See backfill.Options.Until.
+	// Captured before bootstrap registers any hooks, and used as the
+	// ceiling on what the historical walk counts. See backfill.Options.Until
+	// for why the two paths need disjoint windows at all.
+	//
+	// Each hook starts delivering when the sweep reaches it, so this is
+	// earlier than live ingestion actually begins, and activity in between
+	// is counted by neither path. The alternative is a ceiling later than
+	// some hook's registration, which double-counts instead, and a single
+	// ceiling cannot avoid both: a gap is recoverable by the planned
+	// activity reconciliation, whereas an inflated counter is permanent.
+	// The gap's width is the sweep's duration, logged below.
 	liveFrom := time.Now()
 
 	readClient, writeClient, report, err := bootstrapApp(ctx, cfg, conn, webhookURL, logger)
 	if err != nil {
 		return err
 	}
+
+	logger.Info("live ingestion active",
+		zap.Duration("uncovered_window", time.Since(liveFrom)),
+		zap.Time("history_walked_until", liveFrom),
+	)
 
 	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, liveFrom, logger)
 }
@@ -320,6 +333,10 @@ func serve(
 
 	select {
 	case err := <-serveErr:
+		// The listener is already gone, so nothing further can arrive; what
+		// it accepted before failing still deserves to be evaluated.
+		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see drainQueue
+
 		if err != nil {
 			return fmt.Errorf("http server failed: %w", err)
 		}
@@ -334,11 +351,15 @@ func serve(
 		defer cancel()
 
 		shutdownErr := httpSrv.Shutdown(shutdownCtx) //nolint:contextcheck // see comment above
+
+		// Drained before the error is returned, and regardless of it: a
+		// server that shut down untidily has still accepted deliveries
+		// GitLab was told succeeded.
+		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see below
+
 		if shutdownErr != nil {
 			return fmt.Errorf("failed to shut down http server gracefully: %w", shutdownErr)
 		}
-
-		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see below
 	}
 
 	return nil
@@ -369,7 +390,11 @@ func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
 		return
 	}
 
+	// pending is reported even on the success path: it should always be
+	// zero here, and a non-zero value is the signature of the workers
+	// having stopped before the drain rather than because of it.
 	logger.Info("webhook activity drained",
+		zap.Int("pending", stats.Pending),
 		zap.Int64("accepted", stats.Accepted),
 		zap.Int64("processed", stats.Processed),
 		zap.Int64("failed", stats.Failed),

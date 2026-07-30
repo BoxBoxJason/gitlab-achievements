@@ -20,6 +20,16 @@ const (
 	// with no deadline, and the instance it reads from is someone's
 	// production GitLab.
 	DefaultBackfillRate = 5.0
+	// DefaultHookRate is the request-per-second cap the webhook
+	// registration sweep works at when none is configured.
+	//
+	// The sweep is the app's other instance-sized workload: on a tier
+	// without group hooks it touches every project there is, and it repeats
+	// hourly for as long as the app runs. It is capped higher than the
+	// backfill, which has no deadline at all, but still well under what
+	// GitLab would allow, so a sweep never crowds out the API traffic the
+	// instance exists to serve.
+	DefaultHookRate = 20.0
 	// backfillSinceDateLayout is the calendar-date form --backfill-since
 	// accepts, alongside a Go duration.
 	backfillSinceDateLayout = "2006-01-02"
@@ -103,6 +113,11 @@ type Config struct {
 	// so the heaviest read workload this app runs leaves headroom for
 	// everything else using the instance's API.
 	BackfillRate float64
+	// HookRate caps how many targets per second the webhook registration
+	// sweep works through, for the same reason BackfillRate exists: the
+	// sweep is proportional to the size of the instance and repeats for as
+	// long as the app runs.
+	HookRate float64
 }
 
 // Validate checks that the configuration is complete and well-formed. It
@@ -176,13 +191,20 @@ func (c *Config) ParseBackfillSince() (time.Time, error) {
 // validateHookScope checks the webhook strategy, so an unknown value is
 // caught at startup rather than at the point the sweep would have used it.
 func (c *Config) validateHookScope() []error {
+	var errs []error
+
 	switch HookScope(c.HookScope) {
 	case HookScopeAuto, HookScopeGroup, HookScopeProject:
-		return nil
+	default:
+		errs = append(errs, fmt.Errorf("hook-scope must be one of %q, %q, or %q, got %q",
+			HookScopeAuto, HookScopeGroup, HookScopeProject, c.HookScope))
 	}
 
-	return []error{fmt.Errorf("hook-scope must be one of %q, %q, or %q, got %q",
-		HookScopeAuto, HookScopeGroup, HookScopeProject, c.HookScope)}
+	if c.HookRate <= 0 {
+		errs = append(errs, fmt.Errorf("hook-rate must be greater than 0, got %v", c.HookRate))
+	}
+
+	return errs
 }
 
 // validateBackfill checks the backfill knobs, so a misconfigured look-back
@@ -225,6 +247,10 @@ func (c *Config) applyDefaults() {
 
 	if strings.TrimSpace(c.HookScope) == "" {
 		c.HookScope = string(DefaultHookScope)
+	}
+
+	if c.HookRate == 0 {
+		c.HookRate = DefaultHookRate
 	}
 
 	if c.BackfillRate == 0 {
