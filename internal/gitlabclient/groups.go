@@ -25,13 +25,3 @@ func (c *ReadClient) ListGroups(opt *gitlab.ListGroupsOptions, options ...gitlab
 		return c.raw.Groups.ListGroups(opt, withExtra(options, reqOpts...)...)
 	})
 }
-
-// ListGroupProjects iterates the projects belonging to one group. Set
-// opt.IncludeSubGroups to descend into the group's whole subtree, and
-// opt.WithShared to false to exclude projects merely shared into the group,
-// which are owned (and enumerated) elsewhere.
-func (c *ReadClient) ListGroupProjects(gid any, opt *gitlab.ListGroupProjectsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error] {
-	return iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.Project, *gitlab.Response, error) {
-		return c.raw.Groups.ListGroupProjects(gid, opt, withExtra(options, reqOpts...)...)
-	})
-}

@@ -25,6 +25,9 @@ const (
 	// keysetPagination asks GitLab for keyset pagination, which stays cheap
 	// arbitrarily deep into a collection where offset pagination degrades.
 	keysetPagination = "keyset"
+	// namespaceKindGroup is what GitLab reports as a project namespace's kind
+	// when the project belongs to a group rather than to a user.
+	namespaceKindGroup = "group"
 )
 
 // paidPlans are the license plans on which group webhooks exist. Anything
@@ -41,7 +44,7 @@ var paidPlans = map[string]bool{
 // synchronization needs to enumerate what to register hooks on.
 type hookTargetLister interface {
 	ListGroups(opt *gitlab.ListGroupsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Group, error]
-	ListGroupProjects(gid any, opt *gitlab.ListGroupProjectsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error]
+	ListProjects(opt *gitlab.ListProjectsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error]
 }
 
 // licenseReader reports the instance's license, which decides whether group
@@ -121,12 +124,13 @@ func ReconcileWebhooks(
 //
 // Which objects carry those hooks depends on what the instance's license
 // allows (see resolveHookScope): one hook per top-level group where group
-// webhooks exist, one hook per project otherwise. Either way the set of
-// projects covered is the same, because the project sweep enumerates
-// projects group by group: activity in a personal namespace earns no
-// achievements on any tier, since group webhooks cannot reach those
-// projects and covering them on one tier only would make a user's progress
-// depend on their instance's license.
+// webhooks exist, one hook per project otherwise. Either way the coverage is
+// the whole instance, minus projects in personal namespaces (see
+// ownedByGroup).
+//
+// The achievements namespace has nothing to do with any of this. It is only
+// where the achievement definitions live and are awarded from; hooks follow
+// activity, which happens instance-wide.
 //
 // A target this app cannot manage hooks on is skipped rather than failing
 // the run: one inaccessible project shouldn't cost the whole instance its
@@ -216,17 +220,32 @@ type hookSync struct {
 
 // run sweeps every target the chosen scope covers.
 func (s *hookSync) run(ctx context.Context, scope db.HookScope) error {
-	for group, err := range s.read.ListGroups(topLevelGroupOptions(), gitlab.WithContext(ctx)) {
+	if scope == db.HookScopeGroup {
+		return s.syncGroups(ctx)
+	}
+
+	return s.syncProjects(ctx)
+}
+
+// syncGroups registers a hook on every top-level group on the instance.
+//
+// Only top-level groups are visited because a group hook already covers the
+// whole subtree beneath it: descending into subgroups would register a
+// redundant second hook on everything below them, and deliver every event
+// twice.
+func (s *hookSync) syncGroups(ctx context.Context) error {
+	opt := &gitlab.ListGroupsOptions{
+		ListOptions:  gitlab.ListOptions{Pagination: keysetPagination, PerPage: hookPageSize},
+		TopLevelOnly: new(true),
+		AllAvailable: new(true),
+	}
+
+	for group, err := range s.read.ListGroups(opt, gitlab.WithContext(ctx)) {
 		if err != nil {
 			return fmt.Errorf("failed to list top-level groups: %w", err)
 		}
 
-		if scope == db.HookScopeGroup {
-			err = s.syncTarget(ctx, &groupHookTarget{write: s.write, groupID: group.ID})
-		} else {
-			err = s.syncGroupProjects(ctx, group.ID)
-		}
-
+		err = s.syncTarget(ctx, &groupHookTarget{write: s.write, groupID: group.ID})
 		if err != nil {
 			return err
 		}
@@ -235,33 +254,37 @@ func (s *hookSync) run(ctx context.Context, scope db.HookScope) error {
 	return nil
 }
 
-// syncGroupProjects registers a hook on every project owned by one group's
-// subtree.
+// syncProjects registers a hook on every project on the instance, which is
+// what the project scope has to cover: hooks follow activity, and activity
+// happens in every project, not only the ones under some particular group.
 //
-// Projects merely shared into the group are excluded: they are owned by
-// another namespace, which the sweep visits separately, and registering a
-// hook from both places would deliver every event twice.
-func (s *hookSync) syncGroupProjects(ctx context.Context, groupID int64) error {
-	opt := &gitlab.ListGroupProjectsOptions{
-		ListOptions:      gitlab.ListOptions{Pagination: keysetPagination, PerPage: hookPageSize},
-		IncludeSubGroups: new(true),
-		WithShared:       new(false),
-		Simple:           new(true),
+// This deliberately walks projects directly rather than group by group. The
+// two would cover the same projects, but the flat walk is one enumeration
+// instead of one per group, doesn't depend on the read token being able to
+// see every group on the instance, and covers exactly what the historical
+// backfill walks, which is what keeps the two paths from disagreeing about
+// whose activity counts.
+//
+// Projects in personal namespaces are the one exclusion (see
+// ownedByGroup).
+func (s *hookSync) syncProjects(ctx context.Context) error {
+	opt := &gitlab.ListProjectsOptions{
+		ListOptions: gitlab.ListOptions{
+			Pagination: keysetPagination,
+			PerPage:    hookPageSize,
+			OrderBy:    "id",
+			Sort:       "asc",
+		},
+		Simple: new(true),
 	}
 
-	for project, err := range s.read.ListGroupProjects(groupID, opt, gitlab.WithContext(ctx)) {
+	for project, err := range s.read.ListProjects(opt, gitlab.WithContext(ctx)) {
 		if err != nil {
-			if s.skippable(err) {
-				s.logger.Warn("skipping group whose projects this app cannot list",
-					zap.Int64("group_id", groupID),
-					zap.Error(err),
-				)
-				s.report.Skipped++
+			return fmt.Errorf("failed to list projects: %w", err)
+		}
 
-				return nil
-			}
-
-			return fmt.Errorf("failed to list projects of group %d: %w", groupID, err)
+		if !ownedByGroup(project) {
+			continue
 		}
 
 		err = s.syncTarget(ctx, &projectHookTarget{write: s.write, projectID: project.ID})
@@ -271,6 +294,22 @@ func (s *hookSync) syncGroupProjects(ctx context.Context, groupID int64) error {
 	}
 
 	return nil
+}
+
+// ownedByGroup reports whether a project lives in a group rather than in a
+// user's personal namespace.
+//
+// Personal-namespace projects are skipped on both tiers: a group hook can't
+// reach them, since a personal namespace is not a group, and covering them
+// only where project hooks happen to be in use would make a user's progress
+// depend on their instance's license. The historical backfill skips them for
+// the same reason, so the two paths cover the same set.
+//
+// A project whose namespace GitLab didn't report is skipped rather than
+// assumed group-owned: registering a hook is a write, and guessing wrong
+// puts one somewhere it doesn't belong.
+func ownedByGroup(project *gitlab.Project) bool {
+	return project != nil && project.Namespace != nil && project.Namespace.Kind == namespaceKindGroup
 }
 
 // syncTarget brings one group's or project's hook in line with the desired
@@ -404,20 +443,6 @@ func (s *hookSync) handleTargetError(target hookTarget, err error) error {
 // skippable reports whether err concerns only the target it came from.
 func (s *hookSync) skippable(err error) bool {
 	return gitlabclient.IsNotFound(err) || gitlabclient.IsPermissionError(err)
-}
-
-// topLevelGroupOptions lists every top-level group on the instance.
-//
-// Only top-level groups are listed because a group hook already covers the
-// whole subtree beneath it, and the project sweep asks for each group's
-// projects with subgroups included: descending into subgroups here would
-// register a redundant second hook on everything below them.
-func topLevelGroupOptions() *gitlab.ListGroupsOptions {
-	return &gitlab.ListGroupsOptions{
-		ListOptions:  gitlab.ListOptions{Pagination: keysetPagination, PerPage: hookPageSize},
-		TopLevelOnly: new(true),
-		AllAvailable: new(true),
-	}
 }
 
 // loadHookID reads the previously persisted hook ID for one target, if any.

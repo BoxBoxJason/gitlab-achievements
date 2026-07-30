@@ -16,12 +16,12 @@ const testWebhookURL = "https://achievements.example.com/webhooks/gitlab"
 
 // fakeTargetLister serves a canned instance layout to the sweep.
 type fakeTargetLister struct {
-	groups        []*gitlab.Group
-	groupProjects map[int64][]*gitlab.Project
-	groupsErr     error
-	projectsErr   map[int64]error
-	groupsOpt     gitlab.ListGroupsOptions
-	projectsOpt   map[int64]gitlab.ListGroupProjectsOptions
+	groups      []*gitlab.Group
+	projects    []*gitlab.Project
+	groupsErr   error
+	projectsErr error
+	groupsOpt   gitlab.ListGroupsOptions
+	projectsOpt gitlab.ListProjectsOptions
 }
 
 func (f *fakeTargetLister) ListGroups(opt *gitlab.ListGroupsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Group, error] {
@@ -42,27 +42,39 @@ func (f *fakeTargetLister) ListGroups(opt *gitlab.ListGroupsOptions, _ ...gitlab
 	}
 }
 
-func (f *fakeTargetLister) ListGroupProjects(gid any, opt *gitlab.ListGroupProjectsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error] {
-	groupID, _ := gid.(int64)
-
-	if f.projectsOpt == nil {
-		f.projectsOpt = map[int64]gitlab.ListGroupProjectsOptions{}
-	}
-
-	f.projectsOpt[groupID] = *opt
+func (f *fakeTargetLister) ListProjects(opt *gitlab.ListProjectsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error] {
+	f.projectsOpt = *opt
 
 	return func(yield func(*gitlab.Project, error) bool) {
-		if err := f.projectsErr[groupID]; err != nil {
-			yield(nil, err)
+		if f.projectsErr != nil {
+			yield(nil, f.projectsErr)
 
 			return
 		}
 
-		for _, project := range f.groupProjects[groupID] {
+		for _, project := range f.projects {
 			if !yield(project, nil) {
 				return
 			}
 		}
+	}
+}
+
+// groupProject builds a project the sweep covers: one owned by a group.
+// Projects in personal namespaces are out of scope on every tier.
+func groupProject(id int64) *gitlab.Project {
+	return &gitlab.Project{
+		ID:        id,
+		Namespace: &gitlab.ProjectNamespace{ID: 900 + id, Kind: "group"},
+	}
+}
+
+// userProject builds a project in a personal namespace, which the sweep
+// skips.
+func userProject(id int64) *gitlab.Project {
+	return &gitlab.Project{
+		ID:        id,
+		Namespace: &gitlab.ProjectNamespace{ID: 900 + id, Kind: "user"},
 	}
 }
 
@@ -244,15 +256,12 @@ func hookCfg(scope config.HookScope) *config.Config {
 	return &config.Config{HookScope: string(scope), WebhookSecret: "s3cr3t"}
 }
 
-// twoGroupInstance is a minimal instance: two top-level groups, the first
-// owning two projects and the second one.
+// twoGroupInstance is a minimal instance: two top-level groups and three
+// group-owned projects spread across them.
 func twoGroupInstance() *fakeTargetLister {
 	return &fakeTargetLister{
-		groups: []*gitlab.Group{{ID: 1}, {ID: 2}},
-		groupProjects: map[int64][]*gitlab.Project{
-			1: {{ID: 10}, {ID: 11}},
-			2: {{ID: 20}},
-		},
+		groups:   []*gitlab.Group{{ID: 1}, {ID: 2}},
+		projects: []*gitlab.Project{groupProject(10), groupProject(11), groupProject(20)},
 	}
 }
 
@@ -300,17 +309,17 @@ func TestSyncHooks_RegistersOneHookPerProjectOnFreeTiers(t *testing.T) {
 	}
 
 	if report.Targets != 3 || report.Created != 3 {
-		t.Errorf("expected one hook per project across both groups, got %+v", report)
+		t.Errorf("expected one hook per project on the instance, got %+v", report)
 	}
 
 	if len(write.groupHooks) != 0 {
 		t.Errorf("expected no group hooks on an instance that can't have them, got %d", len(write.groupHooks))
 	}
 
-	// Personal-namespace projects are unreachable either way, so the sweep
-	// enumerates projects group by group rather than instance-wide.
-	if opt, ok := read.projectsOpt[1]; !ok || !*opt.IncludeSubGroups || *opt.WithShared {
-		t.Errorf("expected each group's whole subtree, excluding projects shared in from elsewhere, got %+v", opt)
+	// Hooks follow activity, which happens instance-wide, so the sweep walks
+	// projects directly rather than descending from any particular group.
+	if read.groupsOpt.TopLevelOnly != nil {
+		t.Error("expected the project sweep not to enumerate groups at all")
 	}
 }
 
@@ -535,5 +544,99 @@ func TestSyncHooks_RegistersHooksOnTargetsCreatedSinceTheLastSweep(t *testing.T)
 
 	if report.Created != 1 || report.Targets != 2 {
 		t.Errorf("expected the new group to be hooked by the next sweep, got %+v", report)
+	}
+}
+
+func TestSyncHooks_CoversProjectsOutsideTheAchievementsNamespace(t *testing.T) {
+	conn := testConn(t)
+
+	// The achievements namespace is only where the definitions live and are
+	// awarded from. Activity happens everywhere, so hooks have to go
+	// everywhere: a project unrelated to that namespace, and one in no group
+	// the sweep ever lists, must still be hooked.
+	read := &fakeTargetLister{
+		groups:   []*gitlab.Group{{ID: 1}},
+		projects: []*gitlab.Project{groupProject(10), groupProject(4242)},
+	}
+	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
+
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if report.Targets != 2 {
+		t.Errorf("expected every project on the instance to be hooked, got %+v", report)
+	}
+
+	for _, projectID := range []int64{10, 4242} {
+		if len(write.projectHooks[projectID]) == 0 {
+			t.Errorf("expected project %d to be hooked", projectID)
+		}
+	}
+}
+
+func TestSyncHooks_SkipsProjectsInPersonalNamespaces(t *testing.T) {
+	conn := testConn(t)
+	read := &fakeTargetLister{
+		projects: []*gitlab.Project{groupProject(10), userProject(11)},
+	}
+	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
+
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if report.Targets != 1 {
+		t.Errorf("expected the personal-namespace project to be passed over, got %+v", report)
+	}
+
+	if len(write.projectHooks[11]) != 0 {
+		t.Error("expected no hook on a project a group hook could never reach")
+	}
+}
+
+func TestSyncHooks_SkipsProjectsWithNoNamespaceReported(t *testing.T) {
+	conn := testConn(t)
+	read := &fakeTargetLister{projects: []*gitlab.Project{{ID: 10}}}
+	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
+
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Registering a hook is a write; a project whose namespace GitLab didn't
+	// report is left alone rather than assumed group-owned.
+	if len(write.projectHooks) != 0 {
+		t.Errorf("expected no hook on a project with no namespace, got %d", len(write.projectHooks))
+	}
+}
+
+func TestSyncHooks_StopsWhenProjectsCannotBeListed(t *testing.T) {
+	conn := testConn(t)
+	read := &fakeTargetLister{projectsErr: errors.New("gitlab unreachable")}
+	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
+
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	if err == nil {
+		t.Fatal("expected an unlistable instance to fail rather than report an empty sweep as success")
+	}
+}
+
+func TestSyncHooks_ProjectSweepWalksInAscendingIDOrder(t *testing.T) {
+	conn := testConn(t)
+	read := &fakeTargetLister{projects: []*gitlab.Project{groupProject(10)}}
+	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
+
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	opt := read.projectsOpt.ListOptions
+	if opt.OrderBy != "id" || opt.Sort != "asc" || opt.Pagination != keysetPagination {
+		t.Errorf("expected a keyset walk in ascending id order, matching the backfill's, got %+v", opt)
 	}
 }

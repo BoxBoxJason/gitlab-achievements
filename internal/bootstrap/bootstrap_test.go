@@ -27,8 +27,8 @@ func validReadAll() *fakeReadAll {
 	return &fakeReadAll{
 		fakeReadVerifier: *validReadVerifier(),
 		fakeTargetLister: fakeTargetLister{
-			groups:        []*gitlab.Group{{ID: 1}},
-			groupProjects: map[int64][]*gitlab.Project{1: {{ID: 10}}},
+			groups:   []*gitlab.Group{{ID: 1}},
+			projects: []*gitlab.Project{groupProject(10)},
 		},
 	}
 }

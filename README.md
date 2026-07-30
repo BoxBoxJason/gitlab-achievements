@@ -43,7 +43,7 @@ System hooks look like the obvious choice: one hook covers everything, on every 
 Which of the two is used depends on what the instance's license allows, resolved at bootstrap from `GET /api/v4/license`:
 
 - **Premium/Ultimate** → one hook per **top-level group**. A group hook covers that group's whole subtree, so projects created inside it later are covered with no further registration.
-- **Free/CE, or no license** → one hook per **project**, enumerated group by group.
+- **Free/CE, or no license** → one hook per **project**, across the whole instance.
 
 `--hook-scope`/`HOOK_SCOPE` (`auto`, `group`, `project`) overrides the detection when the write token can't read the license or the choice needs pinning. Either way the write token needs instance Admin, to enumerate every group and project on the instance and to manage hooks on ones it isn't otherwise a member of.
 
