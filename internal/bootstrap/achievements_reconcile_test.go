@@ -141,7 +141,7 @@ func TestReconcileAchievements_ReuploadsAvatarClearedOnGitLab(t *testing.T) {
 	write := &fakeAchievementWriter{}
 
 	entries := []catalog.Entry{
-		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/committer_i.png"},
+		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/commit.png"},
 	}
 
 	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {

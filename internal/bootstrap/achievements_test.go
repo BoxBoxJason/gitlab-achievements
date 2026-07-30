@@ -317,7 +317,7 @@ func TestCreateAchievement_UploadsAvatarWhenConfigured(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
-	entry := catalog.Entry{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "desc", AvatarPath: "assets/committer_i.png"}
+	entry := catalog.Entry{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "desc", AvatarPath: "assets/commit.png"}
 	if err := createAchievement(t.Context(), write, conn, 42, entry); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 	}
 
 	withAvatar := []catalog.Entry{
-		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/committer_i.png"},
+		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/commit.png"},
 	}
 
 	report, err := syncAchievements(t.Context(), write, conn, 42, withAvatar)
@@ -383,7 +383,7 @@ func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 		t.Fatalf("failed to load persisted definition: %v", err)
 	}
 
-	if def.AvatarPath != "assets/committer_i.png" {
+	if def.AvatarPath != "assets/commit.png" {
 		t.Errorf("expected persisted AvatarPath to be updated, got %q", def.AvatarPath)
 	}
 }

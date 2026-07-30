@@ -145,3 +145,40 @@ func TestSyncState_UniqueKey(t *testing.T) {
 		t.Fatalf("expected a unique constraint error, got: %v", err)
 	}
 }
+
+func TestActivityDay_UniqueUserDate(t *testing.T) {
+	conn := migratedTestDB(t)
+
+	user := &db.User{GitLabUserID: 7, Username: "erin"}
+	if err := conn.Create(user).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	first := &db.ActivityDay{UserID: user.ID, Date: "2024-05-03", NightOwl: true}
+	if err := conn.Create(first).Error; err != nil {
+		t.Fatalf("failed to create first activity day: %v", err)
+	}
+
+	second := &db.ActivityDay{UserID: user.ID, Date: "2024-05-03"}
+
+	err := conn.Create(second).Error
+	if !isUniqueConstraintErr(err) {
+		t.Fatalf("expected a unique constraint error, got: %v", err)
+	}
+}
+
+func TestActivityDay_SamePairDifferentUsers(t *testing.T) {
+	conn := migratedTestDB(t)
+
+	for i, username := range []string{"frank", "grace"} {
+		user := &db.User{GitLabUserID: int64(100 + i), Username: username}
+		if err := conn.Create(user).Error; err != nil {
+			t.Fatalf("failed to create user: %v", err)
+		}
+
+		day := &db.ActivityDay{UserID: user.ID, Date: "2024-05-03"}
+		if err := conn.Create(day).Error; err != nil {
+			t.Fatalf("expected each user to have their own day rows, got: %v", err)
+		}
+	}
+}

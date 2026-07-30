@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -81,20 +82,30 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 	}
 
 	bindFlags(rootCmd, cfg)
+	rootCmd.AddCommand(buildBackfillCmd(cfg))
 
 	return rootCmd
 }
 
+// bindFlags registers the configuration flags as persistent ones so that
+// subcommands (which run the same startup sequence against the same
+// instance) are configured identically to the server, from one set of flags
+// and environment variables.
 func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
-	rootCmd.Flags().StringVar(&cfg.GitLabURL, "gitlab-url", os.Getenv("GITLAB_URL"), "Base URL of the GitLab instance")
-	rootCmd.Flags().StringVar(&cfg.GitLabReadToken, "gitlab-read-token", os.Getenv("GITLAB_READ_TOKEN"), "Read-only GitLab token (read_api scope)")
-	rootCmd.Flags().StringVar(&cfg.GitLabWriteToken, "gitlab-write-token", os.Getenv("GITLAB_WRITE_TOKEN"), "Write-capable GitLab token (api scope), scoped down by role")
-	rootCmd.Flags().StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
-	rootCmd.Flags().StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
-	rootCmd.Flags().StringVar(&cfg.WebhookSecret, "webhook-secret", os.Getenv("WEBHOOK_SECRET"), "Secret token used to validate incoming GitLab webhook deliveries")
-	rootCmd.Flags().StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register the GitLab system hook")
-	rootCmd.Flags().StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
-	rootCmd.Flags().StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
+	flags := rootCmd.PersistentFlags()
+
+	flags.StringVar(&cfg.GitLabURL, "gitlab-url", os.Getenv("GITLAB_URL"), "Base URL of the GitLab instance")
+	flags.StringVar(&cfg.GitLabReadToken, "gitlab-read-token", os.Getenv("GITLAB_READ_TOKEN"), "Read-only GitLab token (read_api scope)")
+	flags.StringVar(&cfg.GitLabWriteToken, "gitlab-write-token", os.Getenv("GITLAB_WRITE_TOKEN"), "Write-capable GitLab token (api scope), scoped down by role")
+	flags.StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
+	flags.StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
+	flags.StringVar(&cfg.WebhookSecret, "webhook-secret", os.Getenv("WEBHOOK_SECRET"), "Secret token used to validate incoming GitLab webhook deliveries")
+	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register the GitLab system hook")
+	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
+	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
+	flags.StringVar(&cfg.BackfillMode, "backfill", envOrDefault("BACKFILL", string(config.DefaultBackfillMode)), "Whether the server walks the instance's history itself (auto, off, force)")
+	flags.StringVar(&cfg.BackfillSince, "backfill-since", os.Getenv("BACKFILL_SINCE"), "How far back the historical backfill reaches, as a date (2006-01-02) or duration (720h); empty walks everything")
+	flags.Float64Var(&cfg.BackfillRate, "backfill-rate", envFloatOrDefault("BACKFILL_RATE", config.DefaultBackfillRate), "Requests per second the historical backfill is allowed to issue")
 }
 
 func envOrDefault(key, fallback string) string {
@@ -103,6 +114,20 @@ func envOrDefault(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+// envFloatOrDefault reads a numeric environment variable, falling back to
+// fallback when it is unset or unparseable. An unparseable value is not an
+// error here: Validate reports the resulting configuration problem with the
+// flag's name attached, which is more use to an operator than a parse error
+// naming only the variable.
+func envFloatOrDefault(key string, fallback float64) float64 {
+	parsed, err := strconv.ParseFloat(os.Getenv(key), 64)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }
 
 func run(cfg *config.Config) error {
@@ -195,7 +220,7 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 		zap.Int64("webhook_id", report.Webhook.HookID),
 		zap.Bool("webhook_created", report.Webhook.Created),
 	)
-	logger.Warn("gitlab-achievements does not implement backfill or event ingestion yet: bootstrap only")
+	logger.Warn("gitlab-achievements does not implement webhook event ingestion yet: bootstrap and backfill only")
 
 	return readClient, writeClient, report, nil
 }
@@ -247,6 +272,7 @@ func serve(
 	httpSrv := newHTTPServer(cfg, sqlDB, readClient, logger)
 
 	startReconciliationLoops(ctx, cfg, conn, writeClient, report.NamespaceID, webhookURL, logger)
+	startBackfill(ctx, cfg, conn, writeClient, logger)
 
 	serveErr := make(chan error, 1)
 
