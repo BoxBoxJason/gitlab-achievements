@@ -1,6 +1,5 @@
 // Package httpserver exposes this app's HTTP surface: health and readiness
-// probes for now. Webhook ingestion (see the webhook event ingestion issue)
-// mounts its handler on WebhookPath once implemented.
+// probes, and the endpoint GitLab's webhooks deliver events to.
 package httpserver
 
 import (
@@ -10,10 +9,10 @@ import (
 	"sync/atomic"
 )
 
-// WebhookPath is the path GitLab's system hook delivers events to.
-// Bootstrap registers the hook against this path; the receiving handler
-// itself is added by the webhook ingestion feature.
-const WebhookPath = "/webhooks/system"
+// WebhookPath is the path GitLab's webhooks deliver events to. Bootstrap
+// registers every hook against this path, and MountWebhook attaches the
+// handler that receives them.
+const WebhookPath = "/webhooks/gitlab"
 
 // Checker reports whether a dependency is currently reachable.
 type Checker func(ctx context.Context) error
@@ -61,6 +60,17 @@ func New(dbCheck, gitlabCheck Checker, logError ErrorLogger) *Server {
 // to call concurrently with requests being served.
 func (s *Server) SetReady(ready bool) {
 	s.ready.Store(ready)
+}
+
+// MountWebhook attaches the handler receiving GitLab's deliveries at
+// WebhookPath. It must be called before Handler, and at most once.
+//
+// Only POST is routed: GitLab delivers webhooks with POST, so anything else
+// reaching this path is a misconfiguration or a probe, and answering it 405
+// is more informative than handing it to a handler that would reject it on
+// the missing token instead.
+func (s *Server) MountWebhook(handler http.Handler) {
+	s.mux.Handle("POST "+WebhookPath, handler)
 }
 
 // Handler returns the server's routes, ready to be passed to http.Server.

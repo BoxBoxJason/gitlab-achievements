@@ -116,6 +116,36 @@ type ProcessedEvent struct {
 	ID          int64  `gorm:"primarykey"`
 }
 
+// HookScope names the kind of GitLab object a RegisteredHook is attached to.
+type HookScope string
+
+const (
+	// HookScopeGroup is a webhook registered on a top-level group, covering
+	// every project in that group and its subgroups. Requires Premium.
+	HookScopeGroup HookScope = "group"
+	// HookScopeProject is a webhook registered on a single project, used on
+	// instances where group webhooks are unavailable.
+	HookScopeProject HookScope = "project"
+)
+
+// RegisteredHook records a webhook this app registered on GitLab, so the
+// periodic reconciliation can re-check it with a direct lookup by ID
+// instead of listing every hook on every group or project.
+//
+// TargetID is the group or project the hook is attached to, and is unique
+// per scope: this app registers at most one hook per target. The row is
+// written only once the hook exists on GitLab, so a row that is present but
+// whose hook 404s means the hook was deleted out of band and should be
+// recreated.
+type RegisteredHook struct {
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Scope     HookScope `gorm:"not null;index:idx_scope_target,unique"`
+	ID        int64     `gorm:"primarykey"`
+	TargetID  int64     `gorm:"not null;index:idx_scope_target,unique"`
+	HookID    int64     `gorm:"not null"`
+}
+
 // SyncState stores backfill cursors and reconciliation watermarks, keyed by
 // an arbitrary caller-defined key (for example a criteria key or job name).
 type SyncState struct {

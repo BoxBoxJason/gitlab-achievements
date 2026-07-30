@@ -2,7 +2,7 @@
 // decision in this app is made from.
 //
 // GitLab exposes the same underlying activity through several differently
-// shaped APIs: a project's Events API during backfill, system hook payloads
+// shaped APIs: a project's Events API during backfill, webhook payloads
 // during live ingestion, and resource-specific endpoints (pipelines) for
 // what neither of those covers. Normalizing all of them into a single Event
 // type is what lets historical and live activity share one evaluation code

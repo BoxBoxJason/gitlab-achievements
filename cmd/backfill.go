@@ -85,7 +85,11 @@ func runBackfill(cfg *config.Config) error {
 		return err
 	}
 
-	return executeBackfill(ctx, cfg, conn, writeClient, logger, forceBackfill(cfg))
+	// No ceiling: a one-off walk is not running alongside this process's own
+	// event ingestion, so there is no live path for it to overlap with. If a
+	// serving instance is ingesting at the same time, the activity they both
+	// see is the little that happens during the walk itself.
+	return executeBackfill(ctx, cfg, conn, writeClient, time.Time{}, logger, forceBackfill(cfg))
 }
 
 // startBackfill runs the historical walk in the background of the serving
@@ -96,7 +100,7 @@ func runBackfill(cfg *config.Config) error {
 // failing readiness probes and rejecting the webhook deliveries that are
 // the app's actual job. A failure is logged rather than fatal, because the
 // walk persists its cursor as it goes: the next start resumes it.
-func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, logger *zap.Logger) {
+func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, liveFrom time.Time, logger *zap.Logger) {
 	if config.BackfillMode(cfg.BackfillMode) == config.BackfillModeOff {
 		logger.Info("historical backfill disabled, expecting an explicit `gitlab-achievements backfill` run instead")
 
@@ -104,7 +108,7 @@ func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, write
 	}
 
 	go func() {
-		err := executeBackfill(ctx, cfg, conn, writeClient, logger, forceBackfill(cfg))
+		err := executeBackfill(ctx, cfg, conn, writeClient, liveFrom, logger, forceBackfill(cfg))
 		if err != nil && ctx.Err() == nil {
 			logger.Error("historical backfill failed, its progress is saved and it resumes on the next start", zap.Error(err))
 		}
@@ -123,6 +127,7 @@ func executeBackfill(
 	cfg *config.Config,
 	conn *gorm.DB,
 	writeClient *gitlabclient.WriteClient,
+	until time.Time,
 	logger *zap.Logger,
 	force bool,
 ) error {
@@ -150,6 +155,7 @@ func executeBackfill(
 
 	report, err := backfill.Run(ctx, readClient, conn, achievements, backfill.Options{
 		Since:  since,
+		Until:  until,
 		Logger: logger,
 		Force:  force,
 	})
@@ -165,7 +171,14 @@ func executeBackfill(
 		return nil
 	}
 
-	stats := achievements.Stats()
+	logBackfillReport(report, achievements.Stats(), logger)
+
+	return deliverBackfilledAwards(ctx, writeClient, conn, logger)
+}
+
+// logBackfillReport records what the walk covered and what it earned, in
+// one place so the walk's own function stays about running it.
+func logBackfillReport(report *backfill.Report, stats engine.Stats, logger *zap.Logger) {
 	logger.Info("historical backfill complete",
 		zap.Bool("resumed", report.Resumed),
 		zap.Int("projects", report.Projects),
@@ -176,8 +189,6 @@ func executeBackfill(
 		zap.Int64("activity_skipped", stats.Skipped),
 		zap.Int64("achievements_earned", stats.Awarded),
 	)
-
-	return deliverBackfilledAwards(ctx, writeClient, conn, logger)
 }
 
 // deliverBackfilledAwards pushes the awards the walk recorded locally to

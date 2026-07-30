@@ -20,6 +20,16 @@ const (
 	// with no deadline, and the instance it reads from is someone's
 	// production GitLab.
 	DefaultBackfillRate = 5.0
+	// DefaultHookRate is the request-per-second cap the webhook
+	// registration sweep works at when none is configured.
+	//
+	// The sweep is the app's other instance-sized workload: on a tier
+	// without group hooks it touches every project there is, and it repeats
+	// hourly for as long as the app runs. It is capped higher than the
+	// backfill, which has no deadline at all, but still well under what
+	// GitLab would allow, so a sweep never crowds out the API traffic the
+	// instance exists to serve.
+	DefaultHookRate = 20.0
 	// backfillSinceDateLayout is the calendar-date form --backfill-since
 	// accepts, alongside a Go duration.
 	backfillSinceDateLayout = "2006-01-02"
@@ -47,6 +57,27 @@ const (
 	DefaultBackfillMode = BackfillModeAuto
 )
 
+// HookScope selects which kind of webhook this app registers to receive
+// live activity.
+type HookScope string
+
+const (
+	// HookScopeAuto picks the strategy from the instance's license: group
+	// hooks where they are available (Premium/Ultimate), project hooks
+	// otherwise. It is the default.
+	HookScopeAuto HookScope = "auto"
+	// HookScopeGroup registers one webhook per top-level group, each
+	// covering every project in that group and its subgroups. Far fewer
+	// hooks to register and heal, but group webhooks are a paid-tier
+	// feature, so this fails on Free/CE instances.
+	HookScopeGroup HookScope = "group"
+	// HookScopeProject registers one webhook per project. Works on every
+	// tier, at the cost of a hook per project to register and reconcile.
+	HookScopeProject HookScope = "project"
+	// DefaultHookScope is used when no scope is configured.
+	DefaultHookScope = HookScopeAuto
+)
+
 // Config holds the application's runtime configuration.
 //
 // GitLabReadToken and GitLabWriteToken are deliberately kept as two separate
@@ -62,11 +93,15 @@ type Config struct {
 	DatabaseDSN           string
 	WebhookSecret         string
 	// PublicURL is the externally reachable base URL this app is deployed
-	// at, used to build the system hook URL registered with GitLab on
+	// at, used to build the webhook URL registered with GitLab on
 	// bootstrap (see the README's "how it works" section).
 	PublicURL  string
 	ListenAddr string
 	LogLevel   string
+	// HookScope selects which kind of webhook is registered to feed live
+	// event ingestion; see HookScope's constants. The default resolves it
+	// from the instance's license.
+	HookScope string
 	// BackfillMode selects whether the serving process walks the
 	// instance's history itself; see BackfillMode's constants.
 	BackfillMode string
@@ -78,6 +113,11 @@ type Config struct {
 	// so the heaviest read workload this app runs leaves headroom for
 	// everything else using the instance's API.
 	BackfillRate float64
+	// HookRate caps how many targets per second the webhook registration
+	// sweep works through, for the same reason BackfillRate exists: the
+	// sweep is proportional to the size of the instance and repeats for as
+	// long as the app runs.
+	HookRate float64
 }
 
 // Validate checks that the configuration is complete and well-formed. It
@@ -109,6 +149,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("gitlab-read-token and gitlab-write-token must not be the same credential"))
 	}
 
+	errs = append(errs, c.validateHookScope()...)
 	errs = append(errs, c.validateBackfill()...)
 
 	return errors.Join(errs...)
@@ -145,6 +186,25 @@ func (c *Config) ParseBackfillSince() (time.Time, error) {
 	}
 
 	return time.Now().UTC().Add(-window), nil
+}
+
+// validateHookScope checks the webhook strategy, so an unknown value is
+// caught at startup rather than at the point the sweep would have used it.
+func (c *Config) validateHookScope() []error {
+	var errs []error
+
+	switch HookScope(c.HookScope) {
+	case HookScopeAuto, HookScopeGroup, HookScopeProject:
+	default:
+		errs = append(errs, fmt.Errorf("hook-scope must be one of %q, %q, or %q, got %q",
+			HookScopeAuto, HookScopeGroup, HookScopeProject, c.HookScope))
+	}
+
+	if c.HookRate <= 0 {
+		errs = append(errs, fmt.Errorf("hook-rate must be greater than 0, got %v", c.HookRate))
+	}
+
+	return errs
 }
 
 // validateBackfill checks the backfill knobs, so a misconfigured look-back
@@ -185,6 +245,14 @@ func (c *Config) applyDefaults() {
 		c.BackfillMode = string(DefaultBackfillMode)
 	}
 
+	if strings.TrimSpace(c.HookScope) == "" {
+		c.HookScope = string(DefaultHookScope)
+	}
+
+	if c.HookRate == 0 {
+		c.HookRate = DefaultHookRate
+	}
+
 	if c.BackfillRate == 0 {
 		c.BackfillRate = DefaultBackfillRate
 	}
@@ -192,7 +260,7 @@ func (c *Config) applyDefaults() {
 	// Trailing slashes are stripped so callers can safely build URLs by
 	// concatenating PublicURL with a leading-slash path (e.g. the webhook
 	// path) without risking a double slash, which would break the URL
-	// match used to detect an already-registered system hook.
+	// match used to adopt an already-registered hook.
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 }
 

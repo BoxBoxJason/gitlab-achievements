@@ -150,6 +150,24 @@ func TestValidate_AppliesBackfillDefaults(t *testing.T) {
 	if cfg.BackfillRate != DefaultBackfillRate {
 		t.Errorf("expected default backfill rate %v, got %v", DefaultBackfillRate, cfg.BackfillRate)
 	}
+
+	if cfg.HookRate != DefaultHookRate {
+		t.Errorf("expected default hook rate %v, got %v", DefaultHookRate, cfg.HookRate)
+	}
+}
+
+func TestValidate_HookRateMustBePositive(t *testing.T) {
+	cfg := validConfig()
+	cfg.HookRate = -1
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an error for a non-positive rate, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "hook-rate must be greater than 0") {
+		t.Errorf("expected error to mention the rate, got: %v", err)
+	}
 }
 
 func TestValidate_BackfillMode(t *testing.T) {
@@ -281,5 +299,43 @@ func TestValidate_ReportsAnUnreadableBackfillWindow(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "backfill-since must be a date") {
 		t.Errorf("expected error to explain the accepted formats, got: %v", err)
+	}
+}
+
+func TestValidate_RejectsAnUnknownHookScope(t *testing.T) {
+	cfg := validConfig()
+	cfg.HookScope = "everything"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an unknown hook scope to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "hook-scope") {
+		t.Errorf("expected the error to name the flag, got: %v", err)
+	}
+}
+
+func TestValidate_AcceptsEveryHookScope(t *testing.T) {
+	for _, scope := range []HookScope{HookScopeAuto, HookScopeGroup, HookScopeProject} {
+		cfg := validConfig()
+		cfg.HookScope = string(scope)
+
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("scope %q: expected no error, got: %v", scope, err)
+		}
+	}
+}
+
+func TestValidate_DefaultsHookScopeToAuto(t *testing.T) {
+	cfg := validConfig()
+	cfg.HookScope = ""
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.HookScope != string(HookScopeAuto) {
+		t.Errorf("expected the scope to default to resolving from the license, got %q", cfg.HookScope)
 	}
 }

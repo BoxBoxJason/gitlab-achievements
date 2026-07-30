@@ -73,6 +73,28 @@ type Options struct {
 	// server-side filter, so a bounded window costs proportionally fewer
 	// requests rather than fetching everything and discarding the excess.
 	Since time.Time
+	// Until bounds how recent the walk reaches, and is what keeps history
+	// and live ingestion from both counting the same activity.
+	//
+	// The two paths observe the same activity through different APIs and
+	// can only agree on a dedup key where GitLab gives them a shared
+	// identifier, which it does for pipelines and not for pushes, merge
+	// requests, issues, or notes. Rather than reconcile keys that don't
+	// exist, the two are given disjoint windows: callers set this to the
+	// moment live ingestion started, so anything after it belongs to the
+	// webhooks and anything before it to the walk.
+	//
+	// One ceiling cannot fit every hook, because hooks begin delivering as
+	// the registration sweep reaches them rather than all at once. Set
+	// before the sweep, this leaves a window covered by neither path; set
+	// after, it would be covered by both. Callers are expected to prefer
+	// the former: activity the walk missed can be recovered later, whereas
+	// a counter inflated by double-counting cannot be undone, since GitLab
+	// awards are never revoked.
+	//
+	// The zero value imposes no ceiling, which is what a one-off `backfill`
+	// invocation on an instance not yet serving wants.
+	Until time.Time
 	// Logger receives progress and per-project skip reporting. A run this
 	// long is otherwise invisible while it happens. May be nil.
 	Logger *zap.Logger
@@ -204,6 +226,16 @@ func (r *runner) walkProjects(ctx context.Context) error {
 			return fmt.Errorf("failed to list projects: %w", err)
 		}
 
+		// Skipped for the same reason the webhook sweep registers no hook
+		// on them, and deliberately via the same predicate: walking a
+		// project live ingestion cannot reach would award achievements for
+		// activity that stops counting the moment this run finishes.
+		if !gitlabclient.ProjectOwnedByGroup(project) {
+			r.report.ProjectsSkipped++
+
+			continue
+		}
+
 		err = r.walkProject(ctx, project.ID)
 		if err != nil {
 			return err
@@ -293,6 +325,10 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 			return fmt.Errorf("failed to list events for project %d: %w", projectID, err)
 		}
 
+		if r.afterCeiling(parseEventTime(event.CreatedAt)) {
+			continue
+		}
+
 		processErr := r.process(ctx, normalizeProjectEvent(event))
 		if processErr != nil {
 			return processErr
@@ -353,6 +389,13 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 			continue
 		}
 
+		// Checked before fetching the pipeline's detail, which is a request
+		// of its own: the listing already carries enough to know the walk
+		// isn't responsible for this one.
+		if r.afterCeiling(timeOrZero(info.CreatedAt)) {
+			continue
+		}
+
 		processErr := r.processPipeline(ctx, projectID, info.ID)
 		if processErr != nil {
 			return processErr
@@ -390,6 +433,20 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 	r.report.Pipelines++
 
 	return nil
+}
+
+// afterCeiling reports whether an activity happened at or after the point
+// where live ingestion takes over, and so is not this walk's to count.
+//
+// An unparseable or missing timestamp is treated as below the ceiling: the
+// walk is reading history, and dropping a record whose date GitLab didn't
+// give us would lose it from both paths rather than one.
+func (r *runner) afterCeiling(occurredAt time.Time) bool {
+	if r.opts.Until.IsZero() || occurredAt.IsZero() {
+		return false
+	}
+
+	return !occurredAt.Before(r.opts.Until)
 }
 
 // process hands normalized activity to the achievement engine.
