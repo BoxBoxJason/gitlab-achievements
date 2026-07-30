@@ -47,6 +47,37 @@ type ProgressCounter struct {
 	Count       int64  `gorm:"not null;default:0"`
 }
 
+// ActivityDay records that a user was active on one calendar day, and
+// whether that day's activity fell in a notable part of the clock.
+//
+// Criteria like "active on N separate days", "N days in a row", and the
+// night-owl/early-bird ones can't be answered by a running total, because
+// the same day must count once however many events land on it, and a
+// streak depends on which days neighbor which. Recording the days
+// themselves and deriving those counters from the set keeps the answer
+// independent of the order events arrive in, which matters because the
+// historical backfill walks project by project rather than in date order,
+// and may resume mid-walk.
+//
+// Date is stored as a YYYY-MM-DD string rather than a date column: it
+// behaves identically across all four supported DBMSs, sorts
+// lexicographically in calendar order, and is compared as an exact value
+// rather than an instant, which is what "the same day" means here.
+type ActivityDay struct {
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Date      string `gorm:"not null;index:idx_user_date,unique"`
+	User      User   `gorm:"constraint:OnDelete:CASCADE"`
+	ID        int64  `gorm:"primarykey"`
+	UserID    int64  `gorm:"not null;index:idx_user_date,unique"`
+	// NightOwl records that some of the day's activity happened in the
+	// small hours, EarlyBird that some of it happened before the working
+	// day. Both are latched on: a day that was ever a night-owl day stays
+	// one, whatever else the user did later that day.
+	NightOwl  bool `gorm:"not null;default:false"`
+	EarlyBird bool `gorm:"not null;default:false"`
+}
+
 // AwardStatus describes where an Award stands in the acceptance lifecycle
 // with GitLab's achievements API.
 type AwardStatus string

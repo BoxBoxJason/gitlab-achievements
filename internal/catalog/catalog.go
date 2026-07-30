@@ -1,5 +1,15 @@
 // Package catalog defines the achievement definitions this app maintains in
 // GitLab.
+//
+// The catalog is built from stacking templates ported from the VS Code
+// Achievements extension this project grew out of: one criteria, one
+// difficulty curve, and a run of tiers generated off it (Committer I, II,
+// III, ...). See Template and Curve for the shape and the pacing.
+//
+// What differs from the extension is what an achievement is. GitLab's
+// Achievements API has no notion of a tier, a level, or EXP, so every tier
+// is a separate GitLab achievement object, and the progression only exists
+// in this app's database and in the achievements' names.
 package catalog
 
 import (
@@ -10,6 +20,36 @@ import (
 
 //go:embed assets/*.png
 var avatarAssets embed.FS
+
+// The criteria keys the catalog is written against: the shared vocabulary
+// tying a normalized activity kind (see internal/activity) to the counter
+// its occurrences accumulate in, and to the tiers earned off that counter.
+//
+// These are the subset of the VS Code extension's criteria a GitLab server
+// can observe. Editor-local ones (lines of code, files created, tabs,
+// extensions, debugger sessions, time spent) have no server-side
+// equivalent and are deliberately absent; see templates for the two git
+// criteria that are missing for subtler reasons.
+const (
+	CriteriaCommits               = "commits"
+	CriteriaPushes                = "pushes"
+	CriteriaBranchesCreated       = "branches_created"
+	CriteriaTagsCreated           = "tags_created"
+	CriteriaMergeRequestsOpened   = "merge_requests_opened"
+	CriteriaMergeRequestsMerged   = "merge_requests_merged"
+	CriteriaMergeRequestsApproved = "merge_requests_approved"
+	CriteriaMergeRequestsClosed   = "merge_requests_closed"
+	CriteriaComments              = "comments"
+	CriteriaIssuesOpened          = "issues_opened"
+	CriteriaIssuesClosed          = "issues_closed"
+	CriteriaPipelinesRun          = "pipelines_run"
+	CriteriaPipelinesSucceeded    = "pipelines_succeeded"
+	CriteriaPipelinesFailed       = "pipelines_failed"
+	CriteriaActiveDays            = "active_days"
+	CriteriaActivityStreak        = "activity_streak"
+	CriteriaNightOwlDays          = "night_owl_days"
+	CriteriaEarlyBirdDays         = "early_bird_days"
+)
 
 // Entry describes one tier of one achievement criteria: what GitLab shows
 // (Name, Description, avatar) and the local progress threshold (Tier,
@@ -40,24 +80,20 @@ func (e Entry) Avatar() (fs.File, error) {
 	return f, nil
 }
 
-const (
-	tier1 = 1
-	tier2 = 2
-
-	committerIThreshold  = 10
-	committerIIThreshold = 100
-	mrOpenerIThreshold   = 10
-)
-
-// V1 returns a placeholder catalog: a couple of tiered achievements, enough
-// to exercise bootstrap's create/update reconciliation end to end. It is
-// not the final v1 catalog, see the achievement catalog issue, which will
-// replace this with the full set (git activity, merge requests, code
-// review, issues, CI/CD, engagement streaks).
+// V1 returns every achievement the app maintains, one Entry per tier of
+// per criteria.
+//
+// It is generated from the templates rather than written out by hand, so
+// adding a criteria means adding one template and adjusting nothing else,
+// and the whole set stays on the same difficulty pacing. Bootstrap
+// reconciles the result idempotently, so the size of the catalog costs a
+// burst of GraphQL calls on the very first run and nothing thereafter.
 func V1() []Entry {
-	return []Entry{
-		{CriteriaKey: "commits", Tier: tier1, Threshold: committerIThreshold, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/committer_i.png"},
-		{CriteriaKey: "commits", Tier: tier2, Threshold: committerIIThreshold, Name: "Committer II", Description: "Made 100 commits.", AvatarPath: "assets/committer_ii.png"},
-		{CriteriaKey: "merge_requests_opened", Tier: tier1, Threshold: mrOpenerIThreshold, Name: "Merge Request Opener I", Description: "Opened 10 merge requests.", AvatarPath: "assets/mr_opener_i.png"},
+	entries := make([]Entry, 0, len(templates)*(maxTier+1))
+
+	for _, template := range templates {
+		entries = append(entries, template.Expand()...)
 	}
+
+	return entries
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func validConfig() *Config {
@@ -132,5 +133,153 @@ func TestValidate_AggregatesAllErrors(t *testing.T) {
 		if !strings.Contains(err.Error(), f.name+" is required") {
 			t.Errorf("expected aggregated error to mention %q, got: %v", f.name, err)
 		}
+	}
+}
+
+func TestValidate_AppliesBackfillDefaults(t *testing.T) {
+	cfg := validConfig()
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.BackfillMode != string(DefaultBackfillMode) {
+		t.Errorf("expected default backfill mode %q, got %q", DefaultBackfillMode, cfg.BackfillMode)
+	}
+
+	if cfg.BackfillRate != DefaultBackfillRate {
+		t.Errorf("expected default backfill rate %v, got %v", DefaultBackfillRate, cfg.BackfillRate)
+	}
+}
+
+func TestValidate_BackfillMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{"auto", string(BackfillModeAuto), false},
+		{"off", string(BackfillModeOff), false},
+		{"force", string(BackfillModeForce), false},
+		{"unknown", "sometimes", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.BackfillMode = tc.mode
+
+			err := cfg.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			if tc.wantErr && !strings.Contains(err.Error(), "backfill must be one of") {
+				t.Errorf("expected error to name the accepted modes, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_BackfillRateMustBePositive(t *testing.T) {
+	cfg := validConfig()
+	cfg.BackfillRate = -1
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an error for a non-positive rate, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "backfill-rate must be greater than 0") {
+		t.Errorf("expected error to mention the rate, got: %v", err)
+	}
+}
+
+func TestParseBackfillSince(t *testing.T) {
+	tests := []struct {
+		name    string
+		since   string
+		wantErr bool
+		check   func(*testing.T, time.Time)
+	}{
+		{
+			name:  "empty walks the full history",
+			since: "",
+			check: func(t *testing.T, got time.Time) {
+				t.Helper()
+
+				if !got.IsZero() {
+					t.Errorf("expected the zero time, got %s", got)
+				}
+			},
+		},
+		{
+			name:  "calendar date",
+			since: "2024-01-15",
+			check: func(t *testing.T, got time.Time) {
+				t.Helper()
+
+				want := time.Date(2024, time.January, 15, 0, 0, 0, 0, time.UTC)
+				if !got.Equal(want) {
+					t.Errorf("expected %s, got %s", want, got)
+				}
+			},
+		},
+		{
+			name:  "duration counted back from now",
+			since: "24h",
+			check: func(t *testing.T, got time.Time) {
+				t.Helper()
+
+				elapsed := time.Since(got)
+				if elapsed < 23*time.Hour || elapsed > 25*time.Hour {
+					t.Errorf("expected roughly 24h ago, got %s", got)
+				}
+			},
+		},
+		{"garbage", "last tuesday", true, nil},
+		{"negative duration", "-24h", true, nil},
+		{"zero duration", "0s", true, nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.BackfillSince = tc.since
+
+			got, err := cfg.ParseBackfillSince()
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			tc.check(t, got)
+		})
+	}
+}
+
+func TestValidate_ReportsAnUnreadableBackfillWindow(t *testing.T) {
+	cfg := validConfig()
+	cfg.BackfillSince = "last tuesday"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "backfill-since must be a date") {
+		t.Errorf("expected error to explain the accepted formats, got: %v", err)
 	}
 }
