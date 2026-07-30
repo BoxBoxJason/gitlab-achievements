@@ -1,8 +1,10 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -25,7 +27,7 @@ type AwardsReport struct {
 // here on every reconciliation pass until it succeeds, with no retry cap or
 // backoff (consistent with reconciliation elsewhere in this package, which
 // just keeps healing drift on its next scheduled pass).
-func ReconcileAwards(write achievementWriter, conn *gorm.DB) (AwardsReport, error) {
+func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB) (AwardsReport, error) {
 	var report AwardsReport
 
 	var pending []db.Award
@@ -40,7 +42,7 @@ func ReconcileAwards(write achievementWriter, conn *gorm.DB) (AwardsReport, erro
 	}
 
 	for _, award := range pending {
-		confirmed, retryErr := retryAward(write, conn, &award)
+		confirmed, retryErr := retryAward(ctx, write, conn, &award)
 		if retryErr != nil {
 			return report, retryErr
 		}
@@ -60,8 +62,8 @@ func ReconcileAwards(write achievementWriter, conn *gorm.DB) (AwardsReport, erro
 // database error is returned to the caller; a rejected/failed GitLab call
 // is recorded as db.AwardStatusFailed and left for the next reconciliation
 // pass to retry.
-func retryAward(write achievementWriter, conn *gorm.DB, award *db.Award) (bool, error) {
-	_, awardErr := write.AwardAchievement(award.AchievementDefinition.GitLabAchievementID, award.User.GitLabUserID, nil)
+func retryAward(ctx context.Context, write achievementWriter, conn *gorm.DB, award *db.Award) (bool, error) {
+	_, awardErr := write.AwardAchievement(award.AchievementDefinition.GitLabAchievementID, award.User.GitLabUserID, nil, gitlab.WithContext(ctx))
 	if awardErr != nil {
 		award.Status = db.AwardStatusFailed
 	} else {

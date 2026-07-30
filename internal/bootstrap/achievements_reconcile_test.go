@@ -16,7 +16,7 @@ func TestReconcileAchievements_CreatesMissingEntries(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -34,14 +34,14 @@ func TestReconcileAchievements_UnchangedEntryIsNotTouched(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
 	// The achievement is still present on GitLab's side (write.achievements
 	// still has it) and nothing about the catalog entry changed, so this
 	// should be a no-op beyond the existence-listing call.
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestReconcileAchievements_UpdatesDriftedEntry(t *testing.T) {
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(write, conn, 42, original); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestReconcileAchievements_UpdatesDriftedEntry(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits. Renamed."},
 	}
 
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", changed)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", changed)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestReconcileAchievements_HealsDriftMadeDirectlyOnGitLab(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestReconcileAchievements_HealsDriftMadeDirectlyOnGitLab(t *testing.T) {
 	renamedDescription := "Edited outside the app."
 	live.Description = &renamedDescription
 
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestReconcileAchievements_ReuploadsAvatarClearedOnGitLab(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/committer_i.png"},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
@@ -158,7 +158,7 @@ func TestReconcileAchievements_ReuploadsAvatarClearedOnGitLab(t *testing.T) {
 	// AvatarURL now comes back nil even though the catalog expects one.
 	write.achievements[seeded.GitLabAchievementID].AvatarURL = nil
 
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestReconcileAchievements_RecreatesDeletedAchievement(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
@@ -197,7 +197,7 @@ func TestReconcileAchievements_RecreatesDeletedAchievement(t *testing.T) {
 	// longer shows up in ListAchievements.
 	delete(write.achievements, seeded.GitLabAchievementID)
 
-	report, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -235,13 +235,13 @@ func TestReconcileAchievements_PropagatesListError(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
 	write.listErr = errors.New("gitlab unavailable")
 
-	_, err := ReconcileAchievements(write, conn, 42, "achievements", entries)
+	_, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err == nil {
 		t.Fatal("expected an error when ListAchievements fails, got nil")
 	}
@@ -254,7 +254,7 @@ func TestReconcileAchievements_PropagatesUnexpectedUpdateError(t *testing.T) {
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(write, conn, 42, original); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
 		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
 	}
 
@@ -265,7 +265,7 @@ func TestReconcileAchievements_PropagatesUnexpectedUpdateError(t *testing.T) {
 	// A generic failure should be surfaced when pushing local drift.
 	write.updateErr = errors.New("500 internal server error")
 
-	_, err := ReconcileAchievements(write, conn, 42, "achievements", changed)
+	_, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", changed)
 	if err == nil {
 		t.Fatal("expected an error for a failed UpdateAchievement call, got nil")
 	}

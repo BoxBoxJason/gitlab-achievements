@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -21,16 +22,16 @@ import (
 // call over namespaceFullPath rather than one probe request per catalog
 // entry, so cost stays roughly constant as the catalog grows instead of
 // scaling with entry count.
-func ReconcileAchievements(write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string, entries []catalog.Entry) (AchievementsReport, error) {
+func ReconcileAchievements(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string, entries []catalog.Entry) (AchievementsReport, error) {
 	var report AchievementsReport
 
-	live, err := listAchievementsByID(write, namespaceFullPath)
+	live, err := listAchievementsByID(ctx, write, namespaceFullPath)
 	if err != nil {
 		return report, err
 	}
 
 	for _, entry := range entries {
-		entryErr := reconcileEntry(write, conn, namespaceID, live, entry, &report)
+		entryErr := reconcileEntry(ctx, write, conn, namespaceID, live, entry, &report)
 		if entryErr != nil {
 			return report, entryErr
 		}
@@ -43,14 +44,14 @@ func ReconcileAchievements(write achievementWriter, conn *gorm.DB, namespaceID i
 // (creating it if missing, recreating it if GitLab no longer has it, or
 // pushing drift found against GitLab's live record otherwise), tallying the
 // outcome into report.
-func reconcileEntry(write achievementWriter, conn *gorm.DB, namespaceID int64, live map[int64]*gitlab.Achievement, entry catalog.Entry, report *AchievementsReport) error {
+func reconcileEntry(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, live map[int64]*gitlab.Achievement, entry catalog.Entry, report *AchievementsReport) error {
 	var existing db.AchievementDefinition
 
 	lookupErr := conn.Where("criteria_key = ? AND tier = ?", entry.CriteriaKey, entry.Tier).First(&existing).Error
 
 	switch {
 	case errors.Is(lookupErr, gorm.ErrRecordNotFound):
-		createErr := createAchievement(write, conn, namespaceID, entry)
+		createErr := createAchievement(ctx, write, conn, namespaceID, entry)
 		if createErr != nil {
 			return createErr
 		}
@@ -61,7 +62,7 @@ func reconcileEntry(write achievementWriter, conn *gorm.DB, namespaceID int64, l
 	default:
 		liveAchievement, stillExists := live[existing.GitLabAchievementID]
 		if !stillExists {
-			recreateErr := recreateAchievement(write, conn, namespaceID, &existing, entry)
+			recreateErr := recreateAchievement(ctx, write, conn, namespaceID, &existing, entry)
 			if recreateErr != nil {
 				return recreateErr
 			}
@@ -71,7 +72,7 @@ func reconcileEntry(write achievementWriter, conn *gorm.DB, namespaceID int64, l
 			return nil
 		}
 
-		changed, err := reconcileAchievement(write, conn, liveAchievement, &existing, entry)
+		changed, err := reconcileAchievement(ctx, write, conn, liveAchievement, &existing, entry)
 		if err != nil {
 			return err
 		}
@@ -90,10 +91,10 @@ func reconcileEntry(write achievementWriter, conn *gorm.DB, namespaceID int64, l
 // recorded for namespaceFullPath, keyed by their ID, so reconcileEntry can
 // both check existence and compare each entry's current Name/Description
 // against the catalog in O(1) instead of one probe request per entry.
-func listAchievementsByID(write achievementWriter, namespaceFullPath string) (map[int64]*gitlab.Achievement, error) {
+func listAchievementsByID(ctx context.Context, write achievementWriter, namespaceFullPath string) (map[int64]*gitlab.Achievement, error) {
 	byID := make(map[int64]*gitlab.Achievement)
 
-	for achievement, err := range write.ListAchievements(namespaceFullPath, nil) {
+	for achievement, err := range write.ListAchievements(namespaceFullPath, nil, gitlab.WithContext(ctx)) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to list existing achievements in %q: %w", namespaceFullPath, err)
 		}
@@ -107,7 +108,7 @@ func listAchievementsByID(write achievementWriter, namespaceFullPath string) (ma
 // recreateAchievement creates a brand-new GitLab achievement for entry and
 // overwrites existing's row in place with the new ID, rather than inserting
 // a duplicate row.
-func recreateAchievement(write achievementWriter, conn *gorm.DB, namespaceID int64, existing *db.AchievementDefinition, entry catalog.Entry) error {
+func recreateAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, existing *db.AchievementDefinition, entry catalog.Entry) error {
 	avatar, closeAvatar, err := openAvatarUpload(entry)
 	if err != nil {
 		return err
@@ -118,7 +119,7 @@ func recreateAchievement(write achievementWriter, conn *gorm.DB, namespaceID int
 		Name:        &entry.Name,
 		Description: &entry.Description,
 		Avatar:      avatar,
-	})
+	}, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to recreate deleted achievement %q: %w", entry.Name, err)
 	}

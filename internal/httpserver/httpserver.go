@@ -18,6 +18,13 @@ const WebhookPath = "/webhooks/system"
 // Checker reports whether a dependency is currently reachable.
 type Checker func(ctx context.Context) error
 
+// ErrorLogger receives the full detail of a failed readiness check, so it
+// can be logged server-side instead of exposed in the /readyz response
+// body (which may be reachable outside the cluster and shouldn't leak
+// driver/network internals). It is safe to pass nil, in which case failed
+// checks are simply not logged.
+type ErrorLogger func(reason string, err error)
+
 // Server serves this app's health and readiness endpoints.
 //
 // Readiness starts false: callers must call SetReady(true) once bootstrap
@@ -28,17 +35,20 @@ type Server struct {
 	mux         *http.ServeMux
 	dbCheck     Checker
 	gitlabCheck Checker
+	logError    ErrorLogger
 	ready       atomic.Bool
 }
 
 // New builds a Server. dbCheck and gitlabCheck are consulted on every
 // /readyz request to confirm those dependencies are reachable right now,
-// not just at some point in the past.
-func New(dbCheck, gitlabCheck Checker) *Server {
+// not just at some point in the past. logError, which may be nil, receives
+// the full error behind a failed check for server-side logging.
+func New(dbCheck, gitlabCheck Checker, logError ErrorLogger) *Server {
 	srv := &Server{
 		mux:         http.NewServeMux(),
 		dbCheck:     dbCheck,
 		gitlabCheck: gitlabCheck,
+		logError:    logError,
 	}
 
 	srv.mux.HandleFunc("GET /healthz", srv.handleHealthz)
@@ -79,19 +89,29 @@ func (s *Server) handleReadyz(resp http.ResponseWriter, req *http.Request) {
 
 	dbErr := s.dbCheck(ctx)
 	if dbErr != nil {
-		writeUnready(resp, fmt.Sprintf("database unreachable: %v", dbErr))
+		s.logCheckFailure("database unreachable", dbErr)
+		writeUnready(resp, "database unreachable")
 
 		return
 	}
 
 	gitlabErr := s.gitlabCheck(ctx)
 	if gitlabErr != nil {
-		writeUnready(resp, fmt.Sprintf("gitlab unreachable: %v", gitlabErr))
+		s.logCheckFailure("gitlab unreachable", gitlabErr)
+		writeUnready(resp, "gitlab unreachable")
 
 		return
 	}
 
 	resp.WriteHeader(http.StatusOK)
+}
+
+// logCheckFailure reports a failed readiness check's full error to
+// s.logError, a no-op if the server was built without one.
+func (s *Server) logCheckFailure(reason string, err error) {
+	if s.logError != nil {
+		s.logError(reason, err)
+	}
 }
 
 func writeUnready(w http.ResponseWriter, reason string) {

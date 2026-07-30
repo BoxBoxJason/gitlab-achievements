@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -40,8 +41,8 @@ type WebhookReport struct {
 // performs at bootstrap. It is safe to call repeatedly, e.g. from a
 // periodic job, to heal a system hook that was altered or deleted after
 // bootstrap ran.
-func ReconcileWebhook(write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
-	return syncSystemHook(write, conn, webhookURL, secret)
+func ReconcileWebhook(ctx context.Context, write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
+	return syncSystemHook(ctx, write, conn, webhookURL, secret)
 }
 
 // syncSystemHook idempotently registers the system hook this app ingests
@@ -65,14 +66,14 @@ func ReconcileWebhook(write hookManager, conn *gorm.DB, webhookURL, secret strin
 // A transient error from GetSystemHook (network, permissions) is returned
 // as-is rather than treated as "deleted", to avoid creating a duplicate
 // hook on every hiccup.
-func syncSystemHook(write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
+func syncSystemHook(ctx context.Context, write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
 	storedID, found, err := loadWebhookID(conn)
 	if err != nil {
 		return WebhookReport{}, err
 	}
 
 	if found {
-		report, ok, err := reuseStoredHook(write, storedID, webhookURL, secret)
+		report, ok, err := reuseStoredHook(ctx, write, storedID, webhookURL, secret)
 		if err != nil {
 			return WebhookReport{}, err
 		}
@@ -82,18 +83,18 @@ func syncSystemHook(write hookManager, conn *gorm.DB, webhookURL, secret string)
 		}
 	}
 
-	return recoverSystemHook(write, conn, webhookURL, secret)
+	return recoverSystemHook(ctx, write, conn, webhookURL, secret)
 }
 
 // reuseStoredHook attempts to reconcile the hook identified by storedID. The
 // second return value is false only when the hook was confirmed deleted
 // (404), signaling the caller should fall back to recoverSystemHook.
-func reuseStoredHook(write hookManager, storedID int64, webhookURL, secret string) (WebhookReport, bool, error) {
-	_, err := write.GetSystemHook(storedID)
+func reuseStoredHook(ctx context.Context, write hookManager, storedID int64, webhookURL, secret string) (WebhookReport, bool, error) {
+	_, err := write.GetSystemHook(storedID, gitlab.WithContext(ctx))
 
 	switch {
 	case err == nil:
-		edited, editErr := write.EditSystemHook(storedID, editHookOptions(webhookURL, secret))
+		edited, editErr := write.EditSystemHook(storedID, editHookOptions(webhookURL, secret), gitlab.WithContext(ctx))
 		if editErr != nil {
 			return WebhookReport{}, false, fmt.Errorf("failed to update existing system hook %d: %w", storedID, editErr)
 		}
@@ -109,8 +110,8 @@ func reuseStoredHook(write hookManager, storedID int64, webhookURL, secret strin
 // recoverSystemHook is the fallback path used when no hook ID is stored yet
 // or the stored one was confirmed deleted: it scans existing hooks by URL
 // before registering a new one, then persists whichever ID it lands on.
-func recoverSystemHook(write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
-	hooks, err := write.ListSystemHooks()
+func recoverSystemHook(ctx context.Context, write hookManager, conn *gorm.DB, webhookURL, secret string) (WebhookReport, error) {
+	hooks, err := write.ListSystemHooks(gitlab.WithContext(ctx))
 	if err != nil {
 		return WebhookReport{}, fmt.Errorf("failed to list system hooks: %w", err)
 	}
@@ -120,7 +121,7 @@ func recoverSystemHook(write hookManager, conn *gorm.DB, webhookURL, secret stri
 			continue
 		}
 
-		edited, editErr := write.EditSystemHook(existingHook.ID, editHookOptions(webhookURL, secret))
+		edited, editErr := write.EditSystemHook(existingHook.ID, editHookOptions(webhookURL, secret), gitlab.WithContext(ctx))
 		if editErr != nil {
 			return WebhookReport{}, fmt.Errorf("failed to update existing system hook %d: %w", existingHook.ID, editErr)
 		}
@@ -133,7 +134,7 @@ func recoverSystemHook(write hookManager, conn *gorm.DB, webhookURL, secret stri
 		return WebhookReport{HookID: edited.ID, Created: false}, nil
 	}
 
-	hook, err := write.AddSystemHook(addHookOptions(webhookURL, secret))
+	hook, err := write.AddSystemHook(addHookOptions(webhookURL, secret), gitlab.WithContext(ctx))
 	if err != nil {
 		return WebhookReport{}, fmt.Errorf("failed to register system hook: %w", err)
 	}

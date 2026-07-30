@@ -77,6 +77,12 @@ func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.LogLevel) == "" {
 		c.LogLevel = DefaultLogLevel
 	}
+
+	// Trailing slashes are stripped so callers can safely build URLs by
+	// concatenating PublicURL with a leading-slash path (e.g. the webhook
+	// path) without risking a double slash, which would break the URL
+	// match used to detect an already-registered system hook.
+	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 }
 
 type requiredField struct {

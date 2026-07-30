@@ -77,7 +77,7 @@ func TestSyncSystemHook_CreatesWhenMissing(t *testing.T) {
 	write := &fakeHookManager{}
 	conn := testConn(t)
 
-	report, err := syncSystemHook(write, conn, testWebhookURL, "s3cr3t")
+	report, err := syncSystemHook(t.Context(), write, conn, testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestSyncSystemHook_ReusesMatchingURL(t *testing.T) {
 	}
 	conn := testConn(t)
 
-	report, err := syncSystemHook(write, conn, testWebhookURL, "s3cr3t")
+	report, err := syncSystemHook(t.Context(), write, conn, testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestSyncSystemHook_IgnoresNonMatchingHooks(t *testing.T) {
 		},
 	}
 
-	report, err := syncSystemHook(write, testConn(t), testWebhookURL, "s3cr3t")
+	report, err := syncSystemHook(t.Context(), write, testConn(t), testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestSyncSystemHook_IgnoresNonMatchingHooks(t *testing.T) {
 func TestSyncSystemHook_ListError(t *testing.T) {
 	write := &fakeHookManager{listErr: errors.New("403 forbidden")}
 
-	_, err := syncSystemHook(write, testConn(t), testWebhookURL, "s3cr3t")
+	_, err := syncSystemHook(t.Context(), write, testConn(t), testWebhookURL, "s3cr3t")
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -160,7 +160,7 @@ func TestSyncSystemHook_ListError(t *testing.T) {
 func TestSyncSystemHook_AddError(t *testing.T) {
 	write := &fakeHookManager{addErr: errors.New("403 forbidden")}
 
-	_, err := syncSystemHook(write, testConn(t), testWebhookURL, "s3cr3t")
+	_, err := syncSystemHook(t.Context(), write, testConn(t), testWebhookURL, "s3cr3t")
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -176,7 +176,7 @@ func TestSyncSystemHook_UsesStoredIDDirectly(t *testing.T) {
 		t.Fatalf("failed to seed stored webhook id: %v", err)
 	}
 
-	report, err := syncSystemHook(write, conn, testWebhookURL, "s3cr3t")
+	report, err := syncSystemHook(t.Context(), write, conn, testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestSyncSystemHook_RecreatesWhenStoredHookDeleted(t *testing.T) {
 		t.Fatalf("failed to seed stored webhook id: %v", err)
 	}
 
-	report, err := syncSystemHook(write, conn, testWebhookURL, "s3cr3t")
+	report, err := syncSystemHook(t.Context(), write, conn, testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestSyncSystemHook_TransientGetErrorIsNotTreatedAsDeleted(t *testing.T) {
 		t.Fatalf("failed to seed stored webhook id: %v", err)
 	}
 
-	_, err := syncSystemHook(write, conn, testWebhookURL, "s3cr3t")
+	_, err := syncSystemHook(t.Context(), write, conn, testWebhookURL, "s3cr3t")
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -246,7 +246,7 @@ func TestSyncSystemHook_TransientGetErrorIsNotTreatedAsDeleted(t *testing.T) {
 func TestReconcileWebhook_DelegatesToSyncSystemHook(t *testing.T) {
 	write := &fakeHookManager{}
 
-	report, err := ReconcileWebhook(write, testConn(t), testWebhookURL, "s3cr3t")
+	report, err := ReconcileWebhook(t.Context(), write, testConn(t), testWebhookURL, "s3cr3t")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

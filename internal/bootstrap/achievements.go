@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"iter"
@@ -42,7 +43,7 @@ type AchievementsReport struct {
 // matching row is created; one whose stored Name/Description/Threshold/
 // AvatarPath drifted from the catalog is pushed via achievementsUpdate and
 // the row updated to match.
-func syncAchievements(write achievementWriter, conn *gorm.DB, namespaceID int64, entries []catalog.Entry) (AchievementsReport, error) {
+func syncAchievements(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, entries []catalog.Entry) (AchievementsReport, error) {
 	var report AchievementsReport
 
 	for _, entry := range entries {
@@ -52,7 +53,7 @@ func syncAchievements(write achievementWriter, conn *gorm.DB, namespaceID int64,
 
 		switch {
 		case errors.Is(lookupErr, gorm.ErrRecordNotFound):
-			createErr := createAchievement(write, conn, namespaceID, entry)
+			createErr := createAchievement(ctx, write, conn, namespaceID, entry)
 			if createErr != nil {
 				return report, createErr
 			}
@@ -61,7 +62,7 @@ func syncAchievements(write achievementWriter, conn *gorm.DB, namespaceID int64,
 		case lookupErr != nil:
 			return report, fmt.Errorf("failed to look up achievement definition for %s tier %d: %w", entry.CriteriaKey, entry.Tier, lookupErr)
 		default:
-			changed, reconcileErr := reconcileAchievement(write, conn, nil, &existing, entry)
+			changed, reconcileErr := reconcileAchievement(ctx, write, conn, nil, &existing, entry)
 			if reconcileErr != nil {
 				return report, reconcileErr
 			}
@@ -77,7 +78,7 @@ func syncAchievements(write achievementWriter, conn *gorm.DB, namespaceID int64,
 	return report, nil
 }
 
-func createAchievement(write achievementWriter, conn *gorm.DB, namespaceID int64, entry catalog.Entry) error {
+func createAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, entry catalog.Entry) error {
 	avatar, closeAvatar, err := openAvatarUpload(entry)
 	if err != nil {
 		return err
@@ -88,7 +89,7 @@ func createAchievement(write achievementWriter, conn *gorm.DB, namespaceID int64
 		Name:        &entry.Name,
 		Description: &entry.Description,
 		Avatar:      avatar,
-	})
+	}, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to create achievement %q: %w", entry.Name, err)
 	}
@@ -193,7 +194,7 @@ func detectAchievementDrift(live *gitlab.Achievement, existing *db.AchievementDe
 // pushAchievementUpdate sends entry's current Name/Description to GitLab,
 // attaching a freshly opened avatar upload when drift.avatar says one is
 // needed.
-func pushAchievementUpdate(write achievementWriter, achievementID int64, entry catalog.Entry, drift achievementDrift) error {
+func pushAchievementUpdate(ctx context.Context, write achievementWriter, achievementID int64, entry catalog.Entry, drift achievementDrift) error {
 	opt := &gitlab.UpdateAchievementOptions{
 		Name:        &entry.Name,
 		Description: &entry.Description,
@@ -209,7 +210,7 @@ func pushAchievementUpdate(write achievementWriter, achievementID int64, entry c
 		opt.Avatar = avatar
 	}
 
-	_, err := write.UpdateAchievement(achievementID, opt)
+	_, err := write.UpdateAchievement(achievementID, opt, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to update achievement %q: %w", entry.Name, err)
 	}
@@ -220,7 +221,7 @@ func pushAchievementUpdate(write achievementWriter, achievementID int64, entry c
 // reconcileAchievement pushes any Name/Description/avatar drift to GitLab
 // (see detectAchievementDrift) and keeps existing (the local row) in sync
 // with entry.
-func reconcileAchievement(write achievementWriter, conn *gorm.DB, live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry) (bool, error) {
+func reconcileAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry) (bool, error) {
 	drift := detectAchievementDrift(live, existing, entry)
 
 	if !drift.any() && existing.Threshold == entry.Threshold {
@@ -228,7 +229,7 @@ func reconcileAchievement(write achievementWriter, conn *gorm.DB, live *gitlab.A
 	}
 
 	if drift.any() {
-		err := pushAchievementUpdate(write, existing.GitLabAchievementID, entry, drift)
+		err := pushAchievementUpdate(ctx, write, existing.GitLabAchievementID, entry, drift)
 		if err != nil {
 			return false, err
 		}

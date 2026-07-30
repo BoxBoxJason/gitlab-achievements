@@ -151,7 +151,7 @@ func TestSyncAchievements_CreatesMissingEntries(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 2, Threshold: 100, Name: "Committer II", Description: "Made 100 commits."},
 	}
 
-	report, err := syncAchievements(write, conn, 42, entries)
+	report, err := syncAchievements(t.Context(), write, conn, 42, entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -176,11 +176,11 @@ func TestSyncAchievements_IdempotentOnRepeatRun(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(write, conn, 42, entries); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
 		t.Fatalf("expected no error on first run, got: %v", err)
 	}
 
-	report, err := syncAchievements(write, conn, 42, entries)
+	report, err := syncAchievements(t.Context(), write, conn, 42, entries)
 	if err != nil {
 		t.Fatalf("expected no error on second run, got: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestSyncAchievements_UpdatesDriftedEntry(t *testing.T) {
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(write, conn, 42, original); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestSyncAchievements_UpdatesDriftedEntry(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits. Renamed."},
 	}
 
-	report, err := syncAchievements(write, conn, 42, changed)
+	report, err := syncAchievements(t.Context(), write, conn, 42, changed)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestSyncAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(write, conn, 42, original); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -250,7 +250,7 @@ func TestSyncAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 20, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	report, err := syncAchievements(write, conn, 42, changed)
+	report, err := syncAchievements(t.Context(), write, conn, 42, changed)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestSyncAchievements_CreateErrorIsNotPersisted(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	_, err := syncAchievements(write, conn, 42, entries)
+	_, err := syncAchievements(t.Context(), write, conn, 42, entries)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -299,7 +299,7 @@ func TestCreateAchievement_PersistsGitLabAchievementID(t *testing.T) {
 	write := &fakeAchievementWriter{}
 
 	entry := catalog.Entry{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "desc"}
-	if err := createAchievement(write, conn, 42, entry); err != nil {
+	if err := createAchievement(t.Context(), write, conn, 42, entry); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -318,7 +318,7 @@ func TestCreateAchievement_UploadsAvatarWhenConfigured(t *testing.T) {
 	write := &fakeAchievementWriter{}
 
 	entry := catalog.Entry{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "desc", AvatarPath: "assets/committer_i.png"}
-	if err := createAchievement(write, conn, 42, entry); err != nil {
+	if err := createAchievement(t.Context(), write, conn, 42, entry); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -341,7 +341,7 @@ func TestCreateAchievement_SkipsAvatarWhenNotConfigured(t *testing.T) {
 	write := &fakeAchievementWriter{}
 
 	entry := catalog.Entry{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "desc"}
-	if err := createAchievement(write, conn, 42, entry); err != nil {
+	if err := createAchievement(t.Context(), write, conn, 42, entry); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -357,7 +357,7 @@ func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 	withoutAvatar := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(write, conn, 42, withoutAvatar); err != nil {
+	if _, err := syncAchievements(t.Context(), write, conn, 42, withoutAvatar); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -365,7 +365,7 @@ func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/committer_i.png"},
 	}
 
-	report, err := syncAchievements(write, conn, 42, withAvatar)
+	report, err := syncAchievements(t.Context(), write, conn, 42, withAvatar)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

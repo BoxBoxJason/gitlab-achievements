@@ -31,7 +31,7 @@ func TestRun_Success(t *testing.T) {
 		},
 	}
 
-	report, err := Run(clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	report, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestRun_StopsAtPermissionFailure(t *testing.T) {
 		Write: writeAll,
 	}
 
-	_, err := Run(clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	_, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -92,7 +92,7 @@ func TestRun_StopsAtAchievementFailure(t *testing.T) {
 		Write: writeAll,
 	}
 
-	_, err := Run(clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
+	_, err := Run(t.Context(), clients, conn, testCfg(), "https://achievements.example.com/webhooks/system")
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}

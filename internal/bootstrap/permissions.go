@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -33,20 +34,20 @@ type writeVerifier interface {
 //
 // Every problem found is reported together, not just the first one, so an
 // operator can fix a misconfiguration in a single pass.
-func verifyPermissions(read readVerifier, write writeVerifier, namespacePath string) (int64, error) {
+func verifyPermissions(ctx context.Context, read readVerifier, write writeVerifier, namespacePath string) (int64, error) {
 	var errs []error
 
-	_, err := read.CurrentUser()
+	_, err := read.CurrentUser(gitlab.WithContext(ctx))
 	if err != nil {
 		errs = append(errs, fmt.Errorf("read token: %w", err))
 	}
 
-	namespace, err := read.GetGroup(namespacePath, nil)
+	namespace, err := read.GetGroup(namespacePath, nil, gitlab.WithContext(ctx))
 	if err != nil {
 		errs = append(errs, fmt.Errorf("read token: failed to read achievements namespace %q: %w", namespacePath, err))
 	}
 
-	writeUser, err := write.CurrentUser()
+	writeUser, err := write.CurrentUser(gitlab.WithContext(ctx))
 	if err != nil {
 		errs = append(errs, fmt.Errorf("write token: %w", err))
 	} else if !writeUser.IsAdmin {
@@ -54,7 +55,7 @@ func verifyPermissions(read readVerifier, write writeVerifier, namespacePath str
 	}
 
 	if namespace != nil && writeUser != nil {
-		member, err := write.GetNamespaceMember(namespace.ID, writeUser.ID)
+		member, err := write.GetNamespaceMember(namespace.ID, writeUser.ID, gitlab.WithContext(ctx))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("write token: failed to verify role on namespace %q: %w", namespacePath, err))
 		} else if member.AccessLevel < gitlab.MaintainerPermissions {

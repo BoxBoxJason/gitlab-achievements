@@ -26,7 +26,7 @@ func TestReconcileAwards_ConfirmsPendingAward(t *testing.T) {
 		t.Fatalf("failed to seed award: %v", err)
 	}
 
-	report, err := ReconcileAwards(write, conn)
+	report, err := ReconcileAwards(t.Context(), write, conn)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestReconcileAwards_MarksFailedOnRejection(t *testing.T) {
 		t.Fatalf("failed to seed award: %v", err)
 	}
 
-	report, err := ReconcileAwards(write, conn)
+	report, err := ReconcileAwards(t.Context(), write, conn)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestReconcileAwards_RetriesPreviouslyFailedAward(t *testing.T) {
 		t.Fatalf("failed to seed award: %v", err)
 	}
 
-	report, err := ReconcileAwards(write, conn)
+	report, err := ReconcileAwards(t.Context(), write, conn)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestReconcileAwards_IgnoresAlreadyAcceptedAwards(t *testing.T) {
 		t.Fatalf("failed to seed award: %v", err)
 	}
 
-	report, err := ReconcileAwards(write, conn)
+	report, err := ReconcileAwards(t.Context(), write, conn)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

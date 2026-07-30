@@ -9,6 +9,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -39,18 +40,18 @@ type Report struct {
 // catalog and system hook against the configured GitLab instance.
 // webhookURL is the fully-qualified URL GitLab should deliver system hook
 // events to (the app's public URL plus its ingestion path).
-func Run(clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
-	namespaceID, err := verifyPermissions(clients.Read, clients.Write, cfg.AchievementsNamespace)
+func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
+	namespaceID, err := verifyPermissions(ctx, clients.Read, clients.Write, cfg.AchievementsNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("permission verification failed: %w", err)
 	}
 
-	achievements, err := syncAchievements(clients.Write, conn, namespaceID, catalog.V1())
+	achievements, err := syncAchievements(ctx, clients.Write, conn, namespaceID, catalog.V1())
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync achievement definitions: %w", err)
 	}
 
-	webhook, err := syncSystemHook(clients.Write, conn, webhookURL, cfg.WebhookSecret)
+	webhook, err := syncSystemHook(ctx, clients.Write, conn, webhookURL, cfg.WebhookSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync system hook: %w", err)
 	}
@@ -75,13 +76,13 @@ type HourlyReport struct {
 // namespaceFullPath must be the same namespace the ID was resolved from
 // (cfg.AchievementsNamespace), since listing achievements is a GraphQL
 // lookup keyed by full path rather than numeric ID.
-func RunHourlyReconciliation(write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string) (*HourlyReport, error) {
-	achievements, err := ReconcileAchievements(write, conn, namespaceID, namespaceFullPath, catalog.V1())
+func RunHourlyReconciliation(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string) (*HourlyReport, error) {
+	achievements, err := ReconcileAchievements(ctx, write, conn, namespaceID, namespaceFullPath, catalog.V1())
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconcile achievement definitions: %w", err)
 	}
 
-	awards, err := ReconcileAwards(write, conn)
+	awards, err := ReconcileAwards(ctx, write, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconcile award status: %w", err)
 	}

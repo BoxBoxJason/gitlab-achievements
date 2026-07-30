@@ -124,6 +124,9 @@ func run(cfg *config.Config) error {
 		zap.String("listen_addr", cfg.ListenAddr),
 	)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	conn, sqlDB, err := openDatabase(cfg)
 	if err != nil {
 		return err
@@ -135,12 +138,12 @@ func run(cfg *config.Config) error {
 
 	webhookURL := cfg.PublicURL + httpserver.WebhookPath
 
-	readClient, writeClient, report, err := bootstrapApp(cfg, conn, webhookURL, logger)
+	readClient, writeClient, report, err := bootstrapApp(ctx, cfg, conn, webhookURL, logger)
 	if err != nil {
 		return err
 	}
 
-	return serve(cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, logger)
+	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, logger)
 }
 
 // openDatabase connects to the database, verifies the connection, and
@@ -168,7 +171,7 @@ func openDatabase(cfg *config.Config) (*gorm.DB, *sql.DB, error) {
 // verification, achievement/webhook reconciliation), returning the clients
 // and bootstrap report for reuse by the readiness check and the periodic
 // reconciliation loops.
-func bootstrapApp(cfg *config.Config, conn *gorm.DB, webhookURL string, logger *zap.Logger) (*gitlabclient.ReadClient, *gitlabclient.WriteClient, *bootstrap.Report, error) {
+func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhookURL string, logger *zap.Logger) (*gitlabclient.ReadClient, *gitlabclient.WriteClient, *bootstrap.Report, error) {
 	readClient, err := gitlabclient.NewReadClient(cfg.GitLabURL, cfg.GitLabReadToken)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to build gitlab read client: %w", err)
@@ -179,7 +182,7 @@ func bootstrapApp(cfg *config.Config, conn *gorm.DB, webhookURL string, logger *
 		return nil, nil, nil, fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
-	report, err := bootstrap.Run(bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL)
+	report, err := bootstrap.Run(ctx, bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("bootstrap failed: %w", err)
 	}
@@ -200,7 +203,7 @@ func bootstrapApp(cfg *config.Config, conn *gorm.DB, webhookURL string, logger *
 // newHTTPServer builds the *http.Server exposing /healthz and /readyz,
 // wired to check the database connection and GitLab reachability on every
 // /readyz request.
-func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient) *http.Server {
+func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, logger *zap.Logger) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
@@ -212,6 +215,9 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 			}
 
 			return nil
+		},
+		func(reason string, err error) {
+			logger.Warn(reason, zap.Error(err))
 		},
 	)
 	srv.SetReady(true)
@@ -228,6 +234,7 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 // bootstrap, blocking until SIGINT/SIGTERM is received, then shuts down
 // gracefully.
 func serve(
+	ctx context.Context,
 	cfg *config.Config,
 	conn *gorm.DB,
 	sqlDB *sql.DB,
@@ -237,10 +244,7 @@ func serve(
 	webhookURL string,
 	logger *zap.Logger,
 ) error {
-	httpSrv := newHTTPServer(cfg, sqlDB, readClient)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	httpSrv := newHTTPServer(cfg, sqlDB, readClient, logger)
 
 	startReconciliationLoops(ctx, cfg, conn, writeClient, report.NamespaceID, webhookURL, logger)
 
@@ -267,10 +271,14 @@ func serve(
 	case <-ctx.Done():
 		logger.Info("shutting down")
 
+		// Deliberately rooted in context.Background(), not ctx: ctx is
+		// already Done() here (that's why we're in this branch), so
+		// deriving from it would hand Shutdown an already-expired
+		// context instead of the fresh shutdownTimeout window it needs.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
-		shutdownErr := httpSrv.Shutdown(shutdownCtx)
+		shutdownErr := httpSrv.Shutdown(shutdownCtx) //nolint:contextcheck // see comment above
 		if shutdownErr != nil {
 			return fmt.Errorf("failed to shut down http server gracefully: %w", shutdownErr)
 		}
@@ -293,8 +301,8 @@ func startReconciliationLoops(
 	webhookURL string,
 	logger *zap.Logger,
 ) {
-	go scheduler.Every(ctx, webhookReconcileInterval, func(context.Context) error {
-		webhook, err := bootstrap.ReconcileWebhook(writeClient, conn, webhookURL, cfg.WebhookSecret)
+	go scheduler.Every(ctx, webhookReconcileInterval, func(ctx context.Context) error {
+		webhook, err := bootstrap.ReconcileWebhook(ctx, writeClient, conn, webhookURL, cfg.WebhookSecret)
 		if err != nil {
 			return fmt.Errorf("webhook reconciliation failed: %w", err)
 		}
@@ -309,8 +317,8 @@ func startReconciliationLoops(
 		logger.Error("webhook reconciliation failed", zap.Error(err))
 	})
 
-	go scheduler.Every(ctx, achievementReconcileInterval, func(context.Context) error {
-		hourly, err := bootstrap.RunHourlyReconciliation(writeClient, conn, namespaceID, cfg.AchievementsNamespace)
+	go scheduler.Every(ctx, achievementReconcileInterval, func(ctx context.Context) error {
+		hourly, err := bootstrap.RunHourlyReconciliation(ctx, writeClient, conn, namespaceID, cfg.AchievementsNamespace)
 		if err != nil {
 			return fmt.Errorf("achievement reconciliation failed: %w", err)
 		}

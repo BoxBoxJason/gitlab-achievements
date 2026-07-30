@@ -93,6 +93,19 @@ func TestValidate_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestValidate_StripsTrailingSlashFromPublicURL(t *testing.T) {
+	cfg := validConfig()
+	cfg.PublicURL = "https://achievements.example.com///"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.PublicURL != "https://achievements.example.com" {
+		t.Errorf("expected trailing slashes to be stripped, got %q", cfg.PublicURL)
+	}
+}
+
 func TestValidate_SameReadAndWriteToken(t *testing.T) {
 	cfg := validConfig()
 	cfg.GitLabWriteToken = cfg.GitLabReadToken
