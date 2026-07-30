@@ -11,8 +11,23 @@ import (
 )
 
 // GitLab's action_name values, as they appear in Events API responses.
-// They are prose rather than identifiers ("pushed to", "commented on"), and
-// notably report a merged merge request as "accepted".
+//
+// These deliberately do not reuse client-go's EventTypeValue constants
+// (CreatedEventType, MergedEventType, ...), because those describe the
+// other direction: they are the vocabulary of the `action` query parameter
+// you filter a request by, and client-go types them onto exactly that
+// (ListProjectVisibleEventsOptions.Action is an *EventTypeValue, while the
+// response's ActionName is a plain string). The two vocabularies overlap
+// but disagree, and the disagreements are the cases that matter here:
+//
+//	filter "created" ......... response "opened"
+//	filter "merged" .......... response "accepted"
+//	filter "commented" ....... response "commented on"
+//	filter "pushed" .......... response "pushed to" / "pushed new"
+//
+// Matching a response against the filter constants would silently stop
+// recognizing merged merge requests and comments, so the response side gets
+// named here instead.
 const (
 	actionOpened    = "opened"
 	actionClosed    = "closed"
@@ -23,17 +38,12 @@ const (
 )
 
 // push_data field values, describing what a push did to which kind of ref.
+// client-go models push_data.action and push_data.ref_type as plain
+// strings, with no constants of its own.
 const (
 	pushActionCreated = "created"
 	refTypeBranch     = "branch"
 	refTypeTag        = "tag"
-)
-
-// Pipeline status values that map onto an outcome-specific activity; every
-// other status (running, canceled, skipped, ...) still counts as a run.
-const (
-	pipelineStatusSuccess = "success"
-	pipelineStatusFailed  = "failed"
 )
 
 // normalizeProjectEvent translates one GitLab project event into the
@@ -168,10 +178,16 @@ const (
 )
 
 // normalizeTargetType folds GitLab's target type spellings onto a single
-// value each. Responses use Go-ish type names ("MergeRequest",
-// "DiscussionNote") where the request filters use snake_case
-// ("merge_request"), and issues appear as work items on newer instances, so
-// case and separators are stripped before matching.
+// value each.
+//
+// Target types have the same request/response split the action names do:
+// client-go's EventTargetTypeValue constants spell them snake_case
+// ("merge_request") because that is what the target_type filter takes,
+// while responses carry Go-ish type names ("MergeRequest",
+// "DiscussionNote"), and newer instances report an issue as a work item,
+// which has no constant on either side. Folding case and separators means
+// this matches whichever spelling an instance uses rather than betting on
+// one.
 func normalizeTargetType(raw string) targetType {
 	folded := strings.ToLower(strings.ReplaceAll(raw, "_", ""))
 
@@ -207,11 +223,19 @@ func normalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
 
 	activities := []activity.Event{activityFrom(base, activity.KindPipelineRun, 1)}
 
-	switch pipeline.Status {
-	case pipelineStatusSuccess:
+	// Unlike the Events API's action names, pipeline statuses are one
+	// vocabulary in both directions, so client-go's own constants apply:
+	// the same values filter a request (ListProjectPipelinesOptions.Status
+	// is a *BuildStateValue) and come back on the response. Every other
+	// status (running, canceled, skipped, ...) still counts as a run, just
+	// not as an outcome.
+	switch gitlab.BuildStateValue(pipeline.Status) {
+	case gitlab.Success:
 		activities = append(activities, activityFrom(base, activity.KindPipelineSucceeded, 1))
-	case pipelineStatusFailed:
+	case gitlab.Failed:
 		activities = append(activities, activityFrom(base, activity.KindPipelineFailed, 1))
+	case gitlab.Created, gitlab.WaitingForResource, gitlab.Preparing, gitlab.Pending,
+		gitlab.Running, gitlab.Canceled, gitlab.Skipped, gitlab.Manual, gitlab.Scheduled:
 	}
 
 	return activities
