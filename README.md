@@ -122,7 +122,15 @@ Achievement icons are borrowed from the VS Code extension's own icon set where a
 
 Every tier is worth EXP, on one curve shared by the whole catalog, so the same tier pays the same whatever criteria it was earned in and the easiest curve to climb isn't also the most rewarding to farm. A user's total is written to their row in the same transaction that records the award, so a crash can't leave someone holding a tier they weren't paid for.
 
-The total is **derived, not accumulated**: it is always recomputed as the sum of what the tiers a user holds are worth. That is what makes a backfill awarding tiers in arbitrary order, a catalog retune changing what an old tier pays, and hiding superseded tiers from a profile all safe — none of them can drift the number. When a bootstrap or reconciliation pass finds a tier's reward changed, it re-derives the totals of everyone holding it on the spot.
+The total is **derived, not accumulated**: it is always recomputed as the sum of what the tiers a user holds are worth. That is what makes a backfill awarding tiers in arbitrary order, a catalog retune changing what an old tier pays, and withdrawing a superseded tier from GitLab all safe — none of them can drift the number. When a bootstrap or reconciliation pass finds a tier's reward changed, it re-derives the totals of everyone holding it on the spot.
+
+### What reaches GitLab
+
+Only the **top tier a user has reached in each criteria** is ever pushed to GitLab. Every tier below it stays recorded here and keeps paying its EXP; when a user is promoted, the new tier is awarded and the one it replaces is revoked, so a profile carries at most one badge per criteria rather than a run of eleven near-identical ones.
+
+That split exists because GitLab draws the line somewhere unexpected: an awarded achievement is invisible until its recipient accepts it, **only the recipient can accept it**, and every award emails them. This app can award and revoke; it cannot decide what anyone's profile shows, and it cannot batch the notifications. Pushing every reached tier would mean emailing a long-serving user roughly a hundred times on the first backfill to no visible end. Awarding is also not idempotent on GitLab's side, so delivery matches against what GitLab already holds for a user rather than retrying blind.
+
+The full findings, and how to re-verify them on a throwaway instance, are in [docs/achievements-api-behavior.md](docs/achievements-api-behavior.md).
 
 ## Deployment
 
@@ -147,7 +155,7 @@ make package # build the container image (via podman/docker)
 
 ## Status
 
-Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total. Serving that total over HTTP, hiding superseded tiers on the profile, and the activity reconciliation job that would recover events lost to downtime are still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. Serving that total over HTTP and the activity reconciliation job that would recover events lost to downtime are still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 

@@ -20,7 +20,9 @@ type achievementWriter interface {
 	CreateAchievement(namespaceID int64, opt *gitlab.CreateAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error)
 	UpdateAchievement(achievementID int64, opt *gitlab.UpdateAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error)
 	AwardAchievement(achievementID, userID int64, opt *gitlab.AwardAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.UserAchievement, error)
+	RevokeAchievement(userAchievementID int64, options ...gitlab.RequestOptionFunc) (*gitlab.UserAchievement, error)
 	ListAchievements(fullPath string, opt *gitlab.ListAchievementsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Achievement, error]
+	ListUserAchievements(username string, opt *gitlab.ListUserAchievementsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.UserAchievement, error]
 }
 
 // AchievementsReport summarizes what syncAchievements or ReconcileAchievements did.

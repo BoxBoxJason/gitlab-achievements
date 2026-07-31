@@ -54,3 +54,28 @@ func (c *WriteClient) RevokeAchievement(userAchievementID int64, options ...gitl
 
 	return ua, nil
 }
+
+// The two mutations that decide what an awarded achievement looks like on
+// its recipient's profile, userAchievementsUpdate (showOnProfile) and
+// userAchievementPrioritiesUpdate (ordering), are deliberately not wrapped
+// here. GitLab gates both behind being the recipient
+// (Achievements::UserAchievementPolicy grants update_user_achievement only
+// via update_owned_user_achievement, which requires user_is_recipient), and
+// there is no admin override: an instance admin calling either on someone
+// else's award is refused, and GraphQL ignores the Sudo header. Wrapping
+// them would only offer this app's write token calls it can never make
+// successfully. See docs/achievements-api-behavior.md.
+
+// ListUserAchievements iterates every achievement awarded to username,
+// including the ones hidden from their profile.
+//
+// Hidden awards are only returned to a caller allowed to see them (the
+// holder themself, or a maintainer/owner of the namespace, or an instance
+// admin), which the write token is. Awards land hidden and stay hidden
+// until their recipient accepts them, so without IncludeHidden a freshly
+// awarded achievement isn't listed at all.
+func (c *WriteClient) ListUserAchievements(username string, opt *gitlab.ListUserAchievementsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.UserAchievement, error] {
+	return iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.UserAchievement, *gitlab.Response, error) {
+		return c.raw.Achievements.ListUserAchievements(username, opt, withExtra(options, reqOpts...)...)
+	})
+}

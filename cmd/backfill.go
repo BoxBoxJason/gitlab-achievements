@@ -206,6 +206,8 @@ func deliverBackfilledAwards(ctx context.Context, writeClient *gitlabclient.Writ
 	logger.Info("backfilled awards delivered",
 		zap.Int("awards_confirmed", awards.Confirmed),
 		zap.Int("awards_failed", awards.Failed),
+		zap.Int("awards_superseded", awards.Superseded),
+		zap.Int("awards_adopted", awards.Adopted),
 	)
 
 	return nil

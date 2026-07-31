@@ -5,6 +5,7 @@ import (
 	"io"
 	"iter"
 	"testing"
+	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"gorm.io/gorm"
@@ -14,21 +15,61 @@ import (
 )
 
 type fakeAchievementWriter struct {
-	nextID        int64
-	createErr     error
-	updateErr     error
-	awardErr      error
-	listErr       error
-	updateCalls   int
-	awardCalls    int
-	listCalls     int
-	avatarUploads int
+	nextID          int64
+	nextUserAwardID int64
+	createErr       error
+	updateErr       error
+	awardErr        error
+	listErr         error
+	revokeErr       error
+	listAwardsErr   error
+	updateCalls     int
+	awardCalls      int
+	listCalls       int
+	revokeCalls     int
+	listAwardsCalls int
+	avatarUploads   int
 
 	// achievements mirrors what GitLab "actually" has on record, keyed by
 	// ID. CreateAchievement populates it automatically; tests simulate an
 	// out-of-band deletion by deleting straight from this map before
 	// calling ReconcileAchievements.
 	achievements map[int64]*gitlab.Achievement
+
+	// userAwards mirrors the awards GitLab holds, keyed by GitLab user ID,
+	// in the order they were made. It models the real API rather than an
+	// idealized one: awarding never deduplicates, so awarding the same
+	// achievement to the same user twice appends a second record, and
+	// awards land with ShowOnProfile false because only their recipient can
+	// accept them.
+	userAwards map[int64][]*gitlab.UserAchievement
+
+	// gitlabUserIDs resolves the username ListUserAchievements is called
+	// with to the GitLab user ID awards are keyed by, since the awarding
+	// mutation is given an ID and the listing query a name. Tests seeding
+	// awards GitLab already holds set it alongside their db.User rows.
+	gitlabUserIDs map[string]int64
+}
+
+// grantAward appends an award to what GitLab holds for a user, exactly as
+// achievementsAward does: a fresh record every call, unaccepted.
+func (f *fakeAchievementWriter) grantAward(achievementID, userID int64) *gitlab.UserAchievement {
+	f.nextUserAwardID++
+
+	awarded := &gitlab.UserAchievement{
+		ID:            f.nextUserAwardID,
+		AchievementID: achievementID,
+		UserID:        userID,
+		ShowOnProfile: false,
+	}
+
+	if f.userAwards == nil {
+		f.userAwards = make(map[int64][]*gitlab.UserAchievement)
+	}
+
+	f.userAwards[userID] = append(f.userAwards[userID], awarded)
+
+	return awarded
 }
 
 // simulateAvatarUpload drains upload's content, as the real GraphQL client
@@ -106,7 +147,58 @@ func (f *fakeAchievementWriter) AwardAchievement(achievementID, userID int64, _ 
 		return nil, f.awardErr
 	}
 
-	return &gitlab.UserAchievement{AchievementID: achievementID, UserID: userID}, nil
+	return f.grantAward(achievementID, userID), nil
+}
+
+func (f *fakeAchievementWriter) RevokeAchievement(userAchievementID int64, _ ...gitlab.RequestOptionFunc) (*gitlab.UserAchievement, error) {
+	f.revokeCalls++
+
+	if f.revokeErr != nil {
+		return nil, f.revokeErr
+	}
+
+	for _, awards := range f.userAwards {
+		for _, award := range awards {
+			if award.ID != userAchievementID {
+				continue
+			}
+
+			if award.RevokedAt != nil {
+				return nil, errors.New("this achievement has already been revoked")
+			}
+
+			revokedAt := time.Now()
+			award.RevokedAt = &revokedAt
+
+			return award, nil
+		}
+	}
+
+	return nil, errors.New("404 not found")
+}
+
+func (f *fakeAchievementWriter) ListUserAchievements(username string, opt *gitlab.ListUserAchievementsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.UserAchievement, error] {
+	f.listAwardsCalls++
+
+	return func(yield func(*gitlab.UserAchievement, error) bool) {
+		if f.listAwardsErr != nil {
+			yield(nil, f.listAwardsErr)
+
+			return
+		}
+
+		includeHidden := opt != nil && opt.IncludeHidden != nil && *opt.IncludeHidden
+
+		for _, award := range f.userAwards[f.gitlabUserIDs[username]] {
+			if !award.ShowOnProfile && !includeHidden {
+				continue
+			}
+
+			if !yield(award, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (f *fakeAchievementWriter) ListAchievements(_ string, _ *gitlab.ListAchievementsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Achievement, error] {
