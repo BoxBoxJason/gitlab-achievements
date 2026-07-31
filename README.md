@@ -59,6 +59,26 @@ The edit is unconditional, and deliberately so. GitLab never returns a hook's to
 
 Deliveries are authenticated with the `X-Gitlab-Token` secret (`--webhook-secret`), compared in constant time; anything that doesn't match is refused with a 401 and never parsed.
 
+### Removing them
+
+Retiring the app leaves its hooks behind, pointing at a URL that no longer answers. `gitlab-achievements uninstall` takes them off the instance:
+
+```bash
+gitlab-achievements uninstall              # same flags/env as the server
+gitlab-achievements uninstall --dry-run    # report what would be removed, call nothing
+gitlab-achievements uninstall --sweep      # also hunt down hooks the database no longer knows about
+```
+
+**Stop the serving deployment first.** A running server re-registers everything on its next hourly sweep, so removing hooks underneath it accomplishes nothing. That is also why this is a subcommand rather than something the server does on `SIGTERM`: a hook torn down on shutdown would be rebuilt on the next start, so every rollout and pod eviction would churn every hook on the instance and lose the events arriving in between.
+
+Removal works off the same recorded hook IDs the sweep re-applies its configuration with, so it costs one `DELETE` per hook rather than a walk of the instance, and each record is dropped as its hook goes: an interrupted run leaves behind exactly what it hadn't reached yet, and re-running finishes the job. A hook GitLab no longer has counts as removed; one on a group or project the write token may not manage is left in place, reported, and keeps its record, so re-running with a better-privileged token picks up precisely those.
+
+`--sweep` covers the case records can't: a database that was lost, or restored from a backup predating the last registration sweep. It enumerates the instance and removes any hook whose URL is this app's, leaving every other integration's hooks alone. Under `auto` on a Premium/Ultimate instance it sweeps projects as well as groups, since the deployment may have been running the project scope before the license changed.
+
+Achievement definitions and the awards users earned are deliberately untouched: those are what people got out of running this, and deleting them is a separate decision, made in GitLab's own UI.
+
+### Event coverage
+
 Hooks subscribe to **every event type GitLab offers**, not just the ones the catalog reads today. Enabling one later would mean editing every hook on the instance, and silently missing that activity until the sweep ran; leaving them all on costs nothing but deliveries the receiver ignores by design. That includes the confidential issue and note variants, work on a confidential issue is still work, and the app keeps only the record's identity and author, never its content.
 
 ## Historical backfill

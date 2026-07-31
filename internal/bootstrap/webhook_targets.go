@@ -34,6 +34,22 @@ type hookTarget interface {
 	// edit re-applies the desired configuration to an existing hook and
 	// returns its ID, wrapping gitlab.ErrNotFound when the hook is gone.
 	edit(ctx context.Context, hookID int64, webhookURL, secret string) (int64, error)
+	// remove deletes a hook, wrapping gitlab.ErrNotFound when it is
+	// already gone.
+	remove(ctx context.Context, hookID int64) error
+}
+
+// hookTargetFor builds the target one recorded hook is attached to. The
+// sweep knows which kind it is walking and constructs targets directly;
+// cleanup reads the scope back off each stored row instead, so that a
+// deployment that switched scopes still removes what the old one left
+// behind.
+func hookTargetFor(write hookManager, scope db.HookScope, targetID int64) hookTarget {
+	if scope == db.HookScopeGroup {
+		return &groupHookTarget{write: write, groupID: targetID}
+	}
+
+	return &projectHookTarget{write: write, projectID: targetID}
 }
 
 // groupHookTarget registers this app's hook on one top-level group, which
@@ -81,6 +97,15 @@ func (t *groupHookTarget) edit(ctx context.Context, hookID int64, webhookURL, se
 	return hook.ID, nil
 }
 
+func (t *groupHookTarget) remove(ctx context.Context, hookID int64) error {
+	err := t.write.DeleteGroupHook(t.groupID, hookID, gitlab.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("group %d: %w", t.groupID, err)
+	}
+
+	return nil
+}
+
 // projectHookTarget registers this app's hook on a single project, the
 // fallback for instances where group webhooks are unavailable.
 type projectHookTarget struct {
@@ -124,4 +149,13 @@ func (t *projectHookTarget) edit(ctx context.Context, hookID int64, webhookURL, 
 	}
 
 	return hook.ID, nil
+}
+
+func (t *projectHookTarget) remove(ctx context.Context, hookID int64) error {
+	err := t.write.DeleteProjectHook(t.projectID, hookID, gitlab.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("project %d: %w", t.projectID, err)
+	}
+
+	return nil
 }

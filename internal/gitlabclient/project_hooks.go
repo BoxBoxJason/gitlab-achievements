@@ -45,3 +45,14 @@ func (c *WriteClient) EditProjectHook(pid any, hook int64, opt *gitlab.EditProje
 
 	return h, nil
 }
+
+// DeleteProjectHook removes a project webhook; see DeleteGroupHook on why
+// the error is wrapped rather than replaced.
+func (c *WriteClient) DeleteProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) error {
+	_, err := c.raw.Projects.DeleteProjectHook(pid, hook, options...)
+	if err != nil {
+		return fmt.Errorf("failed to delete project hook: %w", err)
+	}
+
+	return nil
+}

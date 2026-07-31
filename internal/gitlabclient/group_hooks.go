@@ -50,3 +50,15 @@ func (c *WriteClient) EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHo
 
 	return h, nil
 }
+
+// DeleteGroupHook removes a group webhook. The wrapped error keeps
+// gitlab.ErrNotFound intact so callers can tell "already gone" apart from a
+// failure to remove it.
+func (c *WriteClient) DeleteGroupHook(gid any, hook int64, options ...gitlab.RequestOptionFunc) error {
+	_, err := c.raw.Groups.DeleteGroupHook(gid, hook, options...)
+	if err != nil {
+		return fmt.Errorf("failed to delete group hook: %w", err)
+	}
+
+	return nil
+}
