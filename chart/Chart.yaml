@@ -1,0 +1,23 @@
+apiVersion: v2
+# The chart is named with a -chart suffix because it is published to the same
+# GHCR namespace as the container image, and an OCI chart pushed under the
+# image's own name would interleave chart versions into that package.
+# nameOverride in values.yaml keeps the suffix out of the resource names.
+name: gitlab-achievements-chart
+description: Event-driven achievement awarder for self-hosted GitLab instances
+type: application
+# The version the publish workflow tags the OCI artifact with. Bump it in the
+# same commit as any chart change: a published version is never overwritten.
+version: 0.1.0
+# Default container image tag, overridable with image.tag.
+appVersion: "0.1.0"
+home: https://github.com/BoxBoxJason/gitlab-achievements
+sources:
+  - https://github.com/BoxBoxJason/gitlab-achievements
+keywords:
+  - gitlab
+  - achievements
+  - gamification
+maintainers:
+  - name: BoxBoxJason
+    url: https://github.com/BoxBoxJason

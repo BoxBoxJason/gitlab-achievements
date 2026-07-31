@@ -1,0 +1,75 @@
+name: Publish Helm chart
+
+# Manual only: the chart's version lives in Chart.yaml, not in a git tag, so
+# publishing is a deliberate act rather than something a push does. Bump
+# chart/Chart.yaml, merge, then run this.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  CHART_DIR: chart
+  # helm push appends the chart's own name, so this is the namespace the
+  # artifact lands under: ghcr.io/boxboxjason/gitlab-achievements-chart
+  OCI_REGISTRY: oci://ghcr.io/boxboxjason
+
+jobs:
+  publish:
+    name: Package and push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Read chart metadata
+        id: chart
+        run: |
+          set -euo pipefail
+          NAME=$(helm show chart "$CHART_DIR" | awk '$1 == "name:" { print $2 }')
+          VERSION=$(helm show chart "$CHART_DIR" | awk '$1 == "version:" { print $2 }')
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $NAME $VERSION"
+
+      - name: Lint
+        run: |
+          helm lint "$CHART_DIR" \
+            --set config.gitlabUrl=https://gitlab.example.com \
+            --set config.achievementsNamespace=achievements \
+            --set config.publicUrl=https://achievements.example.com \
+            --set secrets.existingSecret=credentials
+
+      - name: Render
+        run: |
+          helm template release "$CHART_DIR" \
+            --set config.gitlabUrl=https://gitlab.example.com \
+            --set config.achievementsNamespace=achievements \
+            --set config.publicUrl=https://achievements.example.com \
+            --set secrets.existingSecret=credentials \
+            --set ingress.enabled=true \
+            --set config.backfill.mode=off \
+            --set backfillJob.enabled=true > /dev/null
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Refuse to overwrite a published version
+        run: |
+          set -euo pipefail
+          CHART="${OCI_REGISTRY#oci://}/${{ steps.chart.outputs.name }}"
+          if helm show chart "oci://$CHART" --version "${{ steps.chart.outputs.version }}" > /dev/null 2>&1; then
+            echo "::error::$CHART:${{ steps.chart.outputs.version }} is already published. Bump version in $CHART_DIR/Chart.yaml."
+            exit 1
+          fi
+
+      - name: Package
+        run: helm package "$CHART_DIR" --destination dist
+
+      - name: Push
+        run: |
+          helm push "dist/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz" "$OCI_REGISTRY"

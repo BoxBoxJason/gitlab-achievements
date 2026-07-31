@@ -1,0 +1,59 @@
+# Self-contained deployment: the app plus a PostgreSQL to keep its state in.
+#
+# Copy .env.example to .env, fill it in, then `docker compose up -d`.
+# The walkthrough, including how to put TLS in front of this, is in
+# docs/deployment/docker-compose.md. What the variables mean is in
+# docs/configuration.md.
+name: gitlab-achievements
+
+services:
+  app:
+    image: ghcr.io/boxboxjason/gitlab-achievements:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Every setting the app reads, including both GitLab tokens, comes from
+    # here. It is deliberately not given to the db service, which has no
+    # business seeing them.
+    env_file:
+      - .env
+    environment:
+      LISTEN_ADDR: ":8080"
+    ports:
+      # Bound to localhost by default: GitLab reaches this through the
+      # reverse proxy that terminates TLS for PUBLIC_URL, not directly.
+      # Set LISTEN_ADDRESS=0.0.0.0 to publish it on every interface.
+      - "${LISTEN_ADDRESS:-127.0.0.1}:${LISTEN_PORT:-8080}:8080"
+    # Shutdown drains webhook deliveries GitLab has already been told
+    # succeeded, so it is given room to finish rather than being killed.
+    stop_grace_period: 45s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # No healthcheck: the image is built FROM scratch and contains nothing but
+    # the binary, so there is no shell or curl to run one with. `docker compose
+    # logs app` and GET /readyz from the host are how you check on it.
+
+  db:
+    image: docker.io/library/postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-achievements}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-achievements}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "${POSTGRES_USER:-achievements}" -d "${POSTGRES_DB:-achievements}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  pgdata:

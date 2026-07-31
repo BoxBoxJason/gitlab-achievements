@@ -1,0 +1,66 @@
+[Unit]
+Description=GitLab Achievements: event-driven achievement awarder for self-hosted GitLab
+Documentation=https://github.com/BoxBoxJason/gitlab-achievements
+# The database it keeps its state in is usually elsewhere, so this only waits
+# for the network. Add "After=postgresql.service" when it is on this host.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=gitlab-achievements
+Group=gitlab-achievements
+
+# Every setting, including both GitLab tokens, lives here. It is read by
+# systemd as root before dropping privileges, so it can (and should) be
+# 0600 root:root: the service user never needs to read it itself.
+EnvironmentFile=/etc/gitlab-achievements/gitlab-achievements.env
+ExecStart=/usr/local/bin/gitlab-achievements
+
+# Bootstrap fails the process rather than serving in a half-working state, so
+# a restart loop here means a real problem (a rejected token, an unreachable
+# GitLab) that the journal will name. The delay keeps a failing start from
+# hammering the instance's API.
+Restart=on-failure
+RestartSec=10s
+
+# Shutdown drains webhook deliveries GitLab has already been told succeeded:
+# 10s for in-flight requests, then up to 15s evaluating what was accepted.
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+
+# /var/lib/gitlab-achievements, created and owned automatically. Only needed
+# for a SQLite DATABASE_DSN; harmless otherwise.
+StateDirectory=gitlab-achievements
+StateDirectoryMode=0750
+
+# Hardening. The process opens outbound connections to GitLab and its
+# database, listens on one port, and writes nothing outside StateDirectory.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

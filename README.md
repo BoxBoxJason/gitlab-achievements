@@ -194,11 +194,17 @@ Any authenticated GitLab identity may read anything the API serves. Achievements
 
 ## Deployment
 
-The app is a single Go binary plus a SQL database. It isn't tied to any one deployment platform or DBMS: the database is selected via the `--database-dsn`/`DATABASE_DSN` scheme (`postgres://`, `sqlite://`, `mysql://`, or `sqlserver://`). Supported/planned deployment targets (see the deployment issue for details):
+The app is a single static Go binary plus a SQL database, configured entirely from environment variables, so it isn't tied to any one platform or DBMS: the database is selected via the `--database-dsn`/`DATABASE_DSN` scheme (`postgres://`, `sqlite://`, `mysql://`, or `sqlserver://`). Three targets are supported as equals, and none of them needs a code change:
 
-- Kubernetes (Helm chart)
-- Docker / Docker Compose
-- Bare binary + systemd unit, for a plain VM/server install
+| Target | What you get | Guide |
+| --- | --- | --- |
+| **Kubernetes** | Helm chart: Deployment, Service, optional Ingress, probes wired to `/healthz` and `/readyz`, credentials from a Secret you manage, optional backfill Job | [docs/deployment/kubernetes.md](docs/deployment/kubernetes.md) |
+| **Docker Compose** | The app plus a PostgreSQL on one host, from [`docker-compose.yml`](./docker-compose.yml) and a `.env` | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md) |
+| **Bare binary** | The compiled binary under a [systemd unit](./deploy/systemd), against a database you already run | [docs/deployment/bare-binary.md](docs/deployment/bare-binary.md) |
+
+Whichever you pick, the GitLab side is the same: a group to own the achievement definitions, the two credentials, a webhook secret, and a URL the instance can reach. That's [docs/gitlab-setup.md](docs/gitlab-setup.md), including what trusting the instance-admin token to a deployment actually implies. Every flag and environment variable is in [docs/configuration.md](docs/configuration.md).
+
+The app is a **singleton**: one process registers the instance's webhooks, runs the hourly reconciliation sweeps, and walks history, so a second replica would do all three again against the same GitLab. Nothing is lost while it restarts.
 
 ## Development
 
@@ -207,15 +213,18 @@ Check the [CONTRIBUTING.md](./CONTRIBUTING.md) file for guidelines on how to con
 Quick start:
 
 ```bash
-make build   # build the binary into ./bin
-make test    # run unit tests
-make lint    # run golangci-lint
-make package # build the container image (via podman/docker)
+make build      # build the binary into ./bin
+make test       # run unit tests
+make lint       # run golangci-lint
+make package    # build the container image (via podman/docker)
+make chart-lint # lint and render the Helm chart
 ```
+
+Longer-form documentation lives in [docs/](./docs), indexed in [docs/README.md](docs/README.md).
 
 ## Status
 
-Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. That total, the progress behind it, and an instance leaderboard are now served over HTTP, optionally behind GitLab-backed authentication. The activity reconciliation job that would recover events lost to downtime is still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. That total, the progress behind it, and an instance leaderboard are now served over HTTP, optionally behind GitLab-backed authentication, and the app ships packaged for Kubernetes, Docker Compose and a plain systemd host. The activity reconciliation job that would recover events lost to downtime is still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 
