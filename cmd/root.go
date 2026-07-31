@@ -95,6 +95,7 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 
 	bindFlags(rootCmd, cfg)
 	rootCmd.AddCommand(buildBackfillCmd(cfg))
+	rootCmd.AddCommand(buildUninstallCmd(cfg))
 
 	return rootCmd
 }

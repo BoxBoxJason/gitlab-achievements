@@ -61,6 +61,7 @@ type groupHookManager interface {
 	ListGroupHooks(gid any, opt *gitlab.ListGroupHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupHook, error)
 	AddGroupHook(gid any, opt *gitlab.AddGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
 	EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
+	DeleteGroupHook(gid any, hook int64, options ...gitlab.RequestOptionFunc) error
 }
 
 // projectHookManager is the subset of gitlabclient.WriteClient project hook
@@ -69,6 +70,7 @@ type projectHookManager interface {
 	ListProjectHooks(pid any, opt *gitlab.ListProjectHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, error)
 	AddProjectHook(pid any, opt *gitlab.AddProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
 	EditProjectHook(pid any, hook int64, opt *gitlab.EditProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
+	DeleteProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) error
 }
 
 // hookManager is everything hook synchronization needs from the write
@@ -379,18 +381,24 @@ func sweepLimiter(perSecond float64) *rate.Limiter {
 }
 
 // pace waits for the sweep's rate cap to admit the next target.
+func (s *hookSync) pace(ctx context.Context) error {
+	return paceSweep(ctx, s.limiter)
+}
+
+// paceSweep waits for limiter to admit the next target, or returns
+// immediately when there is no cap.
 //
 // The cap is applied per target rather than per request because that is
-// what the sweep's cost is proportional to: one or two calls each, over
+// what a sweep's cost is proportional to: one or two calls each, over
 // every group or project on the instance, every hour for as long as the
 // app runs. Enumerating the targets is left unpaced, being one request per
 // hundred of them.
-func (s *hookSync) pace(ctx context.Context) error {
-	if s.limiter == nil {
+func paceSweep(ctx context.Context, limiter *rate.Limiter) error {
+	if limiter == nil {
 		return nil
 	}
 
-	err := s.limiter.Wait(ctx)
+	err := limiter.Wait(ctx)
 	if err != nil {
 		return fmt.Errorf("hook sweep interrupted while pacing: %w", err)
 	}

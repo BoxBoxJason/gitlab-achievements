@@ -91,14 +91,17 @@ type fakeHookManager struct {
 	groupHooks   map[int64][]*gitlab.GroupHook
 	projectHooks map[int64][]*gitlab.ProjectHook
 
-	addErr       error
-	editErr      error
-	listErr      error
-	targetAddErr map[int64]error
+	addErr          error
+	editErr         error
+	listErr         error
+	deleteErr       error
+	targetAddErr    map[int64]error
+	targetDeleteErr map[int64]error
 
 	addCalls     int
 	editCalls    int
 	listCalls    int
+	deleteCalls  int
 	licenseCalls int
 	lastToken    string
 
@@ -231,12 +234,72 @@ func (f *fakeHookManager) EditProjectHook(pid any, hook int64, opt *gitlab.EditP
 	return nil, gitlab.ErrNotFound
 }
 
+// DeleteGroupHook drops the hook, reporting gitlab.ErrNotFound when it
+// isn't there, the way GitLab does for a hook already deleted out of band.
+func (f *fakeHookManager) DeleteGroupHook(gid any, hook int64, _ ...gitlab.RequestOptionFunc) error {
+	f.deleteCalls++
+
+	groupID, _ := gid.(int64)
+
+	if err := f.deleteError(groupID); err != nil {
+		return err
+	}
+
+	remaining, found := withoutHook(f.groupHooks[groupID], hook, func(h *gitlab.GroupHook) int64 { return h.ID })
+	if !found {
+		return gitlab.ErrNotFound
+	}
+
+	f.groupHooks[groupID] = remaining
+
+	return nil
+}
+
+func (f *fakeHookManager) DeleteProjectHook(pid any, hook int64, _ ...gitlab.RequestOptionFunc) error {
+	f.deleteCalls++
+
+	projectID, _ := pid.(int64)
+
+	if err := f.deleteError(projectID); err != nil {
+		return err
+	}
+
+	remaining, found := withoutHook(f.projectHooks[projectID], hook, func(h *gitlab.ProjectHook) int64 { return h.ID })
+	if !found {
+		return gitlab.ErrNotFound
+	}
+
+	f.projectHooks[projectID] = remaining
+
+	return nil
+}
+
+// withoutHook removes the hook with the given ID from hooks, reporting
+// whether it was there at all.
+func withoutHook[T any](hooks []T, hookID int64, idOf func(T) int64) ([]T, bool) {
+	for i, hook := range hooks {
+		if idOf(hook) == hookID {
+			return append(hooks[:i:i], hooks[i+1:]...), true
+		}
+	}
+
+	return hooks, false
+}
+
 func (f *fakeHookManager) addError(targetID int64) error {
 	if err := f.targetAddErr[targetID]; err != nil {
 		return err
 	}
 
 	return f.addErr
+}
+
+func (f *fakeHookManager) deleteError(targetID int64) error {
+	if err := f.targetDeleteErr[targetID]; err != nil {
+		return err
+	}
+
+	return f.deleteErr
 }
 
 func statusErr(code int) error {
