@@ -31,9 +31,13 @@ const (
 	actionApproved = "approved"
 )
 
-// Actions and statuses the other tracked event types report, none of which
-// client-go gives constants for: it types every one of these fields as a
-// plain string.
+// Emoji and wiki page actions, as they appear in a payload's
+// object_attributes.action.
+//
+// Unlike deployment and pipeline statuses, which client-go models as typed
+// enums this package switches on, these two are plain strings on both the
+// payload struct and the API, with no constants anywhere in client-go to
+// borrow.
 const (
 	// emojiActionAward is a reaction being added. The paired "revoke" is
 	// deliberately not tracked: an award, once earned, is never taken back,
@@ -44,9 +48,6 @@ const (
 	// payload carries no revision ID, so two edits of one page and a
 	// redelivery of the first edit are indistinguishable.
 	wikiActionCreate = "create"
-	// deploymentStatusSuccess is what a finished, successful deployment
-	// reports.
-	deploymentStatusSuccess = "success"
 )
 
 // fastMergeWindow is how soon after being opened a merge request has to be
@@ -563,8 +564,16 @@ func normalizeDeployment(event *gitlab.DeploymentEvent, receivedAt time.Time) []
 
 	activities := []activity.Event{activityFrom(base, activity.KindDeployment, 1)}
 
-	if event.Status == deploymentStatusSuccess {
+	// Deployment statuses are one vocabulary in both directions, the same
+	// values filtering a request (ListProjectDeploymentsOptions.Status is a
+	// *DeploymentStatusValue) and coming back on the payload, so client-go's
+	// own constants apply. Every other status still counts as a deployment,
+	// just not as a successful one.
+	switch gitlab.DeploymentStatusValue(event.Status) {
+	case gitlab.DeploymentStatusSuccess:
 		activities = append(activities, activityFrom(base, activity.KindDeploymentSucceeded, 1))
+	case gitlab.DeploymentStatusCreated, gitlab.DeploymentStatusRunning,
+		gitlab.DeploymentStatusFailed, gitlab.DeploymentStatusCanceled:
 	}
 
 	return activities

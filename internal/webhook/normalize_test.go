@@ -530,7 +530,7 @@ func TestNormalize_DeploymentRunAndOutcome(t *testing.T) {
 
 	for status, want := range cases {
 		events := normalize(&gitlab.DeploymentEvent{
-			User: &gitlab.EventUser{ID: 10, Username: "alice"},
+			User:    &gitlab.EventUser{ID: 10, Username: "alice"},
 			Project: gitlab.DeploymentEventProject{ID: 1}, DeploymentID: 42, Status: status,
 			StatusChangedAt: "2026-03-01 09:00:00 UTC",
 		}, receivedAt)
