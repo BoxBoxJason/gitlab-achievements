@@ -193,6 +193,31 @@ type RegisteredHook struct {
 	HookID    int64     `gorm:"not null"`
 }
 
+// Session is a browser's authenticated session with the read API, created
+// by the OAuth callback once GitLab has issued an access token for the
+// person behind the browser.
+//
+// ID is an opaque random value and is what the session cookie carries, so
+// possession of it is possession of the session; it is a primary key rather
+// than a sequential one for exactly that reason.
+//
+// AccessToken is the GitLab token the session stands for, and is stored so
+// that every request can be re-verified against GitLab. That is a
+// deliberate consequence of verifying per request rather than caching an
+// identity: the token is the only thing GitLab will answer questions about.
+// It lives at rest here at the same trust level as the two GitLab tokens
+// this app is already configured with.
+//
+// Sessions expire on ExpiresAt, which tracks the token's own expiry where
+// GitLab supplies one. Expired rows are pruned rather than left to
+// accumulate; see the api package's session store.
+type Session struct {
+	CreatedAt   time.Time
+	ExpiresAt   time.Time `gorm:"not null;index"`
+	ID          string    `gorm:"primarykey;size:64"`
+	AccessToken string    `gorm:"not null"`
+}
+
 // SyncState stores backfill cursors and reconciliation watermarks, keyed by
 // an arbitrary caller-defined key (for example a criteria key or job name).
 type SyncState struct {

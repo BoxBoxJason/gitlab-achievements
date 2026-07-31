@@ -339,3 +339,85 @@ func TestValidate_DefaultsHookScopeToAuto(t *testing.T) {
 		t.Errorf("expected the scope to default to resolving from the license, got %q", cfg.HookScope)
 	}
 }
+
+func TestValidate_DefaultsAPIAuthToNone(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = ""
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.AuthMode() != APIAuthNone {
+		t.Errorf("expected the read API to default to unauthenticated, got %q", cfg.APIAuth)
+	}
+}
+
+func TestValidate_AcceptsEveryAPIAuthMode(t *testing.T) {
+	for _, mode := range []APIAuth{APIAuthNone, APIAuthGitLab} {
+		cfg := validConfig()
+		cfg.APIAuth = string(mode)
+
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("mode %q: expected no error, got: %v", mode, err)
+		}
+	}
+}
+
+func TestValidate_RejectsAnUnknownAPIAuthMode(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = "sometimes"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an unknown api auth mode to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "api-auth") {
+		t.Errorf("expected the error to name the flag, got: %v", err)
+	}
+}
+
+// A secret with no client ID would be silently ignored in favour of a
+// self-registered application, leaving the operator's own application dead
+// and nothing saying so.
+func TestValidate_RejectsAnOAuthSecretWithoutAClientID(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = string(APIAuthGitLab)
+	cfg.OAuthClientSecret = "s3cret"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected a secret without a client id to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "oauth-client-id") {
+		t.Errorf("expected the error to name the missing flag, got: %v", err)
+	}
+}
+
+func TestValidate_RejectsAnOAuthClientIDWithAuthenticationOff(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = string(APIAuthNone)
+	cfg.OAuthClientID = "client-id"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected a client id with no authentication to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "api-auth") {
+		t.Errorf("expected the error to explain the dependency, got: %v", err)
+	}
+}
+
+func TestValidate_AcceptsAConfidentialOAuthClient(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = string(APIAuthGitLab)
+	cfg.OAuthClientID = "client-id"
+	cfg.OAuthClientSecret = "s3cret"
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+}

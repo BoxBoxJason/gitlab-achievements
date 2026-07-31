@@ -14,6 +14,7 @@ Inspired by [BoxBoxJason/achievements](https://github.com/boxboxjason/achievemen
 3. **Backfill**: it walks the instance's history once to award achievements for activity that happened before the bot existed. See [Historical backfill](#historical-backfill) below.
 4. **Event-driven**: from then on, it reacts to incoming webhook events in near real time, no polling. Deliveries are authenticated against the configured secret, normalized into the same activity model the backfill produces, acknowledged immediately, and evaluated by background workers, so a slow database never makes GitLab record the hook as failing.
 5. **Activity reconciliation** *(planned)*: a periodic sync will re-check recent activity to catch any event the webhook pipeline missed (delivery failures, downtime, etc.).
+6. **Reading it back**: everything it works out is served over a read-only HTTP API — a user's EXP, the progress behind it, and a leaderboard. See [HTTP API](#http-api) below.
 
 All state (achievement progress, award history, sync cursors, processed-event idempotency) is stored in a local SQL database (PostgreSQL, SQLite, MySQL/MariaDB, or SQL Server) to keep the impact on the GitLab instance itself minimal. The bot reads from GitLab, but GitLab never has to do extra work to serve it beyond normal API/webhook traffic.
 
@@ -132,6 +133,45 @@ That split exists because GitLab draws the line somewhere unexpected: an awarded
 
 The full findings, and how to re-verify them on a throwaway instance, are in [docs/achievements-api-behavior.md](docs/achievements-api-behavior.md).
 
+## HTTP API
+
+GitLab shows which achievements someone holds but has no notion of EXP, so this app is the only place that number exists. It is served read-only under `/api/v1/`, from the local database alone — no GitLab call sits on the data path, so the API keeps answering while the instance it mirrors is down or rate-limiting.
+
+| Method | Path | Returns |
+| --- | --- | --- |
+| `GET` | `/api/v1/users/{ref}` | EXP total, criteria counters, and every tier earned |
+| `GET` | `/api/v1/users/{ref}/exp` | The EXP total alone |
+| `GET` | `/api/v1/leaderboard?limit=N` | Top N users by EXP (default 10, max 100) |
+
+`{ref}` is either a numeric GitLab user ID or a username. An all-digit ref is tried as an ID first and falls back to a username, so an all-numeric username still resolves unless it collides with a real user ID. Usernames resolve through whatever this app last saw, so somebody who was renamed on GitLab is still found under their current name.
+
+A `404` means this app has recorded no activity for that user at all. A user it knows who has simply earned nothing is a `200` with `"exp_total": 0` — the two are different answers and are reported differently.
+
+```console
+$ curl -s https://achievements.example.com/api/v1/users/alice/exp
+{"username":"alice","gitlab_user_id":42,"exp_total":1350}
+```
+
+Awards are reported whatever their delivery status, matching how EXP is totalled: a tier is earned the moment the engine says so, and a `superseded` tier still pays even though it is deliberately not what GitLab displays. `status` and `shown_on_profile` are both exposed, because they answer different questions — how far this app got pushing the award, and whether the recipient accepted it onto their profile.
+
+### Authentication
+
+Off by default (`--api-auth=none`), matching the posture `/healthz` already has, so upgrading doesn't lock anything and a deployment on a private network can opt out deliberately.
+
+Setting `--api-auth=gitlab` makes the mirrored instance the identity provider. A caller presents any GitLab token — a personal access token, or an OAuth access token — as `Authorization: Bearer <token>`, and it is checked against `GET /api/v4/user` before anything is served:
+
+```console
+$ curl -s -H "Authorization: Bearer $GITLAB_TOKEN" \
+    https://achievements.example.com/api/v1/leaderboard
+```
+
+Browsers can instead log in at `/oauth/login`, which runs the standard authorization-code flow (with PKCE) against the instance and leaves an `HttpOnly` session cookie; `POST /oauth/logout` ends it. Unless `--oauth-client-id` names an application you registered by hand, the app registers a **public** OAuth application for itself on startup — using the instance-admin write token it already holds — and adopts that same application on every later start rather than creating another. A public client has no secret to store; PKCE is what secures the exchange. Pass `--oauth-client-secret` alongside a client ID to run as a confidential client instead.
+
+Any authenticated GitLab identity may read anything the API serves. Achievements are already public on GitLab profiles and are social by nature; what authentication closes is an anonymous caller enumerating who exists on the instance.
+
+> [!NOTE]
+> With `--api-auth=gitlab`, credentials are verified against GitLab on **every** request, with no cache. Revoking a token therefore takes effect immediately, but it also means authenticated requests cannot be served while the instance is unreachable. The DB-only guarantee above applies to the data; under the default `--api-auth=none` it applies to the whole request.
+
 ## Deployment
 
 The app is a single Go binary plus a SQL database. It isn't tied to any one deployment platform or DBMS: the database is selected via the `--database-dsn`/`DATABASE_DSN` scheme (`postgres://`, `sqlite://`, `mysql://`, or `sqlserver://`). Supported/planned deployment targets (see the deployment issue for details):
@@ -155,7 +195,7 @@ make package # build the container image (via podman/docker)
 
 ## Status
 
-Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. Serving that total over HTTP and the activity reconciliation job that would recover events lost to downtime are still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. That total, the progress behind it, and an instance leaderboard are now served over HTTP, optionally behind GitLab-backed authentication. The activity reconciliation job that would recover events lost to downtime is still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 
