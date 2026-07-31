@@ -55,6 +55,11 @@ const (
 // (Name, Description, avatar) and the local progress threshold (Tier,
 // Threshold) that earns it, keyed by CriteriaKey, the identifier the
 // achievement rule engine reports progress against.
+//
+// Exp is the one field with no GitLab counterpart at all. A GitLab
+// achievement carries no points, level, or tier, so the reward a tier is
+// worth is only ever written to this app's own database, where the engine
+// adds it to the holder's total.
 type Entry struct {
 	CriteriaKey string
 	Name        string
@@ -62,6 +67,7 @@ type Entry struct {
 	AvatarPath  string
 	Tier        int64
 	Threshold   int64
+	Exp         int64
 }
 
 // HasAvatar reports whether entry has an avatar image configured.

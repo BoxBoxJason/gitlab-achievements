@@ -128,6 +128,7 @@ func recreateAchievement(ctx context.Context, write achievementWriter, conn *gor
 	existing.Name = entry.Name
 	existing.Description = entry.Description
 	existing.Threshold = entry.Threshold
+	existing.ExpReward = entry.Exp
 	existing.AvatarPath = entry.AvatarPath
 
 	err = conn.Save(existing).Error

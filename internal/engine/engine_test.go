@@ -26,21 +26,29 @@ func testConn(t *testing.T) *gorm.DB {
 	return conn
 }
 
-// seedDefinitions inserts achievement definitions the way bootstrap would,
-// so the engine has tiers to award against.
-func seedDefinitions(t *testing.T, conn *gorm.DB, criteriaKey string, thresholds ...int64) []appdb.AchievementDefinition {
+// tier is one seeded achievement definition: what it costs to earn and
+// what earning it pays.
+type tier struct {
+	threshold int64
+	exp       int64
+}
+
+// seedTiers inserts achievement definitions the way bootstrap would, so the
+// engine has tiers to award against.
+func seedTiers(t *testing.T, conn *gorm.DB, criteriaKey string, tiers ...tier) []appdb.AchievementDefinition {
 	t.Helper()
 
-	definitions := make([]appdb.AchievementDefinition, 0, len(thresholds))
+	definitions := make([]appdb.AchievementDefinition, 0, len(tiers))
 
-	for i, threshold := range thresholds {
-		tier := int64(i + 1)
+	for i, seed := range tiers {
+		number := int64(i + 1)
 		definition := appdb.AchievementDefinition{
-			GitLabAchievementID: int64(len(criteriaKey)*100) + tier,
+			GitLabAchievementID: int64(len(criteriaKey)*100) + number,
 			CriteriaKey:         criteriaKey,
 			Name:                criteriaKey,
-			Tier:                tier,
-			Threshold:           threshold,
+			Tier:                number,
+			Threshold:           seed.threshold,
+			ExpReward:           seed.exp,
 		}
 
 		if err := conn.Create(&definition).Error; err != nil {
@@ -51,6 +59,19 @@ func seedDefinitions(t *testing.T, conn *gorm.DB, criteriaKey string, thresholds
 	}
 
 	return definitions
+}
+
+// seedDefinitions seeds tiers at the given thresholds, each worth what the
+// catalog's default EXP curve pays for its index.
+func seedDefinitions(t *testing.T, conn *gorm.DB, criteriaKey string, thresholds ...int64) []appdb.AchievementDefinition {
+	t.Helper()
+
+	tiers := make([]tier, 0, len(thresholds))
+	for i, threshold := range thresholds {
+		tiers = append(tiers, tier{threshold: threshold, exp: catalog.StandardInfernalCurve(int64(i))})
+	}
+
+	return seedTiers(t, conn, criteriaKey, tiers...)
 }
 
 func commitEvent(dedupKey string, count int64) activity.Event {

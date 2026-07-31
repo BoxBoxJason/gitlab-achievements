@@ -5,19 +5,25 @@
 // hand it activity.Event values, so "does this activity award or advance an
 // achievement" is answered in exactly one place rather than once per source.
 //
-// The implementation here is deliberately the cumulative half of the model
-// the achievement rule engine issue describes: every event increments the
-// criteria counters it maps to, and every catalog tier whose threshold the
-// new count reaches is awarded. Non-cumulative criteria (activity streaks,
-// time-of-day windows), configurable threshold/EXP curves, and the
-// data-driven catalog belong to that issue and land behind this same
-// activity.Processor interface, without the producers changing.
+// Criteria come in two shapes and both are evaluated here. Cumulative ones
+// (commits, merge requests, pipelines) are running totals every matching
+// event advances. Day-derived ones (active days, streaks, night-owl and
+// early-bird days) are recomputed from the set of days the user was active
+// on, because they aren't sums of events: two commits in one afternoon are
+// one active day, and a streak can be extended by a day arriving between
+// two already-known ones. Either way, every catalog tier whose threshold
+// the new value reaches is awarded, and the tier's EXP reward is added to
+// the user's total in the same transaction.
 //
 // Awards are recorded locally as db.AwardStatusPending rather than pushed to
 // GitLab inline. bootstrap.ReconcileAwards already owns delivery and retry
 // for unconfirmed awards, so keeping the engine free of the GitLab write
 // client both avoids a second delivery path and keeps evaluation testable
 // with nothing but a database.
+//
+// EXP has no GitLab counterpart at all, so this package is the only thing
+// that maintains it. See RecomputeEXP for why it is derived from the awards
+// a user holds rather than accumulated forward.
 package engine
 
 import (
@@ -86,7 +92,10 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 		return nil
 	}
 
-	var counted bool
+	var (
+		counted bool
+		awarded int
+	)
 
 	err := e.conn.WithContext(ctx).Transaction(func(txn *gorm.DB) error {
 		fresh, err := recordProcessed(txn, event)
@@ -96,7 +105,9 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 
 		counted = true
 
-		return e.evaluate(txn, event, criteria)
+		awarded, err = evaluate(txn, event, criteria)
+
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("failed to evaluate %s activity %q: %w", event.Kind, event.DedupKey, err)
@@ -108,80 +119,99 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 		e.skipped.Add(1)
 	}
 
+	e.awarded.Add(int64(awarded))
+
 	return nil
 }
 
 // evaluate applies event to every criteria it advances, inside txn: the
 // cumulative ones its kind maps to, and the day-derived ones every dated
-// activity feeds regardless of what it was.
-func (e *Engine) evaluate(txn *gorm.DB, event activity.Event, criteria []string) error {
+// activity feeds regardless of what it was. It returns how many tiers were
+// newly awarded.
+//
+// The user's EXP total is settled here, at the end, rather than by each
+// award as it lands: one recomputation covers however many tiers an event
+// crossed, and it runs in the same transaction as the awards themselves, so
+// a crash can't commit a tier without the EXP it pays.
+func evaluate(txn *gorm.DB, event activity.Event, criteria []string) (int, error) {
 	user, err := upsertUser(txn, event)
 	if err != nil {
-		return err
+		return 0, err
 	}
+
+	var awarded int
 
 	for _, criteriaKey := range criteria {
 		count, incErr := incrementCounter(txn, user.ID, criteriaKey, event.Weight())
 		if incErr != nil {
-			return incErr
+			return 0, incErr
 		}
 
-		awardErr := e.award(txn, user.ID, criteriaKey, count, event.OccurredAt)
+		earned, awardErr := awardReachedTiers(txn, user.ID, criteriaKey, count, event.OccurredAt)
 		if awardErr != nil {
-			return awardErr
+			return 0, awardErr
 		}
+
+		awarded += earned
 	}
 
-	return e.evaluateDays(txn, user.ID, event.OccurredAt)
+	earned, err := evaluateDays(txn, user.ID, event.OccurredAt)
+	if err != nil {
+		return 0, err
+	}
+
+	awarded += earned
+
+	if awarded == 0 {
+		return 0, nil
+	}
+
+	_, err = recomputeExp(txn, user.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	return awarded, nil
 }
 
 // evaluateDays records the day the activity happened on and, only when that
 // changed something, recomputes the criteria derived from the user's
-// activity-day set.
+// activity-day set. It returns how many tiers were newly awarded.
 //
 // Any activity counts towards these, whatever kind it was: a comment and a
 // pipeline both mean the user was there that day. Skipping the recompute
 // when the day was already known is what keeps this from re-reading a
 // decade of days for every event in a busy afternoon.
-func (e *Engine) evaluateDays(txn *gorm.DB, userID int64, occurredAt time.Time) error {
+func evaluateDays(txn *gorm.DB, userID int64, occurredAt time.Time) (int, error) {
 	changed, err := recordActivityDay(txn, userID, occurredAt)
 	if err != nil || !changed {
-		return err
+		return 0, err
 	}
 
 	totals, err := computeDayTotals(txn, userID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+
+	var awarded int
 
 	for _, criteriaKey := range dayCriteria {
 		value := totals.value(criteriaKey)
 
 		err = setCounter(txn, userID, criteriaKey, value)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
-		err = e.award(txn, userID, criteriaKey, value, occurredAt)
-		if err != nil {
-			return err
+		earned, awardErr := awardReachedTiers(txn, userID, criteriaKey, value, occurredAt)
+		if awardErr != nil {
+			return 0, awardErr
 		}
+
+		awarded += earned
 	}
 
-	return nil
-}
-
-// award records every tier of criteriaKey the user has now reached and
-// doesn't already hold, tallying them into the engine's stats.
-func (e *Engine) award(txn *gorm.DB, userID int64, criteriaKey string, count int64, occurredAt time.Time) error {
-	awarded, err := awardReachedTiers(txn, userID, criteriaKey, count, occurredAt)
-	if err != nil {
-		return err
-	}
-
-	e.awarded.Add(int64(awarded))
-
-	return nil
+	return awarded, nil
 }
 
 // recordProcessed inserts event's dedup key into the processed-event log,

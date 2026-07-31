@@ -248,6 +248,7 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 		zap.Int("achievements_created", report.Achievements.Created),
 		zap.Int("achievements_updated", report.Achievements.Updated),
 		zap.Int("achievements_unchanged", report.Achievements.Unchanged),
+		zap.Int("exp_totals_corrected", report.ExpTotalsCorrected),
 		zap.String("hook_scope", string(report.Webhook.Scope)),
 		zap.Int("hook_targets", report.Webhook.Targets),
 		zap.Int("hooks_created", report.Webhook.Created),
@@ -445,6 +446,7 @@ func startReconciliationLoops(
 		logger.Info("achievement reconciliation complete",
 			zap.Int("achievements_recreated", hourly.Achievements.Recreated),
 			zap.Int("achievements_unchanged", hourly.Achievements.Unchanged),
+			zap.Int("exp_totals_corrected", hourly.ExpTotalsCorrected),
 			zap.Int("awards_confirmed", hourly.Awards.Confirmed),
 			zap.Int("awards_failed", hourly.Awards.Failed),
 		)
