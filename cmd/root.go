@@ -449,6 +449,8 @@ func startReconciliationLoops(
 			zap.Int("exp_totals_corrected", hourly.ExpTotalsCorrected),
 			zap.Int("awards_confirmed", hourly.Awards.Confirmed),
 			zap.Int("awards_failed", hourly.Awards.Failed),
+			zap.Int("awards_superseded", hourly.Awards.Superseded),
+			zap.Int("awards_adopted", hourly.Awards.Adopted),
 		)
 
 		return nil

@@ -95,22 +95,50 @@ type ActivityDay struct {
 	EarlyBird bool `gorm:"not null;default:false"`
 }
 
-// AwardStatus describes where an Award stands in the acceptance lifecycle
+// AwardStatus describes where an Award stands in the delivery lifecycle
 // with GitLab's achievements API.
+//
+// This tracks what this app has pushed to GitLab, which is a different
+// question from whether the recipient has accepted what was pushed. Only
+// the recipient can accept an award, and only they can undo it; see
+// Award.ShownOnProfile for that half.
 type AwardStatus string
 
 const (
 	// AwardStatusPending means the award has been recorded locally but not
-	// yet confirmed as accepted by GitLab.
+	// yet pushed to GitLab.
 	AwardStatusPending AwardStatus = "pending"
-	// AwardStatusAccepted means GitLab confirmed the award was granted.
+	// AwardStatusAccepted means GitLab took the awarding mutation and
+	// created the award. It says nothing about the recipient having
+	// accepted it onto their profile.
 	AwardStatusAccepted AwardStatus = "accepted"
 	// AwardStatusFailed means GitLab rejected or failed to grant the award.
 	AwardStatusFailed AwardStatus = "failed"
+	// AwardStatusSuperseded means a higher tier of the same criteria is
+	// what GitLab holds for this user now, so this tier is deliberately
+	// not on GitLab: it was either never pushed, or pushed and since
+	// revoked. The row stays, and keeps paying its EXP, because the user
+	// still earned the tier.
+	AwardStatusSuperseded AwardStatus = "superseded"
 )
 
 // Award records that a user has earned (or is being granted) a specific
 // achievement definition.
+//
+// GitLabUserAchievementID is the ID GitLab assigned the award itself, as
+// distinct from the achievement it was made from. Every mutation that acts
+// on an award somebody already holds is keyed by that ID and by nothing
+// else, so an award delivered without recording it can never be revoked
+// again. It is zero until GitLab has answered with one, and it is what
+// makes delivery safe to retry: awarding is not idempotent on GitLab's
+// side, so an award pushed twice becomes two separate records, and two
+// notification emails to the recipient.
+//
+// ShownOnProfile records whether the recipient has accepted the award onto
+// their profile. GitLab awards land hidden and stay hidden until the person
+// who received them opts in, which only they can do, so this is read back
+// from GitLab rather than set by this app. It is the only signal here that
+// an award was ever actually seen by anyone.
 type Award struct {
 	AwardedAt               time.Time
 	CreatedAt               time.Time
@@ -121,6 +149,8 @@ type Award struct {
 	ID                      int64                 `gorm:"primarykey"`
 	UserID                  int64                 `gorm:"not null;index:idx_user_achievement,unique"`
 	AchievementDefinitionID int64                 `gorm:"not null;index:idx_user_achievement,unique"`
+	GitLabUserAchievementID int64                 `gorm:"index;not null;default:0"`
+	ShownOnProfile          bool                  `gorm:"not null;default:false"`
 }
 
 // ProcessedEvent records that a GitLab event has already been ingested, so
