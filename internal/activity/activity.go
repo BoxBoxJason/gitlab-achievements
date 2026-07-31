@@ -45,8 +45,17 @@ const (
 	KindMergeRequestMerged Kind = "merge_request_merged"
 	// KindMergeRequestApproved is a merge request approval.
 	KindMergeRequestApproved Kind = "merge_request_approved"
+	// KindMergeRequestMergedFast is a merge request merged soon after it was
+	// opened. It is always accompanied by a KindMergeRequestMerged event for
+	// the same merge request; how soon "soon" is belongs to the producer,
+	// since only it can see the two timestamps.
+	KindMergeRequestMergedFast Kind = "merge_request_merged_fast"
 	// KindMergeRequestClosed is a merge request closed without merging.
 	KindMergeRequestClosed Kind = "merge_request_closed"
+	// KindDiscussionResolved is a review discussion resolved by a user.
+	// Discussions GitLab resolves on its own when a push obsoletes them are
+	// not reported as this kind.
+	KindDiscussionResolved Kind = "discussion_resolved"
 	// KindIssueOpened is an issue opened by its author.
 	KindIssueOpened Kind = "issue_opened"
 	// KindIssueClosed is an issue closed.
@@ -62,6 +71,24 @@ const (
 	// KindPipelineFailed is a pipeline that finished in failure. It is
 	// always accompanied by a KindPipelineRun event for the same pipeline.
 	KindPipelineFailed Kind = "pipeline_failed"
+	// KindJobRun is a single CI job that ran, whatever its outcome. Its
+	// outcome is deliberately not reported: the pipeline the job belongs to
+	// already carries one, and a failing job in a pipeline that passes on
+	// retry is not a failure anyone should be scored on.
+	KindJobRun Kind = "job_run"
+	// KindDeployment is a deployment to an environment, whatever its
+	// outcome.
+	KindDeployment Kind = "deployment"
+	// KindDeploymentSucceeded is a deployment that completed successfully.
+	// It is always accompanied by a KindDeployment event for the same
+	// deployment.
+	KindDeploymentSucceeded Kind = "deployment_succeeded"
+	// KindEmojiAwarded is an emoji reaction a user added. Reactions they
+	// later removed are not taken back, in keeping with awards themselves.
+	KindEmojiAwarded Kind = "emoji_awarded"
+	// KindWikiPageCreated is a wiki page created by a user. Edits to an
+	// existing page are not reported as this kind.
+	KindWikiPageCreated Kind = "wiki_page_created"
 )
 
 // Event is one thing one user did, at one point in time.

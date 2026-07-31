@@ -55,6 +55,10 @@ var subscribedEvents = map[gitlab.EventType]bool{
 	gitlab.EventTypeNote:          true,
 	gitlab.EventConfidentialNote:  true,
 	gitlab.EventTypePipeline:      true,
+	gitlab.EventTypeJob:           true,
+	gitlab.EventTypeDeployment:    true,
+	gitlab.EventTypeEmoji:         true,
+	gitlab.EventTypeWikiPage:      true,
 }
 
 // dispatcher is what the receiver hands normalized activity to, satisfied

@@ -95,13 +95,24 @@ const maxTier = 10
 // observe on a GitLab instance, and the curve its tiers follow.
 //
 // The criteria are the subset of the VS Code extension's that a GitLab
-// server can actually see. Anything that needs to watch an editor (lines
-// of code, files created, per-language breakdowns, pastes, tabs,
-// extensions, themes, debugger sessions, terminal tasks, time spent) has no
-// server-side equivalent and is not represented here. Two git criteria are
-// missing for the same reason even though they sound observable: an amend
-// is indistinguishable from an ordinary commit once pushed, and GitLab's
-// Events API doesn't report whether a push was forced.
+// server can actually see, plus what the hooks this app registers offer
+// that the extension never had a counterpart for. Anything that needs to
+// watch an editor (lines of code, files created, per-language breakdowns,
+// pastes, tabs, extensions, themes, debugger sessions, terminal tasks, time
+// spent) has no server-side equivalent and is not represented here. Two git
+// criteria are missing for the same reason even though they sound
+// observable: an amend is indistinguishable from an ordinary commit once
+// pushed, and GitLab's Events API doesn't report whether a push was forced.
+//
+// Four of the event types the hooks subscribe to are absent for a different
+// reason: nobody to credit. Release and vulnerability payloads carry no
+// user at all, member payloads name the member rather than whoever added
+// them, and feature flag payloads carry a user but no identifier for the
+// change, so repeated toggles of one flag can't be told apart from a
+// redelivery of the first. Milestone events have no payload type in
+// client-go to parse at all. The hooks stay subscribed to them so that
+// adding a criteria later is a code change rather than a re-registration
+// across every project.
 //
 //nolint:gochecknoglobals // a package-level lookup table, read-only after init
 var templates = []Template{
@@ -169,11 +180,25 @@ var templates = []Template{
 		MaxTier:     maxTier,
 	},
 	{
+		CriteriaKey: CriteriaMergeRequestsMergedFast,
+		Title:       "Rubber Stamp %s",
+		Description: "Merge %d merge requests within an hour of them being opened.",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
 		CriteriaKey: CriteriaComments,
 		Title:       "Commentator %s",
 		Description: "Leave %d comments.",
 		AvatarPath:  "assets/comment.png",
 		Curve:       StandardMediumCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		CriteriaKey: CriteriaDiscussionsResolved,
+		Title:       "Loose Ends %s",
+		Description: "Resolve %d review discussions.",
+		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
 	},
 
@@ -213,6 +238,47 @@ var templates = []Template{
 		CriteriaKey: CriteriaPipelinesFailed,
 		Title:       "Firefighter %s",
 		Description: "Trigger %d pipelines that fail.",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		CriteriaKey: CriteriaJobsRun,
+		Title:       "Assembly Line %s",
+		Description: "Run %d CI jobs.",
+		// Jobs are the most numerous thing on this list by an order of
+		// magnitude, since one pipeline is many jobs. The medium curve is
+		// what keeps its early tiers from being handed out several at a
+		// time by a single pipeline.
+		Curve:   StandardMediumCurve,
+		MaxTier: maxTier,
+	},
+	{
+		CriteriaKey: CriteriaDeployments,
+		Title:       "Ship It %s",
+		Description: "Deploy %d times.",
+		Curve:       StandardHardCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		CriteriaKey: CriteriaDeploymentsSucceeded,
+		Title:       "Stuck the Landing %s",
+		Description: "Complete %d deployments successfully.",
+		Curve:       StandardHardCurve,
+		MaxTier:     maxTier,
+	},
+
+	//////////////////////// COLLABORATION ////////////////////////
+	{
+		CriteriaKey: CriteriaEmojiAwarded,
+		Title:       "Reaction Time %s",
+		Description: "React to %d issues, merge requests, or comments.",
+		Curve:       StandardMediumCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		CriteriaKey: CriteriaWikiPagesCreated,
+		Title:       "Librarian %s",
+		Description: "Create %d wiki pages.",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
 	},

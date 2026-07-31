@@ -364,6 +364,255 @@ func TestNormalize_SystemNotesAreNotEngagement(t *testing.T) {
 	}
 }
 
+func mergedAfter(gap time.Duration) *gitlab.MergeEvent {
+	opened := time.Date(2026, time.March, 1, 9, 0, 0, 0, time.UTC)
+
+	return &gitlab.MergeEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"},
+		ObjectAttributes: gitlab.MergeEventObjectAttributes{
+			ID: 55, TargetProjectID: 1, Action: "merge",
+			CreatedAt: opened.Format(time.RFC3339),
+			UpdatedAt: opened.Add(gap).Format(time.RFC3339),
+		},
+	}
+}
+
+func TestNormalize_MergeWithinTheWindowAlsoCountsAsFast(t *testing.T) {
+	events := normalize(mergedAfter(30*time.Minute), receivedAt)
+
+	if len(events) != 2 {
+		t.Fatalf("expected the merge and the fast merge, got %v", kindsOf(events))
+	}
+
+	fast := findKind(t, events, activity.KindMergeRequestMergedFast)
+	if fast.DedupKey != "merge_request:55:merged_fast" {
+		t.Errorf("expected the fast merge to be keyed apart from the merge, got %q", fast.DedupKey)
+	}
+
+	if fast.ActorID != 10 {
+		t.Errorf("expected the fast merge to be credited to whoever merged, got user %d", fast.ActorID)
+	}
+}
+
+func TestNormalize_SlowMergeIsOnlyAMerge(t *testing.T) {
+	events := normalize(mergedAfter(3*time.Hour), receivedAt)
+
+	if len(events) != 1 || events[0].Kind != activity.KindMergeRequestMerged {
+		t.Errorf("expected a merge request merged hours later not to count as fast, got %v", kindsOf(events))
+	}
+}
+
+func TestNormalize_FastMergeNeedsBothTimestampsToParse(t *testing.T) {
+	// parseEventTime substitutes the delivery time for a spelling it doesn't
+	// know, and two substitutions are equal, which would score every merge on
+	// such an instance as instantaneous.
+	event := mergedAfter(30 * time.Minute)
+	event.ObjectAttributes.CreatedAt = "last Tuesday"
+
+	events := normalize(event, receivedAt)
+
+	if len(events) != 1 || events[0].Kind != activity.KindMergeRequestMerged {
+		t.Errorf("expected an unreadable opening time to yield no fast merge, got %v", kindsOf(events))
+	}
+}
+
+func resolvedNote(resolvedBy int64, byPush bool) *gitlab.MergeCommentEvent {
+	return &gitlab.MergeCommentEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.MergeCommentEventObjectAttributes{
+			ID: 7, AuthorID: 20, ProjectID: 1, DiscussionID: "abc123",
+			CreatedAt:  "2026-03-01 09:00:00 UTC",
+			ResolvedAt: "2026-03-02 11:00:00 UTC", ResolvedByID: resolvedBy, ResolvedByPush: byPush,
+		},
+	}
+}
+
+func TestNormalize_ResolvingADiscussionCountsForTheResolver(t *testing.T) {
+	events := normalize(resolvedNote(10, false), receivedAt)
+
+	resolved := findKind(t, events, activity.KindDiscussionResolved)
+	if resolved.ActorID != 10 || resolved.ActorUsername != "alice" {
+		t.Errorf("expected the resolution credited to who resolved it, got %d/%q",
+			resolved.ActorID, resolved.ActorUsername)
+	}
+
+	if resolved.DedupKey != "discussion:abc123:resolved" {
+		t.Errorf("expected the resolution keyed on the discussion, got %q", resolved.DedupKey)
+	}
+
+	// The comment itself still counts, and still belongs to its author
+	// rather than to whoever resolved the thread.
+	comment := findKind(t, events, activity.KindComment)
+	if comment.ActorID != 20 {
+		t.Errorf("expected the comment to stay with its author, got user %d", comment.ActorID)
+	}
+}
+
+func TestNormalize_DiscussionResolvedByAPushIsNobodysAchievement(t *testing.T) {
+	events := normalize(resolvedNote(10, true), receivedAt)
+
+	for _, event := range events {
+		if event.Kind == activity.KindDiscussionResolved {
+			t.Error("expected a discussion GitLab resolved on its own not to count")
+		}
+	}
+}
+
+func TestNormalize_UnresolvedNoteResolvesNothing(t *testing.T) {
+	events := normalize(resolvedNote(0, false), receivedAt)
+
+	if len(events) != 1 || events[0].Kind != activity.KindComment {
+		t.Errorf("expected an unresolved note to be a comment and nothing more, got %v", kindsOf(events))
+	}
+}
+
+func TestNormalize_ResolutionsOfOneDiscussionShareTheirKey(t *testing.T) {
+	// GitLab redelivers the note as the thread is edited afterwards, each
+	// delivery still carrying the resolution.
+	first := normalize(resolvedNote(10, false), receivedAt)
+
+	later := resolvedNote(10, false)
+	later.ObjectAttributes.ID = 8
+
+	second := normalize(later, receivedAt)
+
+	if findKind(t, first, activity.KindDiscussionResolved).DedupKey !=
+		findKind(t, second, activity.KindDiscussionResolved).DedupKey {
+		t.Error("expected one discussion to be resolved once however many of its notes are delivered")
+	}
+}
+
+func TestNormalize_JobIsCountedOncePerBuild(t *testing.T) {
+	jobEvent := func(status string) *gitlab.JobEvent {
+		return &gitlab.JobEvent{
+			User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+			BuildID: 900, BuildStatus: status, BuildCreatedAtISO: "2026-03-01T09:00:00Z",
+		}
+	}
+
+	running := normalize(jobEvent("running"), receivedAt)
+	if len(running) != 1 || running[0].Kind != activity.KindJobRun {
+		t.Fatalf("expected a job run, got %v", kindsOf(running))
+	}
+
+	failed := normalize(jobEvent("failed"), receivedAt)
+	if len(failed) != 1 {
+		t.Errorf("expected a job's outcome not to be scored separately, got %v", kindsOf(failed))
+	}
+
+	if running[0].DedupKey != failed[0].DedupKey {
+		t.Errorf("expected every transition of one job to count it once, got %q and %q",
+			running[0].DedupKey, failed[0].DedupKey)
+	}
+
+	want := time.Date(2026, time.March, 1, 9, 0, 0, 0, time.UTC)
+	if !running[0].OccurredAt.Equal(want) {
+		t.Errorf("expected the job's creation time %v, got %v", want, running[0].OccurredAt)
+	}
+}
+
+func TestNormalize_UserlessJobIsDropped(t *testing.T) {
+	// Scheduled pipelines and API triggers with a detached token run jobs
+	// nobody can be credited for.
+	events := normalize(&gitlab.JobEvent{ProjectID: 1, BuildID: 900}, receivedAt)
+	if len(events) != 0 {
+		t.Errorf("expected a job with no user to yield nothing, got %v", kindsOf(events))
+	}
+}
+
+func TestNormalize_DeploymentRunAndOutcome(t *testing.T) {
+	cases := map[string][]activity.Kind{
+		"success":  {activity.KindDeployment, activity.KindDeploymentSucceeded},
+		"running":  {activity.KindDeployment},
+		"failed":   {activity.KindDeployment},
+		"canceled": {activity.KindDeployment},
+	}
+
+	for status, want := range cases {
+		events := normalize(&gitlab.DeploymentEvent{
+			User: &gitlab.EventUser{ID: 10, Username: "alice"},
+			Project: gitlab.DeploymentEventProject{ID: 1}, DeploymentID: 42, Status: status,
+			StatusChangedAt: "2026-03-01 09:00:00 UTC",
+		}, receivedAt)
+
+		if len(events) != len(want) {
+			t.Errorf("status %q: expected %v, got %v", status, want, kindsOf(events))
+		}
+	}
+}
+
+func TestNormalize_DeploymentTransitionsShareTheirKeys(t *testing.T) {
+	deployment := func(status string) *gitlab.DeploymentEvent {
+		return &gitlab.DeploymentEvent{
+			User: &gitlab.EventUser{ID: 10}, Project: gitlab.DeploymentEventProject{ID: 1},
+			DeploymentID: 42, Status: status,
+		}
+	}
+
+	running := normalize(deployment("running"), receivedAt)
+	succeeded := normalize(deployment("success"), receivedAt)
+
+	if running[0].DedupKey != succeeded[0].DedupKey {
+		t.Errorf("expected every transition of one deployment to count it once, got %q and %q",
+			running[0].DedupKey, succeeded[0].DedupKey)
+	}
+}
+
+func TestNormalize_EmojiAwardCountsAndRevokeDoesNot(t *testing.T) {
+	emoji := func(action string) *gitlab.EmojiEvent {
+		return &gitlab.EmojiEvent{
+			User: gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+			ObjectAttributes: gitlab.EmojiEventObjectAttributes{
+				ID: 77, Name: "thumbsup", Action: action, CreatedAt: "2026-03-01 09:00:00 UTC",
+			},
+		}
+	}
+
+	awarded := normalize(emoji("award"), receivedAt)
+	if len(awarded) != 1 || awarded[0].Kind != activity.KindEmojiAwarded {
+		t.Fatalf("expected an awarded reaction to count, got %v", kindsOf(awarded))
+	}
+
+	if awarded[0].DedupKey != "emoji:77" {
+		t.Errorf("expected the reaction keyed on its own ID, got %q", awarded[0].DedupKey)
+	}
+
+	if events := normalize(emoji("revoke"), receivedAt); len(events) != 0 {
+		t.Errorf("expected a withdrawn reaction not to take anything back, got %v", kindsOf(events))
+	}
+}
+
+func TestNormalize_WikiPageCreationCountsAndEditsDoNot(t *testing.T) {
+	wiki := func(action, slug string) *gitlab.WikiPageEvent {
+		return &gitlab.WikiPageEvent{
+			User:    &gitlab.EventUser{ID: 10, Username: "alice"},
+			Project: gitlab.WikiPageEventProject{PathWithNamespace: "group/project"},
+			ObjectAttributes: gitlab.WikiPageEventObjectAttributes{
+				Title: "Runbook", Slug: slug, Action: action,
+			},
+		}
+	}
+
+	created := normalize(wiki("create", "runbook"), receivedAt)
+	if len(created) != 1 || created[0].Kind != activity.KindWikiPageCreated {
+		t.Fatalf("expected a created wiki page to count, got %v", kindsOf(created))
+	}
+
+	if created[0].DedupKey != "wiki_page:group/project:runbook" {
+		t.Errorf("expected the page keyed on its project and slug, got %q", created[0].DedupKey)
+	}
+
+	for _, action := range []string{"update", "delete"} {
+		if events := normalize(wiki(action, "runbook"), receivedAt); len(events) != 0 {
+			t.Errorf("action %q: expected no activity for want of a stable key, got %v", action, kindsOf(events))
+		}
+	}
+
+	if events := normalize(wiki("create", ""), receivedAt); len(events) != 0 {
+		t.Errorf("expected a slugless page to yield nothing, got %v", kindsOf(events))
+	}
+}
+
 func TestNormalize_UnhandledPayloadYieldsNothing(t *testing.T) {
 	if events := normalize(&gitlab.ReleaseEvent{}, receivedAt); len(events) != 0 {
 		t.Errorf("expected an event type this app tracks nothing for to yield nothing, got %v", kindsOf(events))

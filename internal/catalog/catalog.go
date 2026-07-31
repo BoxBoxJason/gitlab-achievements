@@ -26,29 +26,46 @@ var avatarAssets embed.FS
 // its occurrences accumulate in, and to the tiers earned off that counter.
 //
 // These are the subset of the VS Code extension's criteria a GitLab server
-// can observe. Editor-local ones (lines of code, files created, tabs,
-// extensions, debugger sessions, time spent) have no server-side
-// equivalent and are deliberately absent; see templates for the two git
-// criteria that are missing for subtler reasons.
+// can observe, plus the ones with no extension counterpart at all that the
+// hooks this app registers hand it for free (deployments, jobs, emoji
+// reactions, wiki pages). Editor-local criteria (lines of code, files
+// created, tabs, extensions, debugger sessions, time spent) have no
+// server-side equivalent and are deliberately absent; see templates for the
+// git criteria that are missing for subtler reasons, and for the hooks
+// whose payloads name no user to credit.
+//
+// Not every criteria is observable by both activity producers. The
+// historical backfill reads GitLab's Events API, which reports pushes,
+// merge requests, issues, and notes but not deployments, jobs, emoji,
+// discussion resolutions, or wiki pages. Those advance from live webhook
+// deliveries only, so on a freshly bootstrapped instance they start from
+// zero however long the instance has existed.
 const (
-	CriteriaCommits               = "commits"
-	CriteriaPushes                = "pushes"
-	CriteriaBranchesCreated       = "branches_created"
-	CriteriaTagsCreated           = "tags_created"
-	CriteriaMergeRequestsOpened   = "merge_requests_opened"
-	CriteriaMergeRequestsMerged   = "merge_requests_merged"
-	CriteriaMergeRequestsApproved = "merge_requests_approved"
-	CriteriaMergeRequestsClosed   = "merge_requests_closed"
-	CriteriaComments              = "comments"
-	CriteriaIssuesOpened          = "issues_opened"
-	CriteriaIssuesClosed          = "issues_closed"
-	CriteriaPipelinesRun          = "pipelines_run"
-	CriteriaPipelinesSucceeded    = "pipelines_succeeded"
-	CriteriaPipelinesFailed       = "pipelines_failed"
-	CriteriaActiveDays            = "active_days"
-	CriteriaActivityStreak        = "activity_streak"
-	CriteriaNightOwlDays          = "night_owl_days"
-	CriteriaEarlyBirdDays         = "early_bird_days"
+	CriteriaCommits                 = "commits"
+	CriteriaPushes                  = "pushes"
+	CriteriaBranchesCreated         = "branches_created"
+	CriteriaTagsCreated             = "tags_created"
+	CriteriaMergeRequestsOpened     = "merge_requests_opened"
+	CriteriaMergeRequestsMerged     = "merge_requests_merged"
+	CriteriaMergeRequestsApproved   = "merge_requests_approved"
+	CriteriaMergeRequestsClosed     = "merge_requests_closed"
+	CriteriaMergeRequestsMergedFast = "merge_requests_merged_fast"
+	CriteriaComments                = "comments"
+	CriteriaDiscussionsResolved     = "discussions_resolved"
+	CriteriaIssuesOpened            = "issues_opened"
+	CriteriaIssuesClosed            = "issues_closed"
+	CriteriaPipelinesRun            = "pipelines_run"
+	CriteriaPipelinesSucceeded      = "pipelines_succeeded"
+	CriteriaPipelinesFailed         = "pipelines_failed"
+	CriteriaJobsRun                 = "jobs_run"
+	CriteriaDeployments             = "deployments"
+	CriteriaDeploymentsSucceeded    = "deployments_succeeded"
+	CriteriaEmojiAwarded            = "emoji_awarded"
+	CriteriaWikiPagesCreated        = "wiki_pages_created"
+	CriteriaActiveDays              = "active_days"
+	CriteriaActivityStreak          = "activity_streak"
+	CriteriaNightOwlDays            = "night_owl_days"
+	CriteriaEarlyBirdDays           = "early_bird_days"
 )
 
 // Entry describes one tier of one achievement criteria: what GitLab shows
