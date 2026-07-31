@@ -18,6 +18,7 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"gorm.io/gorm"
 
+	"github.com/boxboxjason/gitlab-achievements/internal/api"
 	"github.com/boxboxjason/gitlab-achievements/internal/bootstrap"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -119,6 +120,9 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.BackfillMode, "backfill", envOrDefault("BACKFILL", string(config.DefaultBackfillMode)), "Whether the server walks the instance's history itself (auto, off, force)")
 	flags.StringVar(&cfg.BackfillSince, "backfill-since", os.Getenv("BACKFILL_SINCE"), "How far back the historical backfill reaches, as a date (2006-01-02) or duration (720h); empty walks everything")
 	flags.Float64Var(&cfg.BackfillRate, "backfill-rate", envFloatOrDefault("BACKFILL_RATE", config.DefaultBackfillRate), "Requests per second the historical backfill is allowed to issue")
+	flags.StringVar(&cfg.APIAuth, "api-auth", envOrDefault("API_AUTH", string(config.DefaultAPIAuth)), "What the read API requires of callers (none, gitlab); gitlab verifies a GitLab token on every request")
+	flags.StringVar(&cfg.OAuthClientID, "oauth-client-id", os.Getenv("OAUTH_CLIENT_ID"), "Client ID of a hand-registered GitLab OAuth application; empty lets the app register a public one for itself")
+	flags.StringVar(&cfg.OAuthClientSecret, "oauth-client-secret", os.Getenv("OAUTH_CLIENT_SECRET"), "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
 }
 
 func envOrDefault(key, fallback string) string {
@@ -259,10 +263,87 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 	return readClient, writeClient, report, nil
 }
 
-// newHTTPServer builds the *http.Server exposing /healthz, /readyz, and the
-// webhook ingestion endpoint, wired to check the database connection and
-// GitLab reachability on every /readyz request.
-func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, logger *zap.Logger) *http.Server {
+// buildAPI constructs the read API serving user EXP, achievement progress,
+// and the leaderboard.
+//
+// With authentication configured, this is also where the OAuth application
+// visitors log in through is resolved: an operator-registered one when its
+// client ID is configured, otherwise one this app registers for itself and
+// then adopts on every later start. Resolving it here, before the listener
+// opens, means a misconfigured or unregisterable application fails startup
+// rather than surfacing at somebody's first login attempt.
+func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, logger *zap.Logger) (*api.API, error) {
+	opts := api.Options{Logger: logger}
+
+	if cfg.AuthMode() != config.APIAuthGitLab {
+		logger.Info("read api is unauthenticated", zap.String("api_auth", cfg.APIAuth))
+
+		return api.New(conn, opts), nil
+	}
+
+	verifier, err := gitlabclient.NewTokenVerifier(cfg.GitLabURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build gitlab token verifier: %w", err)
+	}
+
+	opts.Verifier = verifier
+
+	clientID := cfg.OAuthClientID
+	if clientID == "" {
+		clientID, err = bootstrap.EnsureOAuthApplication(ctx, writeClient, conn, cfg.PublicURL+api.CallbackPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve the oauth application for the read api: %w", err)
+		}
+	}
+
+	opts.OAuth = &api.OAuthOptions{
+		GitLabURL:    cfg.GitLabURL,
+		PublicURL:    cfg.PublicURL,
+		ClientID:     clientID,
+		ClientSecret: cfg.OAuthClientSecret,
+	}
+
+	logger.Info("read api requires a gitlab credential",
+		zap.String("oauth_client_id", clientID),
+		zap.Bool("confidential_client", cfg.OAuthClientSecret != ""),
+	)
+
+	return api.New(conn, opts), nil
+}
+
+// buildServer assembles everything the listener serves: webhook ingestion,
+// the read API, and the background sweep that clears expired sessions.
+//
+// It is separate from serve so that the pieces that can fail to build (the
+// read API's OAuth application, in particular) are resolved before the
+// listener opens, and so serve itself stays about the lifecycle rather than
+// the construction.
+func buildServer(
+	ctx context.Context,
+	cfg *config.Config,
+	conn *gorm.DB,
+	sqlDB *sql.DB,
+	readClient *gitlabclient.ReadClient,
+	writeClient *gitlabclient.WriteClient,
+	queue *webhook.Queue,
+	logger *zap.Logger,
+) (*http.Server, error) {
+	readAPI, err := buildAPI(ctx, cfg, conn, writeClient, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	startSessionPruning(ctx, cfg, readAPI, logger)
+
+	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue, logger)
+
+	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, logger), nil
+}
+
+// newHTTPServer builds the *http.Server exposing /healthz, /readyz, the
+// webhook ingestion endpoint, and the read API, wired to check the database
+// connection and GitLab reachability on every /readyz request.
+func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API, logger *zap.Logger) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
@@ -280,6 +361,14 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 		},
 	)
 	srv.MountWebhook(receiver)
+
+	// Both prefixes reach the same handler, which dispatches within them:
+	// the read endpoints sit behind whatever authentication is configured,
+	// and the login routes deliberately do not, being how a browser
+	// acquires a credential in the first place.
+	srv.Mount(api.PathPrefix, readAPI.Handler())
+	srv.Mount(api.OAuthPathPrefix, readAPI.Handler())
+
 	srv.SetReady(true)
 
 	return &http.Server{
@@ -311,8 +400,10 @@ func serve(
 	queue := webhook.NewQueue(engine.New(conn), webhook.Options{Logger: logger})
 	queue.Start(ctx)
 
-	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue, logger)
-	httpSrv := newHTTPServer(cfg, sqlDB, readClient, receiver, logger)
+	httpSrv, err := buildServer(ctx, cfg, conn, sqlDB, readClient, writeClient, queue, logger)
+	if err != nil {
+		return err
+	}
 
 	startReconciliationLoops(ctx, cfg, conn, readClient, writeClient, report.NamespaceID, webhookURL, logger)
 	startBackfill(ctx, cfg, conn, writeClient, liveFrom, logger)
@@ -401,6 +492,34 @@ func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
 		zap.Int64("failed", stats.Failed),
 		zap.Int64("rejected", stats.Rejected),
 	)
+}
+
+// startSessionPruning launches the sweep that clears expired browser
+// sessions from the database, stopping when ctx is cancelled.
+//
+// It runs only where the login flow can create sessions at all: with
+// authentication off nothing ever writes that table, and a periodic DELETE
+// against it would be pure noise. Expired sessions are already refused on
+// every request, so this is housekeeping rather than enforcement.
+func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.API, logger *zap.Logger) {
+	if cfg.AuthMode() != config.APIAuthGitLab {
+		return
+	}
+
+	go scheduler.Every(ctx, api.PruneInterval, func(ctx context.Context) error {
+		pruned, err := readAPI.PruneSessions(ctx)
+		if err != nil {
+			return fmt.Errorf("session pruning failed: %w", err)
+		}
+
+		if pruned > 0 {
+			logger.Info("pruned expired api sessions", zap.Int64("sessions", pruned))
+		}
+
+		return nil
+	}, func(err error) {
+		logger.Error("session pruning failed", zap.Error(err))
+	})
 }
 
 // startReconciliationLoops launches the background jobs that keep GitLab-side

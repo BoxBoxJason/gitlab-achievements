@@ -35,6 +35,24 @@ const (
 	backfillSinceDateLayout = "2006-01-02"
 )
 
+// APIAuth selects what the read API requires of its callers.
+type APIAuth string
+
+const (
+	// APIAuthNone serves the read API to anyone who can reach it, which is
+	// the same posture /healthz and /readyz already have. It is the default
+	// so that enabling the API is not, by itself, a breaking change for a
+	// deployment that reaches it over a private network.
+	APIAuthNone APIAuth = "none"
+	// APIAuthGitLab makes the mirrored instance the identity provider: a
+	// caller presents a GitLab token (a personal access token, or an OAuth
+	// access token from the application this app registers) and it is
+	// verified against that instance before anything is served.
+	APIAuthGitLab APIAuth = "gitlab"
+	// DefaultAPIAuth is used when no mode is configured.
+	DefaultAPIAuth = APIAuthNone
+)
+
 // BackfillMode selects whether the serving process runs the historical
 // backfill itself.
 type BackfillMode string
@@ -102,6 +120,20 @@ type Config struct {
 	// event ingestion; see HookScope's constants. The default resolves it
 	// from the instance's license.
 	HookScope string
+	// APIAuth selects what the read API requires of its callers; see
+	// APIAuth's constants.
+	APIAuth string
+	// OAuthClientID and OAuthClientSecret identify an OAuth application
+	// registered on the instance by hand, for operators who would rather not
+	// have this app create one. Both are optional: left empty, and with
+	// APIAuth set to gitlab, the app registers a public (secret-less)
+	// application for itself and remembers its ID.
+	//
+	// A secret makes the app a confidential client. Without one it is a
+	// public client, which is why nothing secret needs storing in the
+	// self-registered case; PKCE protects the code exchange either way.
+	OAuthClientID     string
+	OAuthClientSecret string
 	// BackfillMode selects whether the serving process walks the
 	// instance's history itself; see BackfillMode's constants.
 	BackfillMode string
@@ -151,8 +183,14 @@ func (c *Config) Validate() error {
 
 	errs = append(errs, c.validateHookScope()...)
 	errs = append(errs, c.validateBackfill()...)
+	errs = append(errs, c.validateAPI()...)
 
 	return errors.Join(errs...)
+}
+
+// AuthMode returns the configured read-API authentication mode.
+func (c *Config) AuthMode() APIAuth {
+	return APIAuth(c.APIAuth)
 }
 
 // ParseBackfillSince resolves BackfillSince into the earliest moment the
@@ -186,6 +224,35 @@ func (c *Config) ParseBackfillSince() (time.Time, error) {
 	}
 
 	return time.Now().UTC().Add(-window), nil
+}
+
+// validateAPI checks the read API's knobs, so an unknown auth mode or a
+// half-configured OAuth application is caught at startup rather than at the
+// first request that would have needed it.
+func (c *Config) validateAPI() []error {
+	var errs []error
+
+	switch c.AuthMode() {
+	case APIAuthNone, APIAuthGitLab:
+	default:
+		errs = append(errs, fmt.Errorf("api-auth must be one of %q or %q, got %q",
+			APIAuthNone, APIAuthGitLab, c.APIAuth))
+	}
+
+	// A secret with nothing to pair it with is always a mistake, and a
+	// silent one: the app would register an application of its own and use
+	// that instead, leaving the operator's configured credential unused and
+	// their hand-registered application dead.
+	if strings.TrimSpace(c.OAuthClientSecret) != "" && strings.TrimSpace(c.OAuthClientID) == "" {
+		errs = append(errs, errors.New("oauth-client-secret requires oauth-client-id"))
+	}
+
+	if strings.TrimSpace(c.OAuthClientID) != "" && c.AuthMode() != APIAuthGitLab {
+		errs = append(errs, fmt.Errorf("oauth-client-id has no effect unless api-auth is %q, got %q",
+			APIAuthGitLab, c.APIAuth))
+	}
+
+	return errs
 }
 
 // validateHookScope checks the webhook strategy, so an unknown value is
@@ -247,6 +314,10 @@ func (c *Config) applyDefaults() {
 
 	if strings.TrimSpace(c.HookScope) == "" {
 		c.HookScope = string(DefaultHookScope)
+	}
+
+	if strings.TrimSpace(c.APIAuth) == "" {
+		c.APIAuth = string(DefaultAPIAuth)
 	}
 
 	if c.HookRate == 0 {

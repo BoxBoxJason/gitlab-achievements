@@ -73,6 +73,19 @@ func (s *Server) MountWebhook(handler http.Handler) {
 	s.mux.Handle("POST "+WebhookPath, handler)
 }
 
+// Mount attaches handler at pattern, which follows net/http's routing
+// syntax: a pattern ending in "/" claims that whole subtree, so a handler
+// with routes of its own can be mounted under a prefix and do its own
+// dispatch beneath it.
+//
+// It exists so that the path a subtree lives at stays owned by the package
+// that serves it (see api.PathPrefix) rather than being spelled out a
+// second time here, where the two could drift. It must be called before
+// Handler, and at most once per pattern.
+func (s *Server) Mount(pattern string, handler http.Handler) {
+	s.mux.Handle(pattern, handler)
+}
+
 // Handler returns the server's routes, ready to be passed to http.Server.
 func (s *Server) Handler() http.Handler {
 	return s.mux

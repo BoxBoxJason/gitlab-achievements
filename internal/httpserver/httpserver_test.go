@@ -3,11 +3,14 @@ package httpserver_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/boxboxjason/gitlab-achievements/internal/api"
+	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 )
 
@@ -173,5 +176,74 @@ func TestHandler_WebhookPathIsNotServedWhenNothingIsMounted(t *testing.T) {
 
 	if resp.Code != http.StatusNotFound {
 		t.Errorf("expected 404 with no receiver mounted, got %d", resp.Code)
+	}
+}
+
+func TestMount_ServesASubtreeThroughItsOwnHandler(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+
+	sub := http.NewServeMux()
+	sub.HandleFunc("GET /api/v1/things/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, r.PathValue("id"))
+	})
+
+	srv.Mount("/api/v1/", sub)
+
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/things/42")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// The prefix isn't stripped, so the mounted handler's own patterns
+	// match the full path and its wildcards still resolve.
+	if rec.Body.String() != "42" {
+		t.Errorf("expected the path wildcard to reach the mounted handler, got %q", rec.Body.String())
+	}
+}
+
+func TestMount_LeavesTheHealthEndpointsAlone(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+	srv.Mount("/api/v1/", http.NotFoundHandler())
+
+	if rec := doRequest(t, srv, http.MethodGet, "/healthz"); rec.Code != http.StatusOK {
+		t.Errorf("expected /healthz to still answer, got %d", rec.Code)
+	}
+}
+
+// The API owns its own path constants and the server mounts them by
+// prefix, so this checks the two actually meet: a request through the real
+// server's routing has to reach the API's own patterns, wildcards and all.
+func TestMount_ReachesTheReadAPIThroughItsOwnPrefixes(t *testing.T) {
+	conn, err := db.Open("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("failed to open in-memory test database: %v", err)
+	}
+
+	if err := db.Migrate(conn); err != nil {
+		t.Fatalf("failed to migrate test database: %v", err)
+	}
+
+	if err := conn.Create(&db.User{GitLabUserID: 42, Username: "alice", ExpTotal: 1350}).Error; err != nil {
+		t.Fatalf("failed to seed a user: %v", err)
+	}
+
+	readAPI := api.New(conn, api.Options{})
+
+	srv := httpserver.New(okCheck, okCheck, nil)
+	srv.Mount(api.PathPrefix, readAPI.Handler())
+	srv.Mount(api.OAuthPathPrefix, readAPI.Handler())
+
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/users/alice/exp")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 through the mounted API, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), `"exp_total":1350`) {
+		t.Errorf("expected the EXP total in the body, got %q", rec.Body.String())
+	}
+
+	if rec := doRequest(t, srv, http.MethodGet, "/api/v1/leaderboard"); rec.Code != http.StatusOK {
+		t.Errorf("expected the leaderboard to be reachable, got %d", rec.Code)
 	}
 }
