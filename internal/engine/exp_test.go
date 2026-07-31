@@ -318,7 +318,8 @@ func TestRecomputeAll_ScopesEachUsersTotalToTheirOwnAwards(t *testing.T) {
 	}
 
 	// Wipe both totals so the sweep has to rebuild them from the awards.
-	if err := conn.Model(&appdb.User{}).Where("1 = 1").Update("exp_total", 0).Error; err != nil {
+	wipe := conn.Session(&gorm.Session{AllowGlobalUpdate: true})
+	if err := wipe.Model(&appdb.User{}).Update("exp_total", 0).Error; err != nil {
 		t.Fatalf("failed to clear totals: %v", err)
 	}
 
