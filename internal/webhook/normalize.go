@@ -31,6 +31,31 @@ const (
 	actionApproved = "approved"
 )
 
+// Emoji and wiki page actions, as they appear in a payload's
+// object_attributes.action.
+//
+// Unlike deployment and pipeline statuses, which client-go models as typed
+// enums this package switches on, these two are plain strings on both the
+// payload struct and the API, with no constants anywhere in client-go to
+// borrow.
+const (
+	// emojiActionAward is a reaction being added. The paired "revoke" is
+	// deliberately not tracked: an award, once earned, is never taken back,
+	// so a criteria that could fall would be meaningless.
+	emojiActionAward = "award"
+	// wikiActionCreate is a wiki page being created. The paired "update" and
+	// "delete" are not tracked, for want of a stable identifier: a wiki
+	// payload carries no revision ID, so two edits of one page and a
+	// redelivery of the first edit are indistinguishable.
+	wikiActionCreate = "create"
+)
+
+// fastMergeWindow is how soon after being opened a merge request has to be
+// merged to count as fast. An hour is short enough that hitting it means
+// the review was quick rather than that the day was, and long enough not to
+// be an accident of how fast someone can click.
+const fastMergeWindow = time.Hour
+
 // nullSHA is what GitLab reports as a push's "before" when the ref did not
 // exist yet, which is how a branch or tag creation is recognized.
 const nullSHA = "0000000000000000000000000000000000000000"
@@ -60,6 +85,14 @@ func normalize(event any, receivedAt time.Time) []activity.Event {
 		return normalizeIssue(payload, receivedAt)
 	case *gitlab.PipelineEvent:
 		return normalizePipeline(payload, receivedAt)
+	case *gitlab.JobEvent:
+		return normalizeJob(payload, receivedAt)
+	case *gitlab.DeploymentEvent:
+		return normalizeDeployment(payload, receivedAt)
+	case *gitlab.EmojiEvent:
+		return normalizeEmoji(payload, receivedAt)
+	case *gitlab.WikiPageEvent:
+		return normalizeWikiPage(payload, receivedAt)
 	}
 
 	return normalizeComment(event, receivedAt)
@@ -99,10 +132,14 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 
 		attrs := payload.ObjectAttributes
 
-		return normalizeNote(note{
+		activities := normalizeNote(note{
 			id: attrs.ID, authorID: attrs.AuthorID, username: eventUserName(payload.User),
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
+
+		// Merge request notes are the only ones that can be resolved, and
+		// the only comment payload carrying the resolution fields.
+		return append(activities, normalizeResolution(payload, receivedAt)...)
 	case *gitlab.SnippetCommentEvent:
 		if payload == nil {
 			return nil
@@ -229,7 +266,7 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 		occurredAt = attrs.CreatedAt
 	}
 
-	return []activity.Event{{
+	base := activity.Event{
 		OccurredAt:    parseEventTime(occurredAt, receivedAt),
 		Kind:          kind,
 		DedupKey:      key,
@@ -237,7 +274,48 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 		ActorID:       event.User.ID,
 		ProjectID:     attrs.TargetProjectID,
 		Count:         1,
-	}}
+	}
+
+	activities := []activity.Event{base}
+
+	// The fast merge is credited to whoever merged rather than to the
+	// author, matching the merge itself: GitLab reports the acting user, and
+	// how quickly a merge request cleared review is the reviewer's doing at
+	// least as much as the author's.
+	if kind == activity.KindMergeRequestMerged && mergedFast(attrs.CreatedAt, attrs.UpdatedAt) {
+		fast := base
+		fast.Kind = activity.KindMergeRequestMergedFast
+		fast.DedupKey = fmt.Sprintf("merge_request:%d:merged_fast", attrs.ID)
+
+		activities = append(activities, fast)
+	}
+
+	return activities
+}
+
+// mergedFast reports whether a merge request was merged within
+// fastMergeWindow of being opened.
+//
+// Both timestamps have to parse for this to be true, which is why it reads
+// them itself rather than taking the times the caller already derived.
+// parseEventTime substitutes the delivery time for a spelling it doesn't
+// recognize, and two substitutions are identical, so a GitLab reporting
+// timestamps in some form this app doesn't know would otherwise have every
+// one of its merges scored as instantaneous.
+func mergedFast(createdAt, mergedAt string) bool {
+	created, createdKnown := parseTimestamp(createdAt)
+	if !createdKnown {
+		return false
+	}
+
+	merged, mergedKnown := parseTimestamp(mergedAt)
+	if !mergedKnown {
+		return false
+	}
+
+	elapsed := merged.Sub(created)
+
+	return elapsed >= 0 && elapsed <= fastMergeWindow
 }
 
 // mergeRequestKind maps a merge request action onto the activity kind it
@@ -379,6 +457,189 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 	}}
 }
 
+// normalizeResolution counts a review discussion a user resolved.
+//
+// It is keyed on the discussion rather than the note, so resolving a thread
+// counts once however many notes it holds, and so the several deliveries
+// GitLab sends as a thread is edited after resolution collapse into one.
+//
+// Discussions GitLab resolved on its own don't count: pushing a commit that
+// obsoletes a thread resolves it without anyone deciding anything, which is
+// what ResolvedByPush marks.
+func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) []activity.Event {
+	attrs := event.ObjectAttributes
+
+	if attrs.ResolvedAt == "" || attrs.ResolvedByID == 0 || attrs.ResolvedByPush {
+		return nil
+	}
+
+	// A note that can be resolved always belongs to a discussion, but the
+	// note's own ID identifies the same thread if an instance ever omits it.
+	key := fmt.Sprintf("discussion:%s:resolved", attrs.DiscussionID)
+	if attrs.DiscussionID == "" {
+		key = fmt.Sprintf("discussion:note:%d:resolved", attrs.ID)
+	}
+
+	return []activity.Event{{
+		OccurredAt:    parseEventTime(attrs.ResolvedAt, receivedAt),
+		Kind:          activity.KindDiscussionResolved,
+		DedupKey:      key,
+		ActorUsername: resolverUsername(event),
+		ActorID:       attrs.ResolvedByID,
+		ProjectID:     attrs.ProjectID,
+		Count:         1,
+	}}
+}
+
+// resolverUsername names the resolver, which GitLab reports only as an ID.
+//
+// The delivery's acting user is that person in the ordinary case, because
+// resolving the thread is what produced the delivery. When the two disagree
+// the delivery is about something else happening to a thread resolved
+// earlier, and the payload names no username for the resolver at all, so
+// this reports none: the engine keys the user on their GitLab ID and fills
+// the name in the next time they do something.
+func resolverUsername(event *gitlab.MergeCommentEvent) string {
+	if event.User == nil || event.User.ID != event.ObjectAttributes.ResolvedByID {
+		return ""
+	}
+
+	return event.User.Username
+}
+
+// normalizeJob counts one CI job that ran.
+//
+// Job events arrive on every status transition, all carrying the same build
+// ID, so the job is counted once however many transitions were delivered.
+// The outcome is deliberately not derived: the pipeline the job belongs to
+// already reports one, and counting a job's failure separately would score
+// people on flaky infrastructure and on the failing halves of retries.
+func normalizeJob(event *gitlab.JobEvent, receivedAt time.Time) []activity.Event {
+	if event == nil || event.User == nil || event.User.ID == 0 {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:    parseEventTime(jobCreatedAt(event), receivedAt),
+		Kind:          activity.KindJobRun,
+		DedupKey:      fmt.Sprintf("job:%d", event.BuildID),
+		ActorUsername: event.User.Username,
+		ActorID:       event.User.ID,
+		ProjectID:     event.ProjectID,
+		Count:         1,
+	}}
+}
+
+// jobCreatedAt prefers the RFC 3339 spelling of a job's creation time,
+// which GitLab added alongside the legacy space-separated one rather than
+// in place of it.
+func jobCreatedAt(event *gitlab.JobEvent) string {
+	if event.BuildCreatedAtISO != "" {
+		return event.BuildCreatedAtISO
+	}
+
+	return event.BuildCreatedAt
+}
+
+// normalizeDeployment derives the activities a deployment represents: the
+// deployment itself, plus its outcome once it succeeded.
+//
+// Like pipelines, deployment events arrive on every status transition
+// carrying one deployment ID, so the deployment is counted once. Unlike
+// pipelines, the failures are not counted: a pipeline that fails is usually
+// a test catching something, which is the system working, whereas a
+// deployment that fails is nobody's achievement.
+func normalizeDeployment(event *gitlab.DeploymentEvent, receivedAt time.Time) []activity.Event {
+	if event == nil || event.User == nil || event.User.ID == 0 {
+		return nil
+	}
+
+	base := activity.Event{
+		OccurredAt:    parseEventTime(event.StatusChangedAt, receivedAt),
+		DedupKey:      fmt.Sprintf("deployment:%d", event.DeploymentID),
+		ActorUsername: event.User.Username,
+		ActorID:       event.User.ID,
+		ProjectID:     event.Project.ID,
+	}
+
+	activities := []activity.Event{activityFrom(base, activity.KindDeployment, 1)}
+
+	// Deployment statuses are one vocabulary in both directions, the same
+	// values filtering a request (ListProjectDeploymentsOptions.Status is a
+	// *DeploymentStatusValue) and coming back on the payload, so client-go's
+	// own constants apply. Every other status still counts as a deployment,
+	// just not as a successful one.
+	switch gitlab.DeploymentStatusValue(event.Status) {
+	case gitlab.DeploymentStatusSuccess:
+		activities = append(activities, activityFrom(base, activity.KindDeploymentSucceeded, 1))
+	case gitlab.DeploymentStatusCreated, gitlab.DeploymentStatusRunning,
+		gitlab.DeploymentStatusFailed, gitlab.DeploymentStatusCanceled:
+	}
+
+	return activities
+}
+
+// normalizeEmoji counts a reaction a user added to an issue, merge request,
+// comment, snippet, or commit.
+//
+// The acting user is read from the payload's top-level user rather than
+// from the award's own user_id. They are the same person, since a reaction
+// is only ever added by whoever it belongs to, but only the top-level one
+// carries a username.
+func normalizeEmoji(event *gitlab.EmojiEvent, receivedAt time.Time) []activity.Event {
+	if event == nil || event.User.ID == 0 {
+		return nil
+	}
+
+	attrs := event.ObjectAttributes
+
+	if attrs.Action != emojiActionAward {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:    parseEventTime(attrs.CreatedAt, receivedAt),
+		Kind:          activity.KindEmojiAwarded,
+		DedupKey:      fmt.Sprintf("emoji:%d", attrs.ID),
+		ActorUsername: event.User.Username,
+		ActorID:       event.User.ID,
+		ProjectID:     event.ProjectID,
+		Count:         1,
+	}}
+}
+
+// normalizeWikiPage counts a wiki page a user created.
+//
+// Only creations count. GitLab's wiki payload identifies a page by its slug
+// and carries no revision ID, so an edit and a redelivery of that edit are
+// the same payload, and counting edits would either count one edit many
+// times or a hundred edits once. A creation has no such ambiguity: a slug
+// can only be created once.
+//
+// The activity carries no project ID because the payload carries none. It
+// names the project by path, which the dedup key uses instead so that two
+// projects with a page of the same name stay distinct.
+func normalizeWikiPage(event *gitlab.WikiPageEvent, receivedAt time.Time) []activity.Event {
+	if event == nil || event.User == nil || event.User.ID == 0 {
+		return nil
+	}
+
+	attrs := event.ObjectAttributes
+
+	if attrs.Action != wikiActionCreate || attrs.Slug == "" {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:    receivedAt,
+		Kind:          activity.KindWikiPageCreated,
+		DedupKey:      fmt.Sprintf("wiki_page:%s:%s", event.Project.PathWithNamespace, attrs.Slug),
+		ActorUsername: event.User.Username,
+		ActorID:       event.User.ID,
+		Count:         1,
+	}}
+}
+
 func userName(user *gitlab.User) string {
 	if user == nil {
 		return ""
@@ -436,16 +697,28 @@ var webhookTimeLayouts = []string{
 // night owl, early bird), and those should read the clock the instance
 // reports, not one shifted out from under it.
 func parseEventTime(raw string, fallback time.Time) time.Time {
-	if raw == "" {
+	parsed, ok := parseTimestamp(raw)
+	if !ok {
 		return fallback
+	}
+
+	return parsed
+}
+
+// parseTimestamp reads a payload timestamp, reporting whether any known
+// layout matched. It is what parseEventTime is built on, and what the
+// callers that must not silently accept a substituted time use directly.
+func parseTimestamp(raw string) (time.Time, bool) {
+	if raw == "" {
+		return time.Time{}, false
 	}
 
 	for _, layout := range webhookTimeLayouts {
 		parsed, err := time.Parse(layout, raw)
 		if err == nil {
-			return parsed
+			return parsed, true
 		}
 	}
 
-	return fallback
+	return time.Time{}, false
 }
