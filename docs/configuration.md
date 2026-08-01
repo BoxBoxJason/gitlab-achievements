@@ -34,7 +34,10 @@ is in [GitLab-side setup](gitlab-setup.md).
 | `--hook-rate` | `HOOK_RATE` | `20` | Groups or projects per second the hourly registration sweep works through |
 | `--backfill` | `BACKFILL` | `auto` | `auto`, `off`, `force`; see [Historical backfill](#historical-backfill) |
 | `--backfill-since` | `BACKFILL_SINCE` | *(unset)* | How far back history is walked: a date (`2024-01-01`) or a duration (`720h`). Unset walks everything |
-| `--backfill-rate` | `BACKFILL_RATE` | `5` | Requests per second the historical walk may issue |
+| `--backfill-rate` | `BACKFILL_RATE` | `5` | Requests per second the historical walk may issue. Also caps the reconciliation sync |
+| `--reconcile` | `RECONCILE` | `auto` | `auto`, `off`; see [Reconciliation sync](#reconciliation-sync) |
+| `--reconcile-interval` | `RECONCILE_INTERVAL` | `24h` | How often recent activity is re-read to heal lost webhook deliveries |
+| `--reconcile-lookback` | `RECONCILE_LOOKBACK` | `48h` | How far back each pass reaches. Must exceed `--reconcile-interval` |
 | `--api-auth` | `API_AUTH` | `none` | `none`, or `gitlab` to verify a GitLab token on every API request |
 | `--oauth-client-id` | `OAUTH_CLIENT_ID` | *(unset)* | Client ID of an OAuth application you registered by hand. Unset lets the app register a public one for itself |
 | `--oauth-client-secret` | `OAUTH_CLIENT_SECRET` | *(unset)* | Secret for that client ID, making it a confidential client. Requires `--oauth-client-id` |
@@ -90,6 +93,66 @@ recovering from a walk that ran against a broken catalog, not for steady state.
 the app ever runs against an instance it does not own, and it has no deadline;
 raising it shortens the cold start at the cost of API capacity the instance
 exists to serve.
+
+## Reconciliation sync
+
+Webhooks are best-effort. GitLab retries a delivery a few times and then gives
+up, so a deploy, a network blip or an instance restart is enough to lose one
+permanently — and nothing notices, because a delivery that never arrives leaves
+no trace of having been missed.
+
+The reconciliation sync is the safety net. Once a day it asks GitLab what
+actually happened over the last 48 hours and replays it through the achievement
+engine. Activity that was already counted is discarded rather than counted
+again: the Events API and the webhook payloads describe the same activity, and
+both are normalized to the same dedup key, so a pass over a window the webhooks
+covered correctly is a no-op.
+
+`auto` runs it inside the serving process: one pass a few minutes after
+startup, then every `--reconcile-interval`. The startup pass is not optional —
+the timer's phase is the process's start time, so a deployment restarted more
+often than the interval would otherwise never reconcile at all, and would
+never say so. It is cheap to repeat: the watermark means a pass after a
+restart covers the gap since the last successful one rather than the whole
+look-back. Passes are skipped until the historical backfill has completed,
+since until then the cold start is covering the same ground.
+
+`off` never syncs from the serving process, leaving it to a scheduled
+`gitlab-achievements reconcile` run — a systemd timer, a cron entry, a
+Kubernetes `CronJob` you write yourself. Reach for it when you want a pass to
+be a unit you can start, watch and alert on, or pinned to a wall-clock hour
+rather than to whenever the process last restarted.
+
+Unlike the server and `backfill`, the `reconcile` subcommand does not bootstrap:
+it registers no webhooks and creates no achievements, so a scheduled run costs
+one sweep of recently active projects rather than a sweep of the whole instance.
+It does need the database to have been bootstrapped once, by the server or by
+`backfill`, and refuses to run otherwise.
+
+The look-back must be wider than the interval so consecutive windows overlap.
+Windows that merely abut lose anything GitLab timestamps on the far side of the
+boundary, and nothing would report the loss, so the app refuses to start on a
+configuration where they do.
+
+A pass that fails, or one that never ran because the app was down, is made up
+by the next one: the window widens on its own to reach back to the last
+successful pass, and a pass that had ground to make up logs at `warn` with a
+`gap` field. Watch `activity_counted` in the completion log — in a healthy
+deployment it stays at zero pass after pass, and a persistently non-zero value
+means deliveries are being lost for a reason worth finding rather than papering
+over.
+
+### What it cannot heal
+
+The Events API reports pushes, merge requests, issues and comments, and the
+Pipelines API covers pipelines. Jobs, deployments, emoji reactions, wiki pages,
+resolved discussions and fast merges have no read-side representation at all,
+so a lost delivery of one of those stays lost. That is deliberate: the sync
+undercounts what it cannot see rather than guessing at it, because an award,
+once made, is never revoked.
+
+Projects are narrowed server-side to those with activity in the window, so a
+quiet instance costs almost nothing however many projects it holds.
 
 ## HTTP endpoints
 

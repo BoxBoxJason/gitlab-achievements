@@ -44,8 +44,21 @@ config:
     # How far back history is walked: a date (2024-01-01) or a duration (720h).
     # Empty walks everything.
     since: ""
-    # Requests per second the historical walk is allowed to issue.
+    # Requests per second the historical walk is allowed to issue. It caps
+    # the reconciliation sync below too: both are instance-wide read sweeps.
     rate: 5
+  reconcile:
+    # Periodic re-read of recent activity, healing webhook deliveries GitLab
+    # never managed to make. auto runs it in the serving pod, shortly after
+    # startup and on the interval below. off disables it, for a deployment
+    # scheduling `gitlab-achievements reconcile` from outside the chart.
+    mode: auto
+    # How often recent activity is re-read.
+    interval: 24h
+    # How far back each pass reaches. Must exceed the interval, so
+    # consecutive windows overlap rather than abut; the app refuses to start
+    # otherwise.
+    lookback: 48h
   api:
     # none or gitlab. gitlab verifies a GitLab token on every API request.
     auth: none

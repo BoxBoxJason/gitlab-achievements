@@ -180,6 +180,32 @@ where a killed pod stopped. It is a plain Job, not a Helm hook, so `helm
 install` does not wait on it. Re-running it means deleting it and upgrading
 again, with `backfillJob.force: true` if the previous walk completed.
 
+## The reconciliation sync
+
+The serving pod re-reads the last 48 hours of activity a few minutes after
+startup and once a day thereafter, picking up webhook deliveries GitLab never
+managed to make. See
+[Reconciliation sync](../configuration.md#reconciliation-sync) for what it does
+and does not heal.
+
+The chart ships no CronJob for it, and does not need one: the Deployment is a
+single pod, and the startup pass means a rollout does not cost you a day's
+worth of healing. Tune it with `config.reconcile.interval` and
+`config.reconcile.lookback`, keeping the look-back the wider of the two.
+
+If you want a pass to be a Job you can see, retry and alert on — or pinned to a
+quiet wall-clock hour rather than to whenever the pod last restarted — set
+`config.reconcile.mode: off` and write a `CronJob` running the subcommand
+against the same Secret:
+
+```yaml
+args: ["reconcile"]
+```
+
+It does not bootstrap, so it registers no webhooks and creates no achievements;
+it does need the database to have been bootstrapped once, and fails loudly if
+it has not been.
+
 ## Upgrades
 
 ```bash

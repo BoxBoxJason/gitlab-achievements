@@ -37,7 +37,7 @@ func TestProcessorFunc_Process(t *testing.T) {
 		return wantErr
 	})
 
-	event := Event{Kind: KindCommit, DedupKey: "project_event:1:commit"}
+	event := Event{Kind: KindCommit, DedupKey: "push:7:refs/heads/main:abc:commit"}
 
 	err := processor.Process(t.Context(), event)
 	if !errors.Is(err, wantErr) {

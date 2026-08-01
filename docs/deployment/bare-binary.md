@@ -162,6 +162,68 @@ It runs bootstrap first, then walks, resuming near where an interrupted run
 stopped. On a large instance it runs for a long time by design: `BACKFILL_RATE`
 caps it to a trickle against someone's production GitLab.
 
+## Running the reconciliation sync on a timer
+
+By default the service re-reads the last 48 hours of activity a few minutes
+after startup and once a day thereafter, in the background, to pick up webhook
+deliveries GitLab never managed to make. See
+[Reconciliation sync](../configuration.md#reconciliation-sync) for what it does
+and does not heal.
+
+To make it a timer instead — so a pass is a unit you can start, watch and
+alert on, at an hour you pick rather than whenever the service last restarted —
+set `RECONCILE=off` in the environment file and install these alongside the
+service unit:
+
+```ini
+# /etc/systemd/system/gitlab-achievements-reconcile.service
+[Unit]
+Description=GitLab Achievements: re-read recent activity
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gitlab-achievements
+Group=gitlab-achievements
+EnvironmentFile=/etc/gitlab-achievements/gitlab-achievements.env
+ExecStart=/usr/local/bin/gitlab-achievements reconcile
+StateDirectory=gitlab-achievements
+```
+
+```ini
+# /etc/systemd/system/gitlab-achievements-reconcile.timer
+[Unit]
+Description=Daily activity reconciliation for GitLab Achievements
+
+[Timer]
+OnCalendar=daily
+# Spreads the sweep off the hour, so it doesn't land with everything else
+# the host runs at midnight.
+RandomizedDelaySec=1h
+# A pass missed while the host was off is run at the next boot. It is not
+# strictly needed — the next pass widens its window to reach back to the
+# last successful one — but it shortens how long a lost delivery goes
+# unhealed.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now gitlab-achievements-reconcile.timer
+
+# Run one now, and watch it.
+sudo systemctl start gitlab-achievements-reconcile
+journalctl -u gitlab-achievements-reconcile -f
+```
+
+The subcommand needs the database to have been bootstrapped once, by the
+service or by `backfill`, and says so rather than sweeping the instance for
+nothing.
+
 ## Uninstalling
 
 Clear the GitLab side first, while the unit's configuration and database are

@@ -21,12 +21,13 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
 )
 
-// backfillRequestBurst is how many requests the backfill's rate limiter
-// lets through back to back. Kept at 1 so --backfill-rate describes the
-// instantaneous rate and not just the long-run average: a burst would let
-// the walk arrive in spikes, which is exactly what a shared instance
-// notices.
-const backfillRequestBurst = 1
+// readRequestBurst is how many requests the rate limiter in front of an
+// instance-wide read sweep — the historical backfill, and the periodic
+// reconciliation pass — lets through back to back. Kept at 1 so
+// --backfill-rate describes the instantaneous rate and not just the
+// long-run average: a burst would let the sweep arrive in spikes, which is
+// exactly what a shared instance notices.
+const readRequestBurst = 1
 
 // buildBackfillCmd builds the subcommand that walks the instance's history
 // once and exits, for operators who would rather the cold start be its own
@@ -138,7 +139,7 @@ func executeBackfill(
 	readClient, err := gitlabclient.NewReadClient(
 		cfg.GitLabURL,
 		cfg.GitLabReadToken,
-		gitlabclient.WithRateLimit(cfg.BackfillRate, backfillRequestBurst),
+		gitlabclient.WithRateLimit(cfg.BackfillRate, readRequestBurst),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build rate-limited gitlab read client: %w", err)
@@ -171,7 +172,7 @@ func executeBackfill(
 
 	logBackfillReport(report, achievements.Stats())
 
-	return deliverBackfilledAwards(ctx, writeClient, conn)
+	return deliverPendingAwards(ctx, writeClient, conn, "backfill")
 }
 
 // logBackfillReport records what the walk covered and what it earned, in
@@ -189,19 +190,24 @@ func logBackfillReport(report *backfill.Report, stats engine.Stats) {
 	)
 }
 
-// deliverBackfilledAwards pushes the awards the walk recorded locally to
-// GitLab straight away, rather than leaving them for the hourly award
+// deliverPendingAwards pushes the awards a read-side sweep recorded locally
+// to GitLab straight away, rather than leaving them for the hourly award
 // reconciliation to pick up. The engine records awards without calling
-// GitLab (see its package doc), so without this a backfill that finished
+// GitLab (see its package doc), so without this a sweep that finished
 // seconds after a reconciliation tick would sit invisible for an hour, and
-// a one-off `backfill` run would exit before ever delivering them.
-func deliverBackfilledAwards(ctx context.Context, writeClient *gitlabclient.WriteClient, conn *gorm.DB) error {
+// a one-off `backfill` or `reconcile` run would exit before ever delivering
+// them.
+//
+// source names the sweep in the log line, since the two share this and a
+// reader should be able to tell which one earned what.
+func deliverPendingAwards(ctx context.Context, writeClient *gitlabclient.WriteClient, conn *gorm.DB, source string) error {
 	awards, err := bootstrap.ReconcileAwards(ctx, writeClient, conn)
 	if err != nil {
-		return fmt.Errorf("failed to deliver backfilled awards: %w", err)
+		return fmt.Errorf("failed to deliver awards earned by %s: %w", source, err)
 	}
 
-	zap.L().Info("backfilled awards delivered",
+	zap.L().Info("awards delivered",
+		zap.String("source", source),
 		zap.Int("awards_confirmed", awards.Confirmed),
 		zap.Int("awards_failed", awards.Failed),
 		zap.Int("awards_superseded", awards.Superseded),

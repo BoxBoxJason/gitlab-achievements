@@ -37,6 +37,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
+	"github.com/boxboxjason/gitlab-achievements/internal/eventsapi"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
 
@@ -73,24 +74,23 @@ type Options struct {
 	// server-side filter, so a bounded window costs proportionally fewer
 	// requests rather than fetching everything and discarding the excess.
 	Since time.Time
-	// Until bounds how recent the walk reaches, and is what keeps history
-	// and live ingestion from both counting the same activity.
+	// Until bounds how recent the walk reaches, keeping it off the window
+	// live ingestion is already covering. Callers set it to the moment
+	// hook registration began, so the walk stops where the webhooks start.
 	//
-	// The two paths observe the same activity through different APIs and
-	// can only agree on a dedup key where GitLab gives them a shared
-	// identifier, which it does for pipelines and not for pushes, merge
-	// requests, issues, or notes. Rather than reconcile keys that don't
-	// exist, the two are given disjoint windows: callers set this to the
-	// moment live ingestion started, so anything after it belongs to the
-	// webhooks and anything before it to the walk.
+	// This is a request-budget boundary, not a correctness one. The Events
+	// API producer derives the same dedup keys the live path does (see the
+	// eventsapi package), so activity either path has already counted is
+	// discarded by the processor whichever path re-observes it, and the
+	// ceiling only saves the walk from re-reading a window somebody else
+	// has covered.
 	//
-	// One ceiling cannot fit every hook, because hooks begin delivering as
-	// the registration sweep reaches them rather than all at once. Set
-	// before the sweep, this leaves a window covered by neither path; set
-	// after, it would be covered by both. Callers are expected to prefer
-	// the former: activity the walk missed can be recovered later, whereas
-	// a counter inflated by double-counting cannot be undone, since GitLab
-	// awards are never revoked.
+	// It used to be the correctness boundary, back when the two paths keyed
+	// the same activity differently and had to be given disjoint windows.
+	// That left a gap: hooks begin delivering as the registration sweep
+	// reaches them rather than all at once, so activity between this
+	// ceiling and a given hook's registration was counted by neither path.
+	// The reconciliation sync closes that gap on its first pass.
 	//
 	// The zero value imposes no ceiling, which is what a one-off `backfill`
 	// invocation on an instance not yet serving wants.
@@ -320,11 +320,11 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 			return fmt.Errorf("failed to list events for project %d: %w", projectID, err)
 		}
 
-		if r.afterCeiling(parseEventTime(event.CreatedAt)) {
+		if r.afterCeiling(eventsapi.ParseEventTime(event.CreatedAt)) {
 			continue
 		}
 
-		processErr := r.process(ctx, normalizeProjectEvent(event))
+		processErr := r.process(ctx, eventsapi.NormalizeProjectEvent(event))
 		if processErr != nil {
 			return processErr
 		}
@@ -345,7 +345,7 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 // the event just processed. It never moves backwards, so an instance
 // returning events slightly out of order can't rewind the cursor.
 func (r *runner) advanceEventsCursor(event *gitlab.ProjectEvent) {
-	occurredAt := parseEventTime(event.CreatedAt)
+	occurredAt := eventsapi.ParseEventTime(event.CreatedAt)
 	if occurredAt.IsZero() {
 		return
 	}
@@ -387,7 +387,7 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 		// Checked before fetching the pipeline's detail, which is a request
 		// of its own: the listing already carries enough to know the walk
 		// isn't responsible for this one.
-		if r.afterCeiling(timeOrZero(info.CreatedAt)) {
+		if r.afterCeiling(eventsapi.TimeOrZero(info.CreatedAt)) {
 			continue
 		}
 
@@ -420,7 +420,7 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 		return fmt.Errorf("failed to get pipeline %d of project %d: %w", pipelineID, projectID, err)
 	}
 
-	err = r.process(ctx, normalizePipeline(pipeline))
+	err = r.process(ctx, eventsapi.NormalizePipeline(pipeline))
 	if err != nil {
 		return err
 	}
