@@ -1,0 +1,49 @@
+{{ include "gitlab-achievements.fullname" . }} is installed.
+
+Bootstrap runs before anything is served: it verifies both tokens' permissions,
+creates the achievement definitions, and registers a webhook on every group (or
+every project, on Free/CE). The pod stays unready until that finishes, which on
+a large instance can take several minutes.
+
+Watch it:
+
+  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "gitlab-achievements.fullname" . }}
+  kubectl --namespace {{ .Release.Namespace }} logs -f deployment/{{ include "gitlab-achievements.fullname" . }}
+
+{{- if .Values.ingress.enabled }}
+
+Reachable at:
+{{- range .Values.ingress.hosts }}
+{{- $scheme := ternary "https" "http" (gt (len $.Values.ingress.tls) 0) }}
+{{- range .paths }}
+  {{ $scheme }}://{{ .host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- else }}
+
+No Ingress is enabled. GitLab has to reach {{ .Values.config.publicUrl }} for
+webhook deliveries to arrive, so expose the Service through your own ingress,
+gateway or load balancer and make sure that URL resolves to it. Until then:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "gitlab-achievements.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+{{- end }}
+
+Check it is live, and read someone's EXP:
+
+  curl -sf http://localhost:{{ .Values.service.port }}/readyz
+  curl -s http://localhost:{{ .Values.service.port }}/api/v1/leaderboard
+
+{{- if .Values.backfillJob.enabled }}
+
+The historical walk runs as job/{{ include "gitlab-achievements.fullname" . }}-backfill. It is
+paced at {{ .Values.config.backfill.rate }} requests/second against the instance, so on a large one it
+runs for a long time by design:
+
+  kubectl --namespace {{ .Release.Namespace }} logs -f job/{{ include "gitlab-achievements.fullname" . }}-backfill
+{{- end }}
+{{- if eq .Values.config.api.auth "none" }}
+
+The read API is unauthenticated (config.api.auth=none): anyone who can reach it
+can enumerate the instance's users. Set config.api.auth=gitlab if it is exposed
+beyond a trusted network.
+{{- end }}

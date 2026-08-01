@@ -33,6 +33,7 @@ go.work.sum
 
 # Build/test artifacts
 bin/
+*.tgz
 codequality/
 dependency-check/
 unit-tests.xml

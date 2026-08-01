@@ -1,0 +1,182 @@
+# Default values for gitlab-achievements.
+# See docs/deployment/kubernetes.md for a walkthrough, and docs/configuration.md
+# for what every setting under `config` does.
+
+# -- Keeps the chart's -chart suffix out of the names of the objects it creates.
+nameOverride: gitlab-achievements
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/boxboxjason/gitlab-achievements
+  # Pin this to a released version in production; empty falls back to the
+  # chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The app is a singleton by design: one process registers the instance's
+# webhooks, runs the hourly reconciliation sweeps, and walks history. A second
+# replica would duplicate all three against the same GitLab instance, so the
+# chart deploys one and replaces it rather than running two side by side.
+replicaCount: 1
+strategy:
+  type: Recreate
+
+config:
+  # Base URL of the GitLab instance to mirror, e.g. https://gitlab.example.com.
+  gitlabUrl: ""
+  # Full path of the namespace that owns the achievement definitions.
+  achievementsNamespace: ""
+  # Externally reachable base URL of this app. GitLab's webhooks are registered
+  # against it, so the instance must be able to resolve and reach it.
+  publicUrl: ""
+  # debug, info, warn, error.
+  logLevel: info
+  # auto, group, or project. auto picks group hooks where the license allows.
+  hookScope: auto
+  # Groups or projects per second the webhook registration sweep works through.
+  hookRate: 20
+  backfill:
+    # auto, off, or force. Set to off when the cold start should run as the
+    # separate Job below rather than in the serving pod.
+    mode: auto
+    # How far back history is walked: a date (2024-01-01) or a duration (720h).
+    # Empty walks everything.
+    since: ""
+    # Requests per second the historical walk is allowed to issue.
+    rate: 5
+  api:
+    # none or gitlab. gitlab verifies a GitLab token on every API request.
+    auth: none
+    # Client ID of a hand-registered OAuth application. Empty lets the app
+    # register a public one for itself when auth is gitlab.
+    oauthClientId: ""
+  # Extra environment variables, appended last so they can override anything
+  # above. Standard Kubernetes env entries, so valueFrom works.
+  extraEnv: []
+  #  - name: GOMEMLIMIT
+  #    value: "400MiB"
+
+secrets:
+  # Name of a Secret you manage yourself (External Secrets, SOPS, sealed
+  # secrets...). It is loaded with envFrom, so its keys must be named
+  # GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN, WEBHOOK_SECRET, DATABASE_DSN and,
+  # where applicable, OAUTH_CLIENT_SECRET. Set it and leave the values below
+  # empty, or leave it empty and let the chart create the Secret from them.
+  existingSecret: ""
+  # GitLab token with read_api scope, used for all data fetching.
+  gitlabReadToken: ""
+  # GitLab token with api scope belonging to the instance-admin service
+  # account, used to manage webhooks and achievements. See docs/gitlab-setup.md
+  # for what trusting this credential to a cluster implies.
+  gitlabWriteToken: ""
+  # Shared secret GitLab presents on every webhook delivery.
+  webhookSecret: ""
+  # Database connection string. The chart deploys no database: point this at a
+  # PostgreSQL you manage, e.g.
+  # postgres://user:password@postgres.databases.svc:5432/achievements?sslmode=require
+  databaseDsn: ""
+  # Only needed alongside config.api.oauthClientId for a confidential client.
+  oauthClientSecret: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: achievements.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: gitlab-achievements-tls
+  #    hosts:
+  #      - achievements.example.com
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# Bootstrap runs before the HTTP server listens, and on a Free-tier instance it
+# registers a webhook on every project there is, so the first probe to succeed
+# can be many minutes after the container starts. The startup probe is what
+# grants that time: liveness and readiness only begin once it passes, so raise
+# its failureThreshold rather than the others' on a large instance.
+# 60 x 10s = 10 minutes by default.
+startupProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 60
+
+livenessProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# /readyz checks the database and GitLab are reachable right now, so a pod goes
+# unready during a GitLab outage and the Service stops routing to it.
+readinessProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Shutdown drains webhook deliveries GitLab has already been told succeeded.
+terminationGracePeriodSeconds: 60
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+# One-off historical walk as its own Job, for instances big enough that the
+# cold start shouldn't be something a serving pod does in the background. Set
+# config.backfill.mode to off when you enable this. The Job is not a Helm hook:
+# it is created alongside the release and runs to completion once. Re-running
+# it means deleting it and upgrading again.
+backfillJob:
+  enabled: false
+  # Walks history again even if a previous walk finished.
+  force: false
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}

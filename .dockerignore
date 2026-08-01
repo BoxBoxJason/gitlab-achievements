@@ -2,6 +2,12 @@
 README.md
 bin/
 codequality/
+chart/
+deploy/
+docs/
+docker-compose.yml
+.env
+.env.example
 .dockerignore
 .gitignore
 .golangci.yml
