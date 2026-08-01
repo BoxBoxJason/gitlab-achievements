@@ -62,7 +62,6 @@ type oauthFlow struct {
 	config   *oauth2.Config
 	sessions *sessions
 	verifier Verifier
-	logger   *zap.Logger
 	secure   bool
 }
 
@@ -72,7 +71,7 @@ type oauthFlow struct {
 // separately: the cookies below are only marked Secure when this app is
 // actually reachable over https, because a Secure cookie is never sent back
 // over a plain-http deployment and the flow would silently never complete.
-func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier, logger *zap.Logger) *oauthFlow {
+func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) *oauthFlow {
 	base := strings.TrimRight(opts.GitLabURL, "/")
 
 	return &oauthFlow{
@@ -88,7 +87,6 @@ func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier, 
 		},
 		sessions: sessionStore,
 		verifier: verifier,
-		logger:   logger,
 		secure:   strings.HasPrefix(strings.ToLower(opts.PublicURL), "https://"),
 	}
 }
@@ -107,7 +105,7 @@ func (f *oauthFlow) routes(mux *http.ServeMux) {
 func (f *oauthFlow) handleLogin(resp http.ResponseWriter, req *http.Request) {
 	state, err := randomToken()
 	if err != nil {
-		f.logger.Error("failed to start an oauth login", zap.Error(err))
+		zap.L().Error("failed to start an oauth login", zap.Error(err))
 		writeError(resp, http.StatusInternalServerError, "internal error")
 
 		return
@@ -132,7 +130,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 	// checked before anything else is trusted.
 	if gitlabErr := req.URL.Query().Get("error"); gitlabErr != "" {
 		f.clearFlowCookies(resp)
-		f.logger.Info("gitlab refused an oauth login", zap.String("error", gitlabErr))
+		zap.L().Info("gitlab refused an oauth login", zap.String("error", gitlabErr))
 		writeError(resp, http.StatusUnauthorized, "gitlab refused the login")
 
 		return
@@ -141,7 +139,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 	code, err := f.validateCallback(req)
 	if err != nil {
 		f.clearFlowCookies(resp)
-		f.logger.Warn("rejected an oauth callback", zap.Error(err))
+		zap.L().Warn("rejected an oauth callback", zap.Error(err))
 		writeError(resp, http.StatusBadRequest, "invalid login callback")
 
 		return
@@ -158,7 +156,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 	token, err := f.config.Exchange(req.Context(), code, oauth2.VerifierOption(verifier.Value))
 	if err != nil {
 		f.clearFlowCookies(resp)
-		f.logger.Warn("failed to exchange an oauth authorization code", zap.Error(err))
+		zap.L().Warn("failed to exchange an oauth authorization code", zap.Error(err))
 		writeError(resp, http.StatusBadGateway, "could not complete the login with gitlab")
 
 		return
@@ -204,7 +202,7 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 	identity, err := f.verifier.Verify(req.Context(), token.AccessToken)
 	if err != nil {
 		f.clearFlowCookies(resp)
-		f.logger.Warn("gitlab issued a token it would not then honor", zap.Error(err))
+		zap.L().Warn("gitlab issued a token it would not then honor", zap.Error(err))
 		writeError(resp, http.StatusBadGateway, "could not complete the login with gitlab")
 
 		return
@@ -213,7 +211,7 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 	sessionID, err := f.sessions.create(req.Context(), token.AccessToken, token.Expiry)
 	if err != nil {
 		f.clearFlowCookies(resp)
-		f.logger.Error("failed to open a session", zap.Error(err))
+		zap.L().Error("failed to open a session", zap.Error(err))
 		writeError(resp, http.StatusInternalServerError, "internal error")
 
 		return
@@ -234,7 +232,7 @@ func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 	if err == nil {
 		destroyErr := f.sessions.destroy(req.Context(), cookie.Value)
 		if destroyErr != nil {
-			f.logger.Warn("failed to delete a session on logout", zap.Error(destroyErr))
+			zap.L().Warn("failed to delete a session on logout", zap.Error(destroyErr))
 		}
 	}
 

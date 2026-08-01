@@ -78,7 +78,6 @@ func RemoveWebhooks(
 	cfg *config.Config,
 	webhookURL string,
 	opts CleanupOptions,
-	logger *zap.Logger,
 ) (CleanupReport, error) {
 	cleanup := &hookCleanup{
 		read:       read,
@@ -86,7 +85,6 @@ func RemoveWebhooks(
 		conn:       conn,
 		webhookURL: webhookURL,
 		limiter:    sweepLimiter(cfg.HookRate),
-		logger:     loggerOrNop(logger),
 		dryRun:     opts.DryRun,
 	}
 
@@ -111,7 +109,6 @@ type hookCleanup struct {
 	write      hookManager
 	conn       *gorm.DB
 	limiter    *rate.Limiter
-	logger     *zap.Logger
 	webhookURL string
 	report     CleanupReport
 	dryRun     bool
@@ -310,7 +307,7 @@ func (c *hookCleanup) removeHook(ctx context.Context, target hookTarget, hookID 
 	if c.dryRun {
 		c.report.Deleted++
 
-		c.logger.Info("would remove hook",
+		zap.L().Info("would remove hook",
 			zap.String("scope", string(target.scope())),
 			zap.Int64("target_id", target.id()),
 			zap.Int64("hook_id", hookID),
@@ -355,11 +352,12 @@ func (c *hookCleanup) handleTargetError(target hookTarget, err error) error {
 		return fmt.Errorf("failed to remove %s %d hook: %w", target.scope(), target.id(), err)
 	}
 
-	c.logger.Warn("leaving behind a hook this app cannot remove",
+	zap.L().Warn("leaving behind a hook this app cannot remove",
 		zap.String("scope", string(target.scope())),
 		zap.Int64("target_id", target.id()),
 		zap.Error(err),
 	)
+
 	c.report.Skipped++
 
 	return nil

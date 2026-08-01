@@ -95,9 +95,6 @@ type Options struct {
 	// The zero value imposes no ceiling, which is what a one-off `backfill`
 	// invocation on an instance not yet serving wants.
 	Until time.Time
-	// Logger receives progress and per-project skip reporting. A run this
-	// long is otherwise invisible while it happens. May be nil.
-	Logger *zap.Logger
 	// Force re-walks history even though a completion watermark says it
 	// was already done, and starts from the beginning rather than from a
 	// saved cursor. Already-processed activity is discarded by the
@@ -161,7 +158,6 @@ func Run(ctx context.Context, read historyReader, conn *gorm.DB, processor activ
 		conn:      conn,
 		processor: processor,
 		opts:      opts,
-		logger:    loggerOrNop(opts.Logger),
 		progress:  saved,
 	}
 	run.report.Resumed = saved.LastProjectID > 0 || saved.CurrentProjectID > 0
@@ -188,7 +184,6 @@ type runner struct {
 	read      historyReader
 	conn      *gorm.DB
 	processor activity.Processor
-	logger    *zap.Logger
 	opts      Options
 	progress  progress
 	report    Report
@@ -284,7 +279,7 @@ func (r *runner) handleProjectError(projectID int64, phaseName string, err error
 		return err
 	}
 
-	r.logger.Warn("skipping project this app cannot read",
+	zap.L().Warn("skipping project this app cannot read",
 		zap.Int64("project_id", projectID),
 		zap.String("phase", phaseName),
 		zap.Error(err),
@@ -478,14 +473,4 @@ func (r *runner) flush() error {
 	r.sinceFlush = 0
 
 	return saveProgress(r.conn, r.progress)
-}
-
-// loggerOrNop returns logger, or a logger that discards everything when
-// none was configured, so callers never have to nil-check.
-func loggerOrNop(logger *zap.Logger) *zap.Logger {
-	if logger == nil {
-		return zap.NewNop()
-	}
-
-	return logger
 }

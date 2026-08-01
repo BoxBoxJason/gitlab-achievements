@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -171,7 +172,7 @@ func deliverAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *d
 
 	existing, err := held.find(ctx, award.AchievementDefinition.GitLabAchievementID)
 	if err != nil {
-		return recordAwardFailure(conn, award, report)
+		return recordAwardFailure(conn, award, report, err)
 	}
 
 	if existing != nil {
@@ -182,7 +183,7 @@ func deliverAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *d
 
 	awarded, awardErr := held.award(ctx, award)
 	if awardErr != nil {
-		return recordAwardFailure(conn, award, report)
+		return recordAwardFailure(conn, award, report, awardErr)
 	}
 
 	return recordAwardDelivered(conn, award, awarded, report)
@@ -215,7 +216,7 @@ func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award 
 	if award.GitLabUserAchievementID != 0 {
 		_, err := held.revoke(ctx, award.GitLabUserAchievementID)
 		if err != nil {
-			return recordAwardFailure(conn, award, report)
+			return recordAwardFailure(conn, award, report, err)
 		}
 	}
 
@@ -259,7 +260,22 @@ func recordAwardDelivered(conn *gorm.DB, award *db.Award, delivered *gitlab.User
 // next reconciliation pass to retry. Only a local database error is returned
 // to the caller: a rejected mutation is this pass's outcome for one award,
 // not a reason to abandon the rest.
-func recordAwardFailure(conn *gorm.DB, award *db.Award, report *AwardsReport) error {
+//
+// cause is logged rather than returned, because the report alone cannot say
+// why GitLab refused, and the refusal is not always transient: a lookup that
+// fails for one user fails for every award they hold (heldAwards remembers
+// it), so a schema drift between this app's client and the instance's API
+// turns into a run of failures that retry forever and explain themselves
+// nowhere.
+func recordAwardFailure(conn *gorm.DB, award *db.Award, report *AwardsReport, cause error) error {
+	zap.L().Warn("gitlab refused an award, leaving it for the next pass",
+		zap.String("username", award.User.Username),
+		zap.String("achievement", award.AchievementDefinition.Name),
+		zap.Int64("award_id", award.ID),
+		zap.Int64("gitlab_achievement_id", award.AchievementDefinition.GitLabAchievementID),
+		zap.Error(cause),
+	)
+
 	err := conn.Model(award).Update("status", db.AwardStatusFailed).Error
 	if err != nil {
 		return fmt.Errorf("failed to persist award %d status: %w", award.ID, err)

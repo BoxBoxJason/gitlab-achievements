@@ -80,7 +80,7 @@ func runBackfill(cfg *config.Config) error {
 
 	defer sqlDB.Close() //nolint:errcheck // ignore close errors on exit
 
-	_, writeClient, _, err := bootstrapApp(ctx, cfg, conn, cfg.PublicURL+httpserver.WebhookPath, logger)
+	_, writeClient, _, err := bootstrapApp(ctx, cfg, conn, cfg.PublicURL+httpserver.WebhookPath)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func runBackfill(cfg *config.Config) error {
 	// event ingestion, so there is no live path for it to overlap with. If a
 	// serving instance is ingesting at the same time, the activity they both
 	// see is the little that happens during the walk itself.
-	return executeBackfill(ctx, cfg, conn, writeClient, time.Time{}, logger, forceBackfill(cfg))
+	return executeBackfill(ctx, cfg, conn, writeClient, time.Time{}, forceBackfill(cfg))
 }
 
 // startBackfill runs the historical walk in the background of the serving
@@ -100,17 +100,17 @@ func runBackfill(cfg *config.Config) error {
 // failing readiness probes and rejecting the webhook deliveries that are
 // the app's actual job. A failure is logged rather than fatal, because the
 // walk persists its cursor as it goes: the next start resumes it.
-func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, liveFrom time.Time, logger *zap.Logger) {
+func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, liveFrom time.Time) {
 	if config.BackfillMode(cfg.BackfillMode) == config.BackfillModeOff {
-		logger.Info("historical backfill disabled, expecting an explicit `gitlab-achievements backfill` run instead")
+		zap.L().Info("historical backfill disabled, expecting an explicit `gitlab-achievements backfill` run instead")
 
 		return
 	}
 
 	go func() {
-		err := executeBackfill(ctx, cfg, conn, writeClient, liveFrom, logger, forceBackfill(cfg))
+		err := executeBackfill(ctx, cfg, conn, writeClient, liveFrom, forceBackfill(cfg))
 		if err != nil && ctx.Err() == nil {
-			logger.Error("historical backfill failed, its progress is saved and it resumes on the next start", zap.Error(err))
+			zap.L().Error("historical backfill failed, its progress is saved and it resumes on the next start", zap.Error(err))
 		}
 	}()
 }
@@ -128,7 +128,6 @@ func executeBackfill(
 	conn *gorm.DB,
 	writeClient *gitlabclient.WriteClient,
 	until time.Time,
-	logger *zap.Logger,
 	force bool,
 ) error {
 	since, err := cfg.ParseBackfillSince()
@@ -147,39 +146,38 @@ func executeBackfill(
 
 	achievements := engine.New(conn)
 
-	logger.Info("historical backfill starting",
+	zap.L().Info("historical backfill starting",
 		zap.Float64("requests_per_second", cfg.BackfillRate),
 		zap.Bool("force", force),
 		zap.String("since", backfillSinceField(since)),
 	)
 
 	report, err := backfill.Run(ctx, readClient, conn, achievements, backfill.Options{
-		Since:  since,
-		Until:  until,
-		Logger: logger,
-		Force:  force,
+		Since: since,
+		Until: until,
+		Force: force,
 	})
 	if err != nil {
 		return fmt.Errorf("historical backfill failed: %w", err)
 	}
 
 	if report.AlreadyComplete {
-		logger.Info("historical backfill already complete, nothing to do",
+		zap.L().Info("historical backfill already complete, nothing to do",
 			zap.Time("completed_at", report.CompletedAt),
 		)
 
 		return nil
 	}
 
-	logBackfillReport(report, achievements.Stats(), logger)
+	logBackfillReport(report, achievements.Stats())
 
-	return deliverBackfilledAwards(ctx, writeClient, conn, logger)
+	return deliverBackfilledAwards(ctx, writeClient, conn)
 }
 
 // logBackfillReport records what the walk covered and what it earned, in
 // one place so the walk's own function stays about running it.
-func logBackfillReport(report *backfill.Report, stats engine.Stats, logger *zap.Logger) {
-	logger.Info("historical backfill complete",
+func logBackfillReport(report *backfill.Report, stats engine.Stats) {
+	zap.L().Info("historical backfill complete",
 		zap.Bool("resumed", report.Resumed),
 		zap.Int("projects", report.Projects),
 		zap.Int("projects_skipped", report.ProjectsSkipped),
@@ -197,13 +195,13 @@ func logBackfillReport(report *backfill.Report, stats engine.Stats, logger *zap.
 // GitLab (see its package doc), so without this a backfill that finished
 // seconds after a reconciliation tick would sit invisible for an hour, and
 // a one-off `backfill` run would exit before ever delivering them.
-func deliverBackfilledAwards(ctx context.Context, writeClient *gitlabclient.WriteClient, conn *gorm.DB, logger *zap.Logger) error {
+func deliverBackfilledAwards(ctx context.Context, writeClient *gitlabclient.WriteClient, conn *gorm.DB) error {
 	awards, err := bootstrap.ReconcileAwards(ctx, writeClient, conn)
 	if err != nil {
 		return fmt.Errorf("failed to deliver backfilled awards: %w", err)
 	}
 
-	logger.Info("backfilled awards delivered",
+	zap.L().Info("backfilled awards delivered",
 		zap.Int("awards_confirmed", awards.Confirmed),
 		zap.Int("awards_failed", awards.Failed),
 		zap.Int("awards_superseded", awards.Superseded),

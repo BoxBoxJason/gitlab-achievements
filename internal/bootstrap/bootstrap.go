@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/catalog"
@@ -49,7 +48,7 @@ type Report struct {
 // catalog and the event ingestion webhooks against the configured GitLab
 // instance. webhookURL is the fully-qualified URL GitLab should deliver
 // events to (the app's public URL plus its ingestion path).
-func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string, logger *zap.Logger) (*Report, error) {
+func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
 	namespaceID, err := verifyPermissions(ctx, clients.Read, clients.Write, cfg.AchievementsNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("permission verification failed: %w", err)
@@ -65,7 +64,7 @@ func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config,
 		return nil, err
 	}
 
-	webhook, err := syncHooks(ctx, clients.Read, clients.Write, conn, cfg, webhookURL, logger)
+	webhook, err := syncHooks(ctx, clients.Read, clients.Write, conn, cfg, webhookURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync event ingestion webhooks: %w", err)
 	}

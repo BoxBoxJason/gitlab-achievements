@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -83,7 +82,7 @@ func TestEnsureOAuthApplication_RegistersOneOnFirstRun(t *testing.T) {
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{}
 
-	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -103,7 +102,7 @@ func TestEnsureOAuthApplication_RegistersAPublicClient(t *testing.T) {
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{}
 
-	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop()); err != nil {
+	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -119,12 +118,12 @@ func TestEnsureOAuthApplication_AdoptsTheRememberedApplicationOnRestart(t *testi
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{}
 
-	first, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	first, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	second, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	second, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -148,7 +147,7 @@ func TestEnsureOAuthApplication_AdoptsByRedirectURIWhenTheStateRowIsGone(t *test
 		},
 	}
 
-	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -183,7 +182,7 @@ func TestEnsureOAuthApplication_IgnoresApplicationsForOtherRedirectURIs(t *testi
 		},
 	}
 
-	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -203,7 +202,7 @@ func TestEnsureOAuthApplication_RegistersAgainWhenTheRememberedOneIsGone(t *test
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{}
 
-	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop()); err != nil {
+	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -211,7 +210,7 @@ func TestEnsureOAuthApplication_RegistersAgainWhenTheRememberedOneIsGone(t *test
 	instance.existing = nil
 	instance.nextID = "second-client-id"
 
-	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop())
+	clientID, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -234,7 +233,7 @@ func TestEnsureOAuthApplication_PropagatesAListFailure(t *testing.T) {
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{listErr: errors.New("403 forbidden")}
 
-	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop()); err == nil {
+	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI); err == nil {
 		t.Error("expected the list failure to be reported")
 	}
 }
@@ -243,7 +242,7 @@ func TestEnsureOAuthApplication_PropagatesACreateFailure(t *testing.T) {
 	conn := oauthTestConn(t)
 	instance := &fakeApplications{createErr: errors.New("403 forbidden")}
 
-	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI, zap.NewNop()); err == nil {
+	if _, err := EnsureOAuthApplication(t.Context(), instance, conn, testRedirectURI); err == nil {
 		t.Error("expected the create failure to be reported")
 	}
 }

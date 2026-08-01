@@ -53,7 +53,6 @@ type API struct {
 	oauth    *oauthFlow
 	auth     *authenticator
 	sessions *sessions
-	logger   *zap.Logger
 	mux      *http.ServeMux
 }
 
@@ -66,33 +65,24 @@ type Options struct {
 	// endpoints without one, which is what a deployment using personal
 	// access tokens (or no authentication at all) wants.
 	OAuth *OAuthOptions
-	// Logger receives server-side detail that is deliberately kept out of
-	// response bodies. It may be nil.
-	Logger *zap.Logger
 }
 
 // New builds an API reading from conn.
 func New(conn *gorm.DB, opts Options) *API {
-	logger := opts.Logger
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-
 	sessionStore := &sessions{conn: conn}
 
 	api := &API{
 		store:    &store{conn: conn},
 		sessions: sessionStore,
-		logger:   logger,
 		mux:      http.NewServeMux(),
 	}
 
 	if opts.Verifier != nil {
-		api.auth = &authenticator{verifier: opts.Verifier, sessions: sessionStore, logger: logger}
+		api.auth = &authenticator{verifier: opts.Verifier, sessions: sessionStore}
 	}
 
 	if opts.OAuth != nil && opts.Verifier != nil {
-		api.oauth = newOAuthFlow(*opts.OAuth, sessionStore, opts.Verifier, logger)
+		api.oauth = newOAuthFlow(*opts.OAuth, sessionStore, opts.Verifier)
 	}
 
 	api.routes()
@@ -223,7 +213,7 @@ func (a *API) fail(resp http.ResponseWriter, req *http.Request, err error) {
 		return
 	}
 
-	a.logger.Error("failed to serve an api request",
+	zap.L().Error("failed to serve an api request",
 		zap.String("path", req.URL.Path),
 		zap.Error(err),
 	)
@@ -242,7 +232,7 @@ func (a *API) writeJSON(resp http.ResponseWriter, status int, payload any) {
 
 	err := json.NewEncoder(resp).Encode(payload)
 	if err != nil {
-		a.logger.Warn("failed to write an api response body", zap.Error(err))
+		zap.L().Warn("failed to write an api response body", zap.Error(err))
 	}
 }
 

@@ -51,7 +51,7 @@ func TestRun_Success(t *testing.T) {
 		},
 	}
 
-	report, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
+	report, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRun_StopsAtPermissionFailure(t *testing.T) {
 		Write: writeAll,
 	}
 
-	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
+	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -112,7 +112,7 @@ func TestRun_StopsAtAchievementFailure(t *testing.T) {
 		Write: writeAll,
 	}
 
-	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL, nil)
+	_, err := Run(t.Context(), clients, conn, testCfg(), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}

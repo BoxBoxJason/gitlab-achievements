@@ -324,7 +324,7 @@ func TestSyncHooks_RegistersOneHookPerTopLevelGroupOnPaidTiers(t *testing.T) {
 	read := twoGroupInstance()
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestSyncHooks_RegistersOneHookPerProjectOnFreeTiers(t *testing.T) {
 	read := twoGroupInstance()
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestSyncHooks_FreeTierIsWhatAnInaccessibleLicenseFallsBackTo(t *testing.T) 
 	conn := testConn(t)
 	write := &fakeHookManager{licenseErr: statusErr(http.StatusForbidden)}
 
-	report, err := syncHooks(t.Context(), &fakeTargetLister{}, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), &fakeTargetLister{}, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected a token that can't read the license to fall back rather than fail, got: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestSyncHooks_TransientLicenseFailureStopsTheSweep(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeHookManager{licenseErr: statusErr(http.StatusInternalServerError)}
 
-	_, err := syncHooks(t.Context(), twoGroupInstance(), write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), twoGroupInstance(), write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected a transient license failure to fail rather than silently pick a strategy")
 	}
@@ -405,7 +405,7 @@ func TestSyncHooks_ExplicitScopeSkipsTheLicenseLookup(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeHookManager{license: &gitlab.License{Plan: "ultimate"}}
 
-	report, err := syncHooks(t.Context(), twoGroupInstance(), write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), twoGroupInstance(), write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -424,14 +424,14 @@ func TestSyncHooks_IsIdempotentAcrossSweeps(t *testing.T) {
 	read := twoGroupInstance()
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
 	firstAdds := write.addCalls
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestSyncHooks_RecreatesAHookDeletedOutOfBand(t *testing.T) {
 	read := &fakeTargetLister{groups: []*gitlab.Group{{ID: 1}}}
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestSyncHooks_RecreatesAHookDeletedOutOfBand(t *testing.T) {
 	// Someone deletes the hook in the GitLab UI.
 	write.groupHooks[1] = nil
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -489,7 +489,7 @@ func TestSyncHooks_AdoptsAnExistingHookPointingAtThisApp(t *testing.T) {
 		groupHooks: map[int64][]*gitlab.GroupHook{1: {{ID: 77, URL: testWebhookURL}}},
 	}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestSyncHooks_LeavesUnrelatedHooksAlone(t *testing.T) {
 		groupHooks: map[int64][]*gitlab.GroupHook{1: {{ID: 9, URL: "https://someone-elses-tool.example.com/hook"}}},
 	}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestSyncHooks_AppliesTheConfiguredSecret(t *testing.T) {
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
 	_, err := syncHooks(t.Context(), &fakeTargetLister{groups: []*gitlab.Group{{ID: 1}}}, write, conn,
-		hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+		hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestSyncHooks_SkipsTargetsItCannotManage(t *testing.T) {
 		targetAddErr: map[int64]error{11: statusErr(http.StatusForbidden)},
 	}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected one unmanageable project not to fail the sweep, got: %v", err)
 	}
@@ -567,7 +567,7 @@ func TestSyncHooks_StopsOnAnInstanceWideFailure(t *testing.T) {
 		addErr:     statusErr(http.StatusInternalServerError),
 	}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected a GitLab-wide failure to stop the sweep rather than skip every target")
 	}
@@ -578,7 +578,7 @@ func TestSyncHooks_StopsWhenGroupsCannotBeListed(t *testing.T) {
 	read := &fakeTargetLister{groupsErr: errors.New("gitlab unreachable")}
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected an unlistable instance to fail rather than report an empty sweep as success")
 	}
@@ -589,7 +589,7 @@ func TestSyncHooks_RegistersHooksOnTargetsCreatedSinceTheLastSweep(t *testing.T)
 	read := &fakeTargetLister{groups: []*gitlab.Group{{ID: 1}}}
 	write := &fakeHookManager{license: &gitlab.License{Plan: "premium"}}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestSyncHooks_RegistersHooksOnTargetsCreatedSinceTheLastSweep(t *testing.T)
 	// is only picked up by the next sweep.
 	read.groups = append(read.groups, &gitlab.Group{ID: 2})
 
-	report, err := ReconcileWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, nil)
+	report, err := ReconcileWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestSyncHooks_CoversProjectsOutsideTheAchievementsNamespace(t *testing.T) {
 	}
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestSyncHooks_SkipsProjectsInPersonalNamespaces(t *testing.T) {
 	}
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	report, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -663,7 +663,7 @@ func TestSyncHooks_SkipsProjectsWithNoNamespaceReported(t *testing.T) {
 	read := &fakeTargetLister{projects: []*gitlab.Project{{ID: 10}}}
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestSyncHooks_StopsWhenProjectsCannotBeListed(t *testing.T) {
 	read := &fakeTargetLister{projectsErr: errors.New("gitlab unreachable")}
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err == nil {
 		t.Fatal("expected an unlistable instance to fail rather than report an empty sweep as success")
 	}
@@ -691,7 +691,7 @@ func TestSyncHooks_ProjectSweepWalksInAscendingIDOrder(t *testing.T) {
 	read := &fakeTargetLister{projects: []*gitlab.Project{groupProject(10)}}
 	write := &fakeHookManager{licenseErr: gitlab.ErrNotFound}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

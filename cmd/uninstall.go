@@ -91,12 +91,12 @@ func runUninstall(cfg *config.Config, opts bootstrap.CleanupOptions) error {
 		return fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
-	report, err := bootstrap.RemoveWebhooks(ctx, readClient, writeClient, conn, cfg, cfg.PublicURL+httpserver.WebhookPath, opts, logger)
+	report, err := bootstrap.RemoveWebhooks(ctx, readClient, writeClient, conn, cfg, cfg.PublicURL+httpserver.WebhookPath, opts)
 	if err != nil {
 		return fmt.Errorf("failed to remove the event ingestion webhooks: %w", err)
 	}
 
-	logUninstallReport(report, opts, logger)
+	logUninstallReport(report, opts)
 
 	return nil
 }
@@ -104,8 +104,8 @@ func runUninstall(cfg *config.Config, opts bootstrap.CleanupOptions) error {
 // logUninstallReport records what the pass removed, naming the leftovers
 // explicitly: a run that skipped hooks has not finished the job, and the
 // operator is the only one who can hand it a token that will.
-func logUninstallReport(report bootstrap.CleanupReport, opts bootstrap.CleanupOptions, logger *zap.Logger) {
-	logger.Info("webhook cleanup complete",
+func logUninstallReport(report bootstrap.CleanupReport, opts bootstrap.CleanupOptions) {
+	zap.L().Info("webhook cleanup complete",
 		zap.Bool("dry_run", opts.DryRun),
 		zap.Int("hooks_deleted", report.Deleted),
 		zap.Int("hooks_already_gone", report.AlreadyGone),
@@ -114,7 +114,7 @@ func logUninstallReport(report bootstrap.CleanupReport, opts bootstrap.CleanupOp
 	)
 
 	if report.Skipped > 0 {
-		logger.Warn("some hooks were left registered on gitlab, re-run with a token that can manage them",
+		zap.L().Warn("some hooks were left registered on gitlab, re-run with a token that can manage them",
 			zap.Int("hooks_skipped", report.Skipped),
 		)
 	}

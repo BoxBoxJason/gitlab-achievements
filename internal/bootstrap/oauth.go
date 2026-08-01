@@ -52,7 +52,7 @@ type oauthApplicationManager interface {
 // survived, the instance's applications are searched for one matching this
 // app's redirect URI before anything new is created. Only when both miss is
 // an application registered.
-func EnsureOAuthApplication(ctx context.Context, write oauthApplicationManager, conn *gorm.DB, redirectURI string, logger *zap.Logger) (string, error) {
+func EnsureOAuthApplication(ctx context.Context, write oauthApplicationManager, conn *gorm.DB, redirectURI string) (string, error) {
 	remembered, err := loadOAuthClientID(ctx, conn)
 	if err != nil {
 		return "", err
@@ -71,7 +71,7 @@ func EnsureOAuthApplication(ctx context.Context, write oauthApplicationManager, 
 			}
 		}
 
-		logger.Info("adopted existing oauth application",
+		zap.L().Info("adopted existing oauth application",
 			zap.String("client_id", existing.ClientID),
 			zap.String("redirect_uri", existing.CallbackURL),
 		)
@@ -89,7 +89,7 @@ func EnsureOAuthApplication(ctx context.Context, write oauthApplicationManager, 
 		return "", err
 	}
 
-	logger.Info("registered oauth application",
+	zap.L().Info("registered oauth application",
 		zap.String("client_id", created.ClientID),
 		zap.String("redirect_uri", redirectURI),
 	)

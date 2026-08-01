@@ -116,9 +116,8 @@ func ReconcileWebhooks(
 	conn *gorm.DB,
 	cfg *config.Config,
 	webhookURL string,
-	logger *zap.Logger,
 ) (WebhookReport, error) {
-	return syncHooks(ctx, read, write, conn, cfg, webhookURL, logger)
+	return syncHooks(ctx, read, write, conn, cfg, webhookURL)
 }
 
 // syncHooks idempotently registers the webhooks this app ingests events
@@ -144,7 +143,6 @@ func syncHooks(
 	conn *gorm.DB,
 	cfg *config.Config,
 	webhookURL string,
-	logger *zap.Logger,
 ) (WebhookReport, error) {
 	scope, err := resolveHookScope(ctx, write, config.HookScope(cfg.HookScope))
 	if err != nil {
@@ -157,7 +155,6 @@ func syncHooks(
 		conn:       conn,
 		webhookURL: webhookURL,
 		secret:     cfg.WebhookSecret,
-		logger:     loggerOrNop(logger),
 		limiter:    sweepLimiter(cfg.HookRate),
 		report:     WebhookReport{Scope: scope},
 	}
@@ -221,7 +218,6 @@ type hookSync struct {
 	// the workload rather than on the connection. May be nil, which paces
 	// nothing.
 	limiter    *rate.Limiter
-	logger     *zap.Logger
 	webhookURL string
 	secret     string
 	report     WebhookReport
@@ -476,11 +472,12 @@ func (s *hookSync) handleTargetError(target hookTarget, err error) error {
 		return fmt.Errorf("failed to sync %s %d hook: %w", target.scope(), target.id(), err)
 	}
 
-	s.logger.Warn("skipping target this app cannot manage hooks on",
+	zap.L().Warn("skipping target this app cannot manage hooks on",
 		zap.String("scope", string(target.scope())),
 		zap.Int64("target_id", target.id()),
 		zap.Error(err),
 	)
+
 	s.report.Skipped++
 
 	return nil
@@ -527,14 +524,4 @@ func storeHookID(conn *gorm.DB, scope db.HookScope, targetID, hookID int64) erro
 	}
 
 	return nil
-}
-
-// loggerOrNop returns logger, or one that discards everything when none was
-// configured, so callers never have to nil-check.
-func loggerOrNop(logger *zap.Logger) *zap.Logger {
-	if logger == nil {
-		return zap.NewNop()
-	}
-
-	return logger
 }

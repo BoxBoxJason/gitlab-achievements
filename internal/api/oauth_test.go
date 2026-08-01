@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -381,7 +380,7 @@ func TestNewOAuthFlow_BuildsGitLabEndpointsFromTheBaseURL(t *testing.T) {
 		GitLabURL: "https://gitlab.example.com/",
 		PublicURL: "https://achievements.example.com/",
 		ClientID:  "id",
-	}, &sessions{conn: testConn(t)}, &stubVerifier{}, zap.NewNop())
+	}, &sessions{conn: testConn(t)}, &stubVerifier{})
 
 	if !strings.HasSuffix(flow.config.Endpoint.AuthURL, "/oauth/authorize") ||
 		strings.Contains(flow.config.Endpoint.AuthURL, "//oauth") {

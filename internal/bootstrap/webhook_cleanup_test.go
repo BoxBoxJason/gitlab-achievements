@@ -48,7 +48,7 @@ func installed(t *testing.T, scope config.HookScope, license *gitlab.License) (*
 	read := twoGroupInstance()
 	write := &fakeHookManager{license: license}
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(scope), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(scope), testWebhookURL)
 	if err != nil {
 		t.Fatalf("failed to install hooks for the cleanup test: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRemoveWebhooks_DeletesEveryRecordedHook(t *testing.T) {
 		t.Fatalf("expected three project hooks to have been installed, got %d", totalHooks(write))
 	}
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestRemoveWebhooks_DeletesEveryRecordedHook(t *testing.T) {
 func TestRemoveWebhooks_RemovesGroupHooksRecordedUnderTheGroupScope(t *testing.T) {
 	conn, read, write := installed(t, config.HookScopeGroup, &gitlab.License{Plan: "ultimate"})
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL, CleanupOptions{}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL, CleanupOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestRemoveWebhooks_RemovesGroupHooksRecordedUnderTheGroupScope(t *testing.T
 func TestRemoveWebhooks_RemovesHooksLeftBehindByAnEarlierScope(t *testing.T) {
 	conn, read, write := installed(t, config.HookScopeProject, &gitlab.License{Plan: "premium"})
 
-	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL, nil)
+	_, err := syncHooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL)
 	if err != nil {
 		t.Fatalf("failed to switch the deployment to group hooks: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestRemoveWebhooks_RemovesHooksLeftBehindByAnEarlierScope(t *testing.T) {
 		t.Fatalf("expected three project hooks and two group ones, got %d", totalHooks(write))
 	}
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL, CleanupOptions{}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeGroup), testWebhookURL, CleanupOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestRemoveWebhooks_TreatsAnAlreadyDeletedHookAsRemoved(t *testing.T) {
 
 	write.projectHooks[10] = nil
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestRemoveWebhooks_KeepsTheRecordOfAHookItMayNotRemove(t *testing.T) {
 
 	write.targetDeleteErr = map[int64]error{11: statusErr(http.StatusForbidden)}
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{})
 	if err != nil {
 		t.Fatalf("expected a forbidden target not to fail the pass, got: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestRemoveWebhooks_StopsOnAFailureThatIsNotTargetLocal(t *testing.T) {
 
 	write.deleteErr = statusErr(http.StatusInternalServerError)
 
-	_, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{}, nil)
+	_, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{})
 	if err == nil {
 		t.Fatal("expected a server-side failure to fail the pass")
 	}
@@ -205,7 +205,7 @@ func TestRemoveWebhooks_StopsOnAFailureThatIsNotTargetLocal(t *testing.T) {
 func TestRemoveWebhooks_DryRunRemovesNothing(t *testing.T) {
 	conn, read, write := installed(t, config.HookScopeProject, nil)
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{DryRun: true}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{DryRun: true})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestRemoveWebhooks_SweepRemovesHooksWithNoRecord(t *testing.T) {
 		t.Fatalf("failed to simulate a lost database: %v", err)
 	}
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{Sweep: true}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{Sweep: true})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestRemoveWebhooks_SweepLeavesForeignHooksAlone(t *testing.T) {
 	foreign := &gitlab.ProjectHook{ID: 999, URL: "https://ci.example.com/hook", ProjectID: 10}
 	write.projectHooks[10] = append(write.projectHooks[10], foreign)
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{Sweep: true}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeProject), testWebhookURL, CleanupOptions{Sweep: true})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestRemoveWebhooks_SweepCoversBothScopesUnderAuto(t *testing.T) {
 		t.Fatalf("failed to simulate a lost database: %v", err)
 	}
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, CleanupOptions{Sweep: true}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, CleanupOptions{Sweep: true})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestRemoveWebhooks_SweepCoversBothScopesUnderAuto(t *testing.T) {
 func TestRemoveWebhooks_SweepSkipsGroupsWhereGroupHooksCannotExist(t *testing.T) {
 	conn, read, write := installed(t, config.HookScopeProject, nil)
 
-	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, CleanupOptions{Sweep: true}, nil)
+	report, err := RemoveWebhooks(t.Context(), read, write, conn, hookCfg(config.HookScopeAuto), testWebhookURL, CleanupOptions{Sweep: true})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

@@ -74,7 +74,7 @@ func deliver(t *testing.T, receiver *Receiver, token, eventType, body string) *h
 
 func TestReceiver_AcceptsAValidDelivery(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Push Hook", pushPayload)
 
@@ -89,7 +89,7 @@ func TestReceiver_AcceptsAValidDelivery(t *testing.T) {
 
 func TestReceiver_RejectsAWrongToken(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "wrong", "Push Hook", pushPayload)
 
@@ -104,7 +104,7 @@ func TestReceiver_RejectsAWrongToken(t *testing.T) {
 
 func TestReceiver_RejectsAMissingToken(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "", "Push Hook", pushPayload)
 
@@ -119,7 +119,7 @@ func TestReceiver_RejectsAnEmptyConfiguredSecretPresentedAsAbsent(t *testing.T) 
 	// by mistake; the token still has to match, and a blank one matching a
 	// blank secret is the one case worth pinning down.
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "", "Push Hook", pushPayload)
 	if resp.Code != http.StatusUnauthorized {
@@ -129,7 +129,7 @@ func TestReceiver_RejectsAnEmptyConfiguredSecretPresentedAsAbsent(t *testing.T) 
 
 func TestReceiver_IgnoresEventTypesItTracksNothingFor(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	// A group hook delivers subgroup events whether or not this app wants
 	// them. Answering anything but 200 would eventually get the hook
@@ -147,7 +147,7 @@ func TestReceiver_IgnoresEventTypesItTracksNothingFor(t *testing.T) {
 
 func TestReceiver_AcknowledgesAnUnparseablePayload(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	// Redelivering it would fail identically, so failing the delivery would
 	// only cost the hook its registration.
@@ -160,7 +160,7 @@ func TestReceiver_AcknowledgesAnUnparseablePayload(t *testing.T) {
 
 func TestReceiver_AcknowledgesAPayloadCarryingNoTrackedActivity(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Merge Request Hook",
 		`{"object_kind":"merge_request","user":{"id":10},"object_attributes":{"id":55,"action":"update"}}`)
@@ -176,7 +176,7 @@ func TestReceiver_AcknowledgesAPayloadCarryingNoTrackedActivity(t *testing.T) {
 
 func TestReceiver_ReportsBackpressureAsRetryable(t *testing.T) {
 	queue := &fakeDispatcher{err: ErrQueueFull}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Push Hook", pushPayload)
 
@@ -187,7 +187,7 @@ func TestReceiver_ReportsBackpressureAsRetryable(t *testing.T) {
 
 func TestReceiver_ReportsShutdownAsRetryable(t *testing.T) {
 	queue := &fakeDispatcher{err: ErrShuttingDown}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Push Hook", pushPayload)
 
@@ -198,7 +198,7 @@ func TestReceiver_ReportsShutdownAsRetryable(t *testing.T) {
 
 func TestReceiver_StopsReadingAnOversizedBody(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	oversized := `{"object_kind":"push","user_id":10,"ref":"` + strings.Repeat("x", maxPayloadBytes+1) + `"}`
 
@@ -215,7 +215,7 @@ func TestReceiver_StopsReadingAnOversizedBody(t *testing.T) {
 
 func TestReceiver_ConfidentialCommentsAreIngestedToo(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Confidential Note Hook", `{
       "object_kind": "note",
@@ -238,7 +238,7 @@ func TestReceiver_ConfidentialCommentsAreIngestedToo(t *testing.T) {
 
 func TestReceiver_DoesNotLeakWhetherATokenWasClose(t *testing.T) {
 	queue := &fakeDispatcher{}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	for _, token := range []string{"s3cr3", "s3cr3u", "s3cr3t-longer"} {
 		resp := deliver(t, receiver, token, "Push Hook", pushPayload)
@@ -250,7 +250,7 @@ func TestReceiver_DoesNotLeakWhetherATokenWasClose(t *testing.T) {
 
 func TestReceiver_ParseErrorsAreNotFatalToTheProcess(t *testing.T) {
 	queue := &fakeDispatcher{err: errors.New("boom")}
-	receiver := NewReceiver("s3cr3t", queue, nil)
+	receiver := NewReceiver("s3cr3t", queue)
 
 	resp := deliver(t, receiver, "s3cr3t", "Push Hook", pushPayload)
 	if resp.Code != http.StatusServiceUnavailable {

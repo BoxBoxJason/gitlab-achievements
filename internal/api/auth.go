@@ -56,7 +56,6 @@ func IdentityFrom(ctx context.Context) (*gitlabclient.Identity, bool) {
 type authenticator struct {
 	verifier Verifier
 	sessions *sessions
-	logger   *zap.Logger
 }
 
 // middleware wraps next so that it is only reached by requests carrying a
@@ -97,7 +96,7 @@ func (a *authenticator) reject(resp http.ResponseWriter, err error) {
 		return
 	}
 
-	a.logger.Warn("failed to verify an api credential against gitlab", zap.Error(err))
+	zap.L().Warn("failed to verify an api credential against gitlab", zap.Error(err))
 	writeError(resp, http.StatusServiceUnavailable, "cannot verify credentials right now")
 }
 
@@ -115,7 +114,7 @@ func (a *authenticator) rejectCredential(resp http.ResponseWriter, err error) {
 		return
 	}
 
-	a.logger.Warn("failed to resolve an api credential", zap.Error(err))
+	zap.L().Warn("failed to resolve an api credential", zap.Error(err))
 	writeError(resp, http.StatusServiceUnavailable, "cannot verify credentials right now")
 }
 

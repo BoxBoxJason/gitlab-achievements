@@ -51,8 +51,6 @@ var ErrShuttingDown = errors.New("activity queue is shutting down")
 
 // Options tunes a Queue. The zero value selects the defaults above.
 type Options struct {
-	// Logger receives processing failures. May be nil.
-	Logger *zap.Logger
 	// Size is the queue's capacity in activities.
 	Size int
 	// Workers is how many activities are evaluated concurrently.
@@ -79,7 +77,6 @@ type Options struct {
 type Queue struct {
 	processor activity.Processor
 	events    chan activity.Event
-	logger    *zap.Logger
 	// done is closed by Shutdown to stop accepting work. The events channel
 	// is deliberately never closed: deliveries can still be in flight when
 	// shutdown begins, and a send on a closed channel would panic the
@@ -120,7 +117,6 @@ func NewQueue(processor activity.Processor, opts Options) *Queue {
 	return &Queue{
 		processor: processor,
 		events:    make(chan activity.Event, opts.Size),
-		logger:    loggerOrNop(opts.Logger),
 		done:      make(chan struct{}),
 		opts:      opts,
 	}
@@ -334,7 +330,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 		}
 
 		if attempt < q.opts.MaxAttempts {
-			q.logger.Debug("retrying activity evaluation",
+			zap.L().Debug("retrying activity evaluation",
 				zap.String("dedup_key", event.DedupKey),
 				zap.Int("attempt", attempt),
 				zap.Error(err),
@@ -349,7 +345,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 	}
 
 	q.failed.Add(1)
-	q.logger.Error("dropping activity after repeated evaluation failures, it can be replayed by its dedup key",
+	zap.L().Error("dropping activity after repeated evaluation failures, it can be replayed by its dedup key",
 		zap.String("dedup_key", event.DedupKey),
 		zap.String("kind", string(event.Kind)),
 		zap.Int64("actor_id", event.ActorID),
@@ -369,14 +365,4 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
-}
-
-// loggerOrNop returns logger, or one that discards everything when none was
-// configured, so callers never have to nil-check.
-func loggerOrNop(logger *zap.Logger) *zap.Logger {
-	if logger == nil {
-		return zap.NewNop()
-	}
-
-	return logger
 }

@@ -161,7 +161,7 @@ func run(cfg *config.Config) error {
 
 	defer logger.Sync() //nolint:errcheck // ignore sync errors on exit
 
-	logger.Info("configuration loaded",
+	zap.L().Info("configuration loaded",
 		zap.String("gitlab_url", cfg.GitLabURL),
 		zap.String("achievements_namespace", cfg.AchievementsNamespace),
 		zap.String("listen_addr", cfg.ListenAddr),
@@ -177,7 +177,7 @@ func run(cfg *config.Config) error {
 
 	defer sqlDB.Close() //nolint:errcheck // ignore close errors on exit
 
-	logger.Info("database connected and migrated")
+	zap.L().Info("database connected and migrated")
 
 	webhookURL := cfg.PublicURL + httpserver.WebhookPath
 
@@ -194,17 +194,17 @@ func run(cfg *config.Config) error {
 	// The gap's width is the sweep's duration, logged below.
 	liveFrom := time.Now()
 
-	readClient, writeClient, report, err := bootstrapApp(ctx, cfg, conn, webhookURL, logger)
+	readClient, writeClient, report, err := bootstrapApp(ctx, cfg, conn, webhookURL)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("live ingestion active",
+	zap.L().Info("live ingestion active",
 		zap.Duration("uncovered_window", time.Since(liveFrom)),
 		zap.Time("history_walked_until", liveFrom),
 	)
 
-	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, liveFrom, logger)
+	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, liveFrom)
 }
 
 // openDatabase connects to the database, verifies the connection, and
@@ -232,7 +232,7 @@ func openDatabase(cfg *config.Config) (*gorm.DB, *sql.DB, error) {
 // verification, achievement/webhook reconciliation), returning the clients
 // and bootstrap report for reuse by the readiness check and the periodic
 // reconciliation loops.
-func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhookURL string, logger *zap.Logger) (*gitlabclient.ReadClient, *gitlabclient.WriteClient, *bootstrap.Report, error) {
+func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhookURL string) (*gitlabclient.ReadClient, *gitlabclient.WriteClient, *bootstrap.Report, error) {
 	readClient, err := gitlabclient.NewReadClient(cfg.GitLabURL, cfg.GitLabReadToken)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to build gitlab read client: %w", err)
@@ -243,12 +243,12 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 		return nil, nil, nil, fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
-	report, err := bootstrap.Run(ctx, bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL, logger)
+	report, err := bootstrap.Run(ctx, bootstrap.Client{Read: readClient, Write: writeClient}, conn, cfg, webhookURL)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("bootstrap failed: %w", err)
 	}
 
-	logger.Info("bootstrap complete",
+	zap.L().Info("bootstrap complete",
 		zap.Int64("namespace_id", report.NamespaceID),
 		zap.Int("achievements_created", report.Achievements.Created),
 		zap.Int("achievements_updated", report.Achievements.Updated),
@@ -273,11 +273,11 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 // then adopts on every later start. Resolving it here, before the listener
 // opens, means a misconfigured or unregisterable application fails startup
 // rather than surfacing at somebody's first login attempt.
-func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, logger *zap.Logger) (*api.API, error) {
-	opts := api.Options{Logger: logger}
+func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient) (*api.API, error) {
+	opts := api.Options{}
 
 	if cfg.AuthMode() != config.APIAuthGitLab {
-		logger.Info("read api is unauthenticated", zap.String("api_auth", cfg.APIAuth))
+		zap.L().Info("read api is unauthenticated", zap.String("api_auth", cfg.APIAuth))
 
 		return api.New(conn, opts), nil
 	}
@@ -291,7 +291,7 @@ func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClien
 
 	clientID := cfg.OAuthClientID
 	if clientID == "" {
-		clientID, err = bootstrap.EnsureOAuthApplication(ctx, writeClient, conn, cfg.PublicURL+api.CallbackPath, logger)
+		clientID, err = bootstrap.EnsureOAuthApplication(ctx, writeClient, conn, cfg.PublicURL+api.CallbackPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve the oauth application for the read api: %w", err)
 		}
@@ -304,7 +304,7 @@ func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClien
 		ClientSecret: cfg.OAuthClientSecret,
 	}
 
-	logger.Info("read api requires a gitlab credential",
+	zap.L().Info("read api requires a gitlab credential",
 		zap.String("oauth_client_id", clientID),
 		zap.Bool("confidential_client", cfg.OAuthClientSecret != ""),
 	)
@@ -327,24 +327,23 @@ func buildServer(
 	readClient *gitlabclient.ReadClient,
 	writeClient *gitlabclient.WriteClient,
 	queue *webhook.Queue,
-	logger *zap.Logger,
 ) (*http.Server, error) {
-	readAPI, err := buildAPI(ctx, cfg, conn, writeClient, logger)
+	readAPI, err := buildAPI(ctx, cfg, conn, writeClient)
 	if err != nil {
 		return nil, err
 	}
 
-	startSessionPruning(ctx, cfg, readAPI, logger)
+	startSessionPruning(ctx, cfg, readAPI)
 
-	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue, logger)
+	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue)
 
-	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, logger), nil
+	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI), nil
 }
 
 // newHTTPServer builds the *http.Server exposing /healthz, /readyz, the
 // webhook ingestion endpoint, and the read API, wired to check the database
 // connection and GitLab reachability on every /readyz request.
-func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API, logger *zap.Logger) *http.Server {
+func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
@@ -358,7 +357,7 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 			return nil
 		},
 		func(reason string, err error) {
-			logger.Warn(reason, zap.Error(err))
+			zap.L().Warn(reason, zap.Error(err))
 		},
 	)
 	srv.MountWebhook(receiver)
@@ -393,26 +392,25 @@ func serve(
 	report *bootstrap.Report,
 	webhookURL string,
 	liveFrom time.Time,
-	logger *zap.Logger,
 ) error {
 	// The queue and the engine behind it are what live deliveries are
 	// evaluated by; the backfill builds its own engine, since the two count
 	// different windows of the same instance's activity.
-	queue := webhook.NewQueue(engine.New(conn), webhook.Options{Logger: logger})
+	queue := webhook.NewQueue(engine.New(conn), webhook.Options{})
 	queue.Start(ctx)
 
-	httpSrv, err := buildServer(ctx, cfg, conn, sqlDB, readClient, writeClient, queue, logger)
+	httpSrv, err := buildServer(ctx, cfg, conn, sqlDB, readClient, writeClient, queue)
 	if err != nil {
 		return err
 	}
 
-	startReconciliationLoops(ctx, cfg, conn, readClient, writeClient, report.NamespaceID, webhookURL, logger)
-	startBackfill(ctx, cfg, conn, writeClient, liveFrom, logger)
+	startReconciliationLoops(ctx, cfg, conn, readClient, writeClient, report.NamespaceID, webhookURL)
+	startBackfill(ctx, cfg, conn, writeClient, liveFrom)
 
 	serveErr := make(chan error, 1)
 
 	go func() {
-		logger.Info("listening", zap.String("addr", cfg.ListenAddr))
+		zap.L().Info("listening", zap.String("addr", cfg.ListenAddr))
 
 		listenErr := httpSrv.ListenAndServe()
 		if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
@@ -428,13 +426,13 @@ func serve(
 	case err := <-serveErr:
 		// The listener is already gone, so nothing further can arrive; what
 		// it accepted before failing still deserves to be evaluated.
-		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see drainQueue
+		drainQueue(queue) //nolint:contextcheck // drains on a fresh context, see drainQueue
 
 		if err != nil {
 			return fmt.Errorf("http server failed: %w", err)
 		}
 	case <-ctx.Done():
-		logger.Info("shutting down")
+		zap.L().Info("shutting down")
 
 		// Deliberately rooted in context.Background(), not ctx: ctx is
 		// already Done() here (that's why we're in this branch), so
@@ -448,7 +446,7 @@ func serve(
 		// Drained before the error is returned, and regardless of it: a
 		// server that shut down untidily has still accepted deliveries
 		// GitLab was told succeeded.
-		drainQueue(queue, logger) //nolint:contextcheck // drains on a fresh context, see below
+		drainQueue(queue) //nolint:contextcheck // drains on a fresh context, see below
 
 		if shutdownErr != nil {
 			return fmt.Errorf("failed to shut down http server gracefully: %w", shutdownErr)
@@ -467,7 +465,7 @@ func serve(
 // still queued when the deadline passes is reported rather than dropped
 // silently, since GitLab has already been told those deliveries succeeded
 // and will not send them again.
-func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
+func drainQueue(queue *webhook.Queue) {
 	drainCtx, cancel := context.WithTimeout(context.Background(), webhookShutdownTimeout)
 	defer cancel()
 
@@ -475,7 +473,7 @@ func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
 	stats := queue.Stats()
 
 	if err != nil {
-		logger.Error("gave up draining accepted webhook activity, it was not evaluated",
+		zap.L().Error("gave up draining accepted webhook activity, it was not evaluated",
 			zap.Int("pending", stats.Pending),
 			zap.Error(err),
 		)
@@ -486,7 +484,7 @@ func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
 	// pending is reported even on the success path: it should always be
 	// zero here, and a non-zero value is the signature of the workers
 	// having stopped before the drain rather than because of it.
-	logger.Info("webhook activity drained",
+	zap.L().Info("webhook activity drained",
 		zap.Int("pending", stats.Pending),
 		zap.Int64("accepted", stats.Accepted),
 		zap.Int64("processed", stats.Processed),
@@ -502,7 +500,7 @@ func drainQueue(queue *webhook.Queue, logger *zap.Logger) {
 // authentication off nothing ever writes that table, and a periodic DELETE
 // against it would be pure noise. Expired sessions are already refused on
 // every request, so this is housekeeping rather than enforcement.
-func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.API, logger *zap.Logger) {
+func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.API) {
 	if cfg.AuthMode() != config.APIAuthGitLab {
 		return
 	}
@@ -514,12 +512,12 @@ func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.A
 		}
 
 		if pruned > 0 {
-			logger.Info("pruned expired api sessions", zap.Int64("sessions", pruned))
+			zap.L().Info("pruned expired api sessions", zap.Int64("sessions", pruned))
 		}
 
 		return nil
 	}, func(err error) {
-		logger.Error("session pruning failed", zap.Error(err))
+		zap.L().Error("session pruning failed", zap.Error(err))
 	})
 }
 
@@ -537,15 +535,14 @@ func startReconciliationLoops(
 	writeClient *gitlabclient.WriteClient,
 	namespaceID int64,
 	webhookURL string,
-	logger *zap.Logger,
 ) {
 	go scheduler.Every(ctx, webhookReconcileInterval, func(ctx context.Context) error {
-		hooks, err := bootstrap.ReconcileWebhooks(ctx, readClient, writeClient, conn, cfg, webhookURL, logger)
+		hooks, err := bootstrap.ReconcileWebhooks(ctx, readClient, writeClient, conn, cfg, webhookURL)
 		if err != nil {
 			return fmt.Errorf("webhook reconciliation failed: %w", err)
 		}
 
-		logger.Info("webhook reconciliation complete",
+		zap.L().Info("webhook reconciliation complete",
 			zap.String("hook_scope", string(hooks.Scope)),
 			zap.Int("hook_targets", hooks.Targets),
 			zap.Int("hooks_created", hooks.Created),
@@ -554,7 +551,7 @@ func startReconciliationLoops(
 
 		return nil
 	}, func(err error) {
-		logger.Error("webhook reconciliation failed", zap.Error(err))
+		zap.L().Error("webhook reconciliation failed", zap.Error(err))
 	})
 
 	go scheduler.Every(ctx, achievementReconcileInterval, func(ctx context.Context) error {
@@ -563,7 +560,7 @@ func startReconciliationLoops(
 			return fmt.Errorf("achievement reconciliation failed: %w", err)
 		}
 
-		logger.Info("achievement reconciliation complete",
+		zap.L().Info("achievement reconciliation complete",
 			zap.Int("achievements_recreated", hourly.Achievements.Recreated),
 			zap.Int("achievements_unchanged", hourly.Achievements.Unchanged),
 			zap.Int("exp_totals_corrected", hourly.ExpTotalsCorrected),
@@ -575,7 +572,7 @@ func startReconciliationLoops(
 
 		return nil
 	}, func(err error) {
-		logger.Error("achievement reconciliation failed", zap.Error(err))
+		zap.L().Error("achievement reconciliation failed", zap.Error(err))
 	})
 }
 

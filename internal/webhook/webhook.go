@@ -70,17 +70,15 @@ type dispatcher interface {
 // Receiver handles GitLab webhook deliveries.
 type Receiver struct {
 	queue  dispatcher
-	logger *zap.Logger
 	secret string
 }
 
 // NewReceiver builds a Receiver that authenticates deliveries against
 // secret and hands the activity it parses to queue.
-func NewReceiver(secret string, queue dispatcher, logger *zap.Logger) *Receiver {
+func NewReceiver(secret string, queue dispatcher) *Receiver {
 	return &Receiver{
 		secret: secret,
 		queue:  queue,
-		logger: loggerOrNop(logger),
 	}
 }
 
@@ -110,7 +108,7 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	payload, err := io.ReadAll(http.MaxBytesReader(resp, req.Body, maxPayloadBytes))
 	if err != nil {
-		r.logger.Warn("failed to read webhook payload",
+		zap.L().Warn("failed to read webhook payload",
 			zap.String("event_type", string(eventType)),
 			zap.Error(err),
 		)
@@ -128,7 +126,7 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	err = r.queue.Enqueue(req.Context(), events)
 	if err != nil {
-		r.logger.Error("failed to accept webhook delivery",
+		zap.L().Error("failed to accept webhook delivery",
 			zap.String("event_type", string(eventType)),
 			zap.Int("activities", len(events)),
 			zap.Error(err),
@@ -163,12 +161,12 @@ func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) []activity.
 	parsed, err := gitlab.ParseWebhook(eventType, payload)
 	if err != nil {
 		if subscribedEvents[eventType] {
-			r.logger.Warn("failed to parse a webhook delivery this app subscribed to",
+			zap.L().Warn("failed to parse a webhook delivery this app subscribed to",
 				zap.String("event_type", string(eventType)),
 				zap.Error(err),
 			)
 		} else {
-			r.logger.Debug("ignoring webhook delivery this app does not handle",
+			zap.L().Debug("ignoring webhook delivery this app does not handle",
 				zap.String("event_type", string(eventType)),
 				zap.Error(err),
 			)
