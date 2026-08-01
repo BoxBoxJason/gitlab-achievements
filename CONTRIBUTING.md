@@ -1,38 +1,40 @@
-# Contributing to GitLab Achievements
+# Contributing
 
-Thank you for considering contributing to GitLab Achievements! We welcome contributions from the community. Here are some guidelines to help you get started.
+Bug reports, criteria ideas and pull requests are all welcome. If you are unsure whether something fits, open an [issue](https://github.com/BoxBoxJason/gitlab-achievements/issues) first and we can talk it through.
 
-## Prerequisites
+## Getting set up
 
-Before contributing, please ensure you have the following prerequisites:
+```bash
+git clone https://github.com/BoxBoxJason/gitlab-achievements.git
+cd gitlab-achievements
+make build
+```
 
-1. Clone the repository: `git clone https://github.com/BoxBoxJason/gitlab-achievements.git`
-2. Install [Go](https://golang.org/doc/install) (see [go.mod](./go.mod) for the required version).
-3. Install [Make](https://www.gnu.org/software/make/) (if not already installed).
-4. Install [golangci-lint](https://golangci-lint.run/) and [gosec](https://github.com/securego/gosec) for static analysis and security checks.
-5. Install [gotestsum](https://github.com/gotestyourself/gotestsum) to format test results.
-6. Optional: Install [dependency-check](https://owasp.org/www-project-dependency-check/) for dependency vulnerability checks.
-7. Optional: Install [Docker](https://www.docker.com/) or [Podman](https://podman.io/) for building the container image.
+You need [Go](https://golang.org/doc/install) (see [go.mod](go.mod) for the version) and Make. For the full check suite, also install [golangci-lint](https://golangci-lint.run/), [gosec](https://github.com/securego/gosec) and [gotestsum](https://github.com/gotestyourself/gotestsum).
 
-## Development Workflow
+Optional: [Docker](https://www.docker.com/) or [Podman](https://podman.io/) to build the container image, and [dependency-check](https://owasp.org/www-project-dependency-check/) to scan dependencies.
 
-1. **Create a new branch** for your changes: `git checkout -b feature/my-feature`
-2. **Make your changes** and ensure they are well-tested.
-3. **Run the tests** to ensure everything is working correctly: `make test`
-4. **Run the linter** to check for code quality: `make lint`
-5. **Run security checks** to ensure there are no vulnerabilities: `make dependency-check`
-6. Submit a **pull request** with a clear description of your changes and why they are needed.
+## The loop
 
-## Code Style
+```bash
+make test              # unit tests
+make lint              # golangci-lint, including gosec
+make dependency-check  # known CVEs in dependencies
+make package           # container image
+make helm/lint         # lint and render the Helm chart
+```
 
-We follow the standard Go code style. Please ensure your code adheres to the following:
+Branch off `main`, keep the tests passing, and open a pull request explaining what changed and why. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), since the changelog is generated from them.
 
-- Use `gofmt` to format your code.
-- Use meaningful variable and function names.
-- Write clear and concise comments where necessary.
-- Ensure your code is well-tested with unit tests.
-- Avoid unnecessary complexity; keep your code simple and readable.
-- Use `golangci-lint` to check for common issues and code smells.
-- Use `gosec` to check for security issues in your code.
-- Use `gotestsum` to format test results for better readability.
-- Use `dependency-check` to check for known vulnerabilities in your dependencies.
+## Code style
+
+Standard Go, `gofmt`ed, with `golangci-lint` clean. The linter config in [.golangci.yml](.golangci.yml) is the actual contract, so if it passes it is fine.
+
+Two things the linter cannot check for you:
+
+- **Comment the why, not the what.** Most of the non-obvious decisions in this codebase are non-obvious because GitLab's API forced them. Those constraints belong next to the code that works around them.
+- **Cover the edges.** Anything touching award delivery, deduplication or resumability needs a test, because a bug there is one nobody can see until somebody's EXP is wrong.
+
+## Testing against a real instance
+
+A few tests run against a live GitLab rather than a mock. [docs/achievements-api-behavior.md](docs/achievements-api-behavior.md) has a throwaway instance in one `podman run`, and the environment variables the live tests look for.
