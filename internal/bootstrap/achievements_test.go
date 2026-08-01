@@ -21,11 +21,13 @@ type fakeAchievementWriter struct {
 	updateErr       error
 	awardErr        error
 	listErr         error
+	deleteErrs      map[int64]error
 	revokeErr       error
 	listAwardsErr   error
 	updateCalls     int
 	awardCalls      int
 	listCalls       int
+	deleteCalls     int
 	revokeCalls     int
 	listAwardsCalls int
 	avatarUploads   int
@@ -138,6 +140,39 @@ func (f *fakeAchievementWriter) UpdateAchievement(achievementID int64, opt *gitl
 	}
 
 	return &gitlab.Achievement{ID: achievementID, Name: *opt.Name}, nil
+}
+
+// DeleteAchievement removes an achievement from what GitLab "has", the way
+// the real mutation does: the achievement is gone, and so is every award of
+// it. An ID GitLab does not hold answers ErrNotFound, which is what the
+// cleanup pass reads as already-gone.
+func (f *fakeAchievementWriter) DeleteAchievement(achievementID int64, _ ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error) {
+	f.deleteCalls++
+
+	if err := f.deleteErrs[achievementID]; err != nil {
+		return nil, err
+	}
+
+	achievement, held := f.achievements[achievementID]
+	if !held {
+		return nil, gitlab.ErrNotFound
+	}
+
+	delete(f.achievements, achievementID)
+
+	for userID, awards := range f.userAwards {
+		kept := awards[:0]
+
+		for _, award := range awards {
+			if award.AchievementID != achievementID {
+				kept = append(kept, award)
+			}
+		}
+
+		f.userAwards[userID] = kept
+	}
+
+	return achievement, nil
 }
 
 func (f *fakeAchievementWriter) AwardAchievement(achievementID, userID int64, _ *gitlab.AwardAchievementOptions, _ ...gitlab.RequestOptionFunc) (*gitlab.UserAchievement, error) {

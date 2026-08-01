@@ -35,6 +35,20 @@ func (c *WriteClient) UpdateAchievement(achievementID int64, opt *gitlab.UpdateA
 	return a, nil
 }
 
+// DeleteAchievement removes an achievement definition from its namespace.
+//
+// GitLab takes every award of it down with it, so this is what uninstalling
+// the app's achievements amounts to: the badges stop existing, on the
+// namespace and on the profiles of everyone who held one.
+func (c *WriteClient) DeleteAchievement(achievementID int64, options ...gitlab.RequestOptionFunc) (*gitlab.Achievement, error) {
+	a, _, err := c.raw.Achievements.DeleteAchievement(achievementID, options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete achievement: %w", err)
+	}
+
+	return a, nil
+}
+
 // AwardAchievement awards achievementID to userID.
 func (c *WriteClient) AwardAchievement(achievementID, userID int64, opt *gitlab.AwardAchievementOptions, options ...gitlab.RequestOptionFunc) (*gitlab.UserAchievement, error) {
 	ua, _, err := c.raw.Achievements.AwardAchievement(achievementID, userID, opt, options...)
