@@ -164,6 +164,30 @@ caps it to a trickle against someone's production GitLab.
 
 ## Uninstalling
 
+Clear the GitLab side first, while the unit's configuration and database are
+still in place:
+
+```bash
+sudo systemctl stop gitlab-achievements
+
+sudo systemd-run --uid=gitlab-achievements --gid=gitlab-achievements \
+  --property=EnvironmentFile=/etc/gitlab-achievements/gitlab-achievements.env \
+  --unit=gitlab-achievements-uninstall --collect --pipe --wait \
+  /usr/local/bin/gitlab-achievements uninstall --dry-run
+
+sudo systemd-run --uid=gitlab-achievements --gid=gitlab-achievements \
+  --property=EnvironmentFile=/etc/gitlab-achievements/gitlab-achievements.env \
+  --unit=gitlab-achievements-uninstall --collect --pipe --wait \
+  /usr/local/bin/gitlab-achievements uninstall
+```
+
+`uninstall` removes the webhooks and the achievements it created; pass
+`--keep-achievements` to take only the hooks and leave people the badges they
+earned. Deleting an achievement deletes every award of it, and nothing brings
+those back.
+
+Then remove the app itself:
+
 ```bash
 sudo systemctl disable --now gitlab-achievements
 sudo rm /etc/systemd/system/gitlab-achievements.service /usr/local/bin/gitlab-achievements
@@ -171,7 +195,6 @@ sudo rm -rf /etc/gitlab-achievements
 sudo systemctl daemon-reload
 ```
 
-That removes the app, not its footprint on GitLab: the webhooks stay registered
-on every group or project, the achievement definitions stay in the namespace,
-and awards already accepted stay on people's profiles. Delete the hooks by hand
-if the removal is meant to be permanent.
+The database is yours and is left alone. Dropping it before running `uninstall`
+leaves the app no record of what it registered; `uninstall --sweep` enumerates
+the instance to recover from that.

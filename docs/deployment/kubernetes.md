@@ -140,6 +140,23 @@ The chart's Ingress is optional and deliberately plain. A Gateway API route, a
 must handle one path prefix for everything: webhooks, the API and the probes
 all share a port.
 
+The chart ships no NetworkPolicy, because what it would have to allow depends
+entirely on where GitLab and the database live. On a cluster that defaults to
+deny, three flows need opening, and two of them are easy to forget because
+nothing fails loudly:
+
+- **app → GitLab**, for every API call it makes, including the one `/readyz`
+  depends on.
+- **app → PostgreSQL**.
+- **GitLab → app**, on the Service port, when `config.publicUrl` is a
+  cluster-internal address. Without it, hooks register successfully and every
+  delivery is dropped; the app simply sees no events, and the failures are
+  visible only on GitLab's side under the hook's **Recent events**.
+
+If GitLab is itself covered by a policy, the rule has to be added to *its*
+egress as well as to this app's ingress — an allowlist policy on the GitLab pods
+will not permit the delivery just because this app permits receiving it.
+
 ## Running the backfill as a Job
 
 By default the serving pod walks history in the background. On an instance big
@@ -177,12 +194,50 @@ window are retried by GitLab.
 
 ## Uninstalling
 
+`helm uninstall` removes the app, not what it put on GitLab. Clear that first,
+with a one-off Job carrying the release's own configuration:
+
+```yaml
+# uninstall-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitlab-achievements-uninstall
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: uninstall
+          image: ghcr.io/boxboxjason/gitlab-achievements:0.1.0   # the version you deployed
+          args: ["uninstall"]          # --dry-run first, --keep-achievements to spare the badges
+          env:
+            - name: GITLAB_URL
+              value: https://gitlab.example.com
+            - name: ACHIEVEMENTS_NAMESPACE
+              value: achievements
+            - name: PUBLIC_URL
+              value: https://achievements.example.com
+          envFrom:
+            - secretRef:
+                name: gitlab-achievements
+```
+
 ```bash
+kubectl scale deployment gitlab-achievements --replicas=0 -n gitlab-achievements
+kubectl apply -f uninstall-job.yaml -n gitlab-achievements
+kubectl logs -f job/gitlab-achievements-uninstall -n gitlab-achievements
 helm uninstall gitlab-achievements --namespace gitlab-achievements
 ```
 
-This removes the app, not its footprint on GitLab. The webhooks it registered
-stay on every group or project, the achievements stay in the namespace, and the
-awards stay on people's profiles — nothing revokes them, and no reinstall
-depends on them being gone. Clean up the hooks by hand if the removal is meant
-to be permanent.
+Scaling to zero first matters: a running pod re-registers the hooks on its next
+hourly sweep, so removing them underneath it accomplishes nothing.
+
+`uninstall` removes the webhooks and the achievements it created; pass
+`--keep-achievements` to take only the hooks and leave people the badges they
+earned. Deleting an achievement deletes every award of it, and nothing brings
+those back.
+
+The database is yours and is left alone. It is also what the removal reads from,
+so dropping it first leaves the app no record of what it registered;
+`uninstall --sweep` enumerates the instance to recover from that.

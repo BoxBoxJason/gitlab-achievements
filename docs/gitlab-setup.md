@@ -133,6 +133,12 @@ Outbound requests**:
   when the app is on a private address or a cluster-internal hostname.
 - The allowlist, when your instance restricts outbound webhook destinations.
 
+**Silent mode** (Admin → Settings → General, or `silent_mode_enabled` in the
+application settings API) suppresses every outbound webhook instance-wide. It is
+meant for restored backups and staging clones, and it is easy to leave on: the
+hooks register normally, deliveries never happen, and testing one by hand
+answers `{"message":"Silent mode enabled"}` rather than an error.
+
 If you terminate TLS in front of the app, GitLab must trust the certificate;
 deliveries to an untrusted one fail with nothing arriving in the app's logs at
 all.

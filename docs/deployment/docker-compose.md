@@ -109,8 +109,23 @@ deliberately caps it to a trickle against someone's production GitLab.
 
 ## Uninstalling
 
-`docker compose down -v` removes the app and its database, but not its
-footprint on GitLab: the webhooks stay registered on every group or project,
-the achievement definitions stay in the namespace, and awards already accepted
-stay on people's profiles. Delete the hooks by hand if the removal is meant to
-be permanent.
+`docker compose down -v` removes the app and its database, but nothing it put
+on GitLab. Clear that first, while the database it reads its records from is
+still there:
+
+```bash
+docker compose stop app                      # stop it re-registering what you remove
+docker compose run --rm app uninstall --dry-run
+docker compose run --rm app uninstall
+docker compose down -v
+```
+
+`uninstall` removes the webhooks and the achievements it created; pass
+`--keep-achievements` to take only the hooks and leave people the badges they
+earned. Deleting an achievement deletes every award of it, and nothing brings
+those back.
+
+Run it before `down -v`, not after: the removal is driven by the records in the
+database, so a volume deleted first leaves the app no idea what to clean up.
+Recovering from that means `uninstall --sweep`, which enumerates the instance
+instead.
