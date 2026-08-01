@@ -86,6 +86,10 @@ separately, through envFrom, so they never appear in a pod spec.
   value: {{ .Values.config.backfill.since | quote }}
 - name: BACKFILL_RATE
   value: {{ .Values.config.backfill.rate | quote }}
+- name: RECONCILE_INTERVAL
+  value: {{ .Values.config.reconcile.interval | quote }}
+- name: RECONCILE_LOOKBACK
+  value: {{ .Values.config.reconcile.lookback | quote }}
 - name: API_AUTH
   value: {{ .Values.config.api.auth | quote }}
 - name: OAUTH_CLIENT_ID

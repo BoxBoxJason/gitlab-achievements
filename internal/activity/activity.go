@@ -102,9 +102,13 @@ type Event struct {
 	Kind Kind
 	// DedupKey identifies this activity uniquely and stably across
 	// observations, so the same activity seen twice (a resumed backfill
-	// re-walking a page, a redelivered webhook) is counted once. It is
-	// derived from GitLab's own identifiers, never from delivery metadata
-	// or the observation time.
+	// re-walking a page, a redelivered webhook, a reconciliation pass over
+	// a window webhooks already covered) is counted once. It is derived
+	// from GitLab's own identifiers, never from delivery metadata or the
+	// observation time.
+	//
+	// Every producer observing the same underlying activity must derive the
+	// same key for it, whatever shape the payload it read arrived in.
 	DedupKey string
 	// ActorUsername is the acting user's GitLab username, recorded
 	// alongside the ID so a user row can be created without a lookup.

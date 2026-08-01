@@ -421,3 +421,122 @@ func TestValidate_AcceptsAConfidentialOAuthClient(t *testing.T) {
 		t.Errorf("expected no error, got: %v", err)
 	}
 }
+
+func TestValidate_AppliesReconcileDefaults(t *testing.T) {
+	cfg := validConfig()
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.ReconcileMode != string(DefaultReconcileMode) {
+		t.Errorf("expected default reconcile mode %q, got %q", DefaultReconcileMode, cfg.ReconcileMode)
+	}
+
+	if cfg.ReconcileInterval != DefaultReconcileInterval {
+		t.Errorf("expected default reconcile interval %v, got %v", DefaultReconcileInterval, cfg.ReconcileInterval)
+	}
+
+	if cfg.ReconcileLookback != DefaultReconcileLookback {
+		t.Errorf("expected default reconcile lookback %v, got %v", DefaultReconcileLookback, cfg.ReconcileLookback)
+	}
+}
+
+// The defaults have to satisfy the rule the validator enforces, or every
+// deployment that configures nothing is rejected at startup.
+func TestValidate_DefaultReconcileWindowsOverlap(t *testing.T) {
+	if DefaultReconcileLookback <= DefaultReconcileInterval {
+		t.Errorf("expected the default look-back (%v) to exceed the default interval (%v)",
+			DefaultReconcileLookback, DefaultReconcileInterval)
+	}
+}
+
+func TestValidate_ReconcileMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    string
+		wantErr bool
+	}{
+		{name: "auto", mode: string(ReconcileModeAuto)},
+		{name: "off", mode: string(ReconcileModeOff)},
+		{name: "unknown", mode: "sometimes", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.ReconcileMode = tc.mode
+
+			err := cfg.Validate()
+			if tc.wantErr && err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			if tc.wantErr && !strings.Contains(err.Error(), "reconcile must be one of") {
+				t.Errorf("expected the error to name the mode, got: %v", err)
+			}
+		})
+	}
+}
+
+// A look-back no wider than the interval leaves consecutive windows
+// abutting rather than overlapping, so activity GitLab timestamps on the
+// far side of a boundary is read by neither pass. Nothing would report the
+// loss, which is why it is rejected rather than accepted.
+func TestValidate_RejectsAReconcileWindowThatDoesNotOverlap(t *testing.T) {
+	cfg := validConfig()
+	cfg.ReconcileInterval = 24 * time.Hour
+	cfg.ReconcileLookback = 24 * time.Hour
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected an error for a non-overlapping window, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "must be greater than reconcile-interval") {
+		t.Errorf("expected the error to explain the overlap, got: %v", err)
+	}
+}
+
+func TestValidate_ReconcileDurationsMustBePositive(t *testing.T) {
+	tests := []struct {
+		name     string
+		interval time.Duration
+		lookback time.Duration
+		want     string
+	}{
+		{
+			name:     "negative interval",
+			interval: -time.Hour,
+			lookback: DefaultReconcileLookback,
+			want:     "reconcile-interval must be greater than 0",
+		},
+		{
+			name:     "negative lookback",
+			interval: DefaultReconcileInterval,
+			lookback: -time.Hour,
+			want:     "reconcile-lookback must be greater than 0",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.ReconcileInterval = tc.interval
+			cfg.ReconcileLookback = tc.lookback
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("expected the error to mention %q, got: %v", tc.want, err)
+			}
+		})
+	}
+}

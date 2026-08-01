@@ -13,7 +13,7 @@ Inspired by [BoxBoxJason/achievements](https://github.com/boxboxjason/achievemen
 2. **Ongoing self-healing**: bootstrap's checks don't just run once. Hook registration is swept roughly every hour: a hook altered or deleted on GitLab's side is repaired, and groups or projects created since the last sweep get one. Achievement existence and award confirmation status are re-checked on the same cadence, recreating any achievement deleted on GitLab's side and retrying any award GitLab hasn't yet confirmed. Both loops log failures and retry on the next tick rather than crashing the process.
 3. **Backfill**: it walks the instance's history once to award achievements for activity that happened before the bot existed. See [Historical backfill](#historical-backfill) below.
 4. **Event-driven**: from then on, it reacts to incoming webhook events in near real time, no polling. Deliveries are authenticated against the configured secret, normalized into the same activity model the backfill produces, acknowledged immediately, and evaluated by background workers, so a slow database never makes GitLab record the hook as failing.
-5. **Activity reconciliation** *(planned)*: a periodic sync will re-check recent activity to catch any event the webhook pipeline missed (delivery failures, downtime, etc.).
+5. **Activity reconciliation**: webhooks are best-effort, so once a day the app re-reads the last couple of days of activity through the Events API and replays it through the same engine, picking up anything whose delivery was lost to a blip, a deploy, or GitLab downtime. Activity that was already counted is discarded rather than counted again. See [Reconciliation sync](#reconciliation-sync) below.
 6. **Reading it back**: everything it works out is served over a read-only HTTP API — a user's EXP, the progress behind it, and a leaderboard. See [HTTP API](#http-api) below.
 
 All state (achievement progress, award history, sync cursors, processed-event idempotency) is stored in a local SQL database (PostgreSQL, SQLite, MySQL/MariaDB, or SQL Server) to keep the impact on the GitLab instance itself minimal. The bot reads from GitLab, but GitLab never has to do extra work to serve it beyond normal API/webhook traffic.
@@ -85,9 +85,9 @@ Hooks subscribe to **every event type GitLab offers**, not just the ones the cat
 
 Before the bot goes live, activity has already happened. The backfill walks every group-owned project the read token can see, in ascending project ID order, and replays each one's history through the same achievement engine live webhook events feed, so historical and live activity are judged by identical rules rather than by two implementations that drift apart.
 
-The walk stops at the moment the process started, just before the hooks were registered. The two paths observe the same activity through different APIs and can only derive a matching deduplication key where GitLab gives them a shared identifier, it does for pipelines, and not for pushes, merge requests, issues, or notes. Giving them disjoint windows is what keeps a push that lands mid-walk from being counted twice. (A one-off `gitlab-achievements backfill` run imposes no such ceiling, since it isn't ingesting events itself.)
+The walk stops at the moment the process started, just before the hooks were registered, so it doesn't spend requests re-reading a window live ingestion is already covering. That ceiling is a request-budget boundary rather than a correctness one: both paths derive the *same* deduplication key for the same activity (see [Deduplication](#deduplication)), so anything either has already counted is discarded whichever one re-observes it. A one-off `gitlab-achievements backfill` run imposes no ceiling at all, since it isn't ingesting events itself.
 
-**There is a gap, and it is the registration sweep's duration.** Hooks start delivering as the sweep reaches them, not all at once when the process starts, so activity between startup and a given hook's registration is counted by neither path. One ceiling can't avoid that: set any later and the same window would be counted by both instead. The gap is the better failure, because it's recoverable, that's what the planned activity reconciliation is for, whereas an inflated counter isn't, since GitLab awards are never revoked. The process logs the window's width as `uncovered_window` once bootstrap finishes; on a paid instance it's seconds, and on a Free instance with thousands of projects it's however long a full project sweep takes.
+**There is a gap, and it is the registration sweep's duration.** Hooks start delivering as the sweep reaches them, not all at once when the process starts, so activity between startup and a given hook's registration is seen by neither path at the time. The [reconciliation sync](#reconciliation-sync) closes it on its first pass. The process logs the window's width as `uncovered_window` once bootstrap finishes; on a paid instance it's seconds, and on a Free instance with thousands of projects it's however long a full project sweep takes.
 
 Per project it pulls:
 
@@ -111,6 +111,44 @@ gitlab-achievements backfill    # same flags/env as the server; add --backfill=f
 ```
 
 Awards the walk records are pushed to GitLab as soon as it finishes, rather than waiting for the hourly award reconciliation to notice them.
+
+## Reconciliation sync
+
+Webhooks are best-effort. GitLab retries a delivery a few times and then gives up, so a network blip, a deploy, or an instance restart is enough to lose one for good — and nothing in the live path notices, because a delivery that never arrives leaves no trace of having been missed.
+
+The reconciliation sync is the safety net. Once a day (`--reconcile-interval`, default `24h`) it asks GitLab what actually happened over the last two days (`--reconcile-lookback`, default `48h`) and replays it through the achievement engine. It reads the same two sources the backfill does — the Events API, plus the Pipelines API — but only over projects GitLab reports as active in the window, so a quiet instance costs almost nothing however many projects it holds.
+
+### Deduplication
+
+Almost everything a pass reads is activity the live path already counted, so **the sync is only safe because the read side and the live side derive byte-identical deduplication keys**. They are reconstructed from the identifiers GitLab reports on both sides rather than from the event record's own ID:
+
+| Activity | Key | From, on the read side |
+| --- | --- | --- |
+| Push, tag push | `push:<project>:<ref>:<after>` | `push_data.ref` + `push_data.commit_to` |
+| Merge request | `merge_request:<id>:<action>` | `target_id` |
+| Issue | `issue:<id>:<action>` | `target_id` |
+| Comment | `note:<id>` | `note.id` |
+| Pipeline | `pipeline:<id>` | the pipeline's ID |
+
+The engine keeps a processed-event log keyed on exactly that, so a pass over a window the webhooks covered correctly is a no-op. This matters more than it looks: GitLab never revokes an award, so a counter inflated by counting the same push twice can't be brought back down. A cross-producer test suite (`internal/webhook/dedup_agreement_test.go`) asserts the agreement for every kind, in both directions.
+
+### What it can't heal
+
+The Events API has no representation for jobs, deployments, emoji reactions, wiki pages, resolved discussions, or fast merges, so a lost delivery of one of those stays lost. That's the deliberate direction to be wrong in: the sync undercounts what it can't see rather than guessing at it under a key that wouldn't match.
+
+### Running it
+
+`--reconcile=auto` runs it inside the serving process: one pass a few minutes after startup, then every interval. The startup pass matters more than it looks — the timer's phase is the process's start time, so without it a deployment restarted more often than the interval would never reconcile at all, and nothing would say so. Repeating it is cheap, because the watermark means a pass after a restart covers only the gap since the last successful one. Passes are skipped until the historical backfill has completed.
+
+`--reconcile=off` leaves it to an external schedule — a systemd timer, a cron entry, a Kubernetes `CronJob`:
+
+```bash
+gitlab-achievements reconcile   # same flags/env as the server
+```
+
+Unlike the server and `backfill`, the subcommand doesn't bootstrap: it registers no webhooks and creates no achievements, so a scheduled pass costs one sweep of recently active projects rather than a sweep of the whole instance. Reach for it when you want a pass to be a unit you can start, watch and alert on, or pinned to a wall-clock hour rather than to whenever the process last restarted.
+
+A pass records a watermark only on success, and the next pass widens its window to reach back to it, so a run that failed or never happened is made up rather than leaving a hole. Watch `activity_counted` in the completion log: in a healthy deployment it stays at zero pass after pass, and a persistently non-zero value means deliveries are being lost for a reason worth finding.
 
 ## Achievement catalog
 
@@ -204,7 +242,7 @@ The app is a single static Go binary plus a SQL database, configured entirely fr
 
 Whichever you pick, the GitLab side is the same: a group to own the achievement definitions, the two credentials, a webhook secret, and a URL the instance can reach. That's [docs/gitlab-setup.md](docs/gitlab-setup.md), including what trusting the instance-admin token to a deployment actually implies. Every flag and environment variable is in [docs/configuration.md](docs/configuration.md).
 
-The app is a **singleton**: one process registers the instance's webhooks, runs the hourly reconciliation sweeps, and walks history, so a second replica would do all three again against the same GitLab. Nothing is lost while it restarts.
+The app is a **singleton**: one process registers the instance's webhooks, runs the hourly reconciliation sweeps, walks history, and re-reads recent activity daily, so a second replica would do all four again against the same GitLab. Nothing is lost while it restarts.
 
 ## Development
 
@@ -224,7 +262,7 @@ Longer-form documentation lives in [docs/](./docs), indexed in [docs/README.md](
 
 ## Status
 
-Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. That total, the progress behind it, and an instance leaderboard are now served over HTTP, optionally behind GitLab-backed authentication, and the app ships packaged for Kubernetes, Docker Compose and a plain systemd host. The activity reconciliation job that would recover events lost to downtime is still open. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
+Early development: scaffolding, the GitLab client, self-bootstrap (permission verification, achievement/webhook reconciliation, health/readiness endpoints), the achievement catalog, the historical backfill, and live webhook event ingestion are implemented, so the app now awards from history and keeps awarding from live activity. The rule engine handles cumulative and day-derived criteria and maintains each user's EXP total, and award delivery pushes only each criteria's top tier, withdrawing the ones it supersedes. That total, the progress behind it, and an instance leaderboard are now served over HTTP, optionally behind GitLab-backed authentication, and the app ships packaged for Kubernetes, Docker Compose and a plain systemd host. The daily reconciliation sync that recovers activity whose webhook delivery was lost is implemented too, in the process or as a scheduled job, on top of read and live paths that now derive identical deduplication keys. See [open issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) for the current breakdown of work and open questions.
 
 ## License
 

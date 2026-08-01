@@ -95,6 +95,7 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 
 	bindFlags(rootCmd, cfg)
 	rootCmd.AddCommand(buildBackfillCmd(cfg))
+	rootCmd.AddCommand(buildReconcileCmd(cfg))
 	rootCmd.AddCommand(buildUninstallCmd(cfg))
 
 	return rootCmd
@@ -121,6 +122,9 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.BackfillMode, "backfill", envOrDefault("BACKFILL", string(config.DefaultBackfillMode)), "Whether the server walks the instance's history itself (auto, off, force)")
 	flags.StringVar(&cfg.BackfillSince, "backfill-since", os.Getenv("BACKFILL_SINCE"), "How far back the historical backfill reaches, as a date (2006-01-02) or duration (720h); empty walks everything")
 	flags.Float64Var(&cfg.BackfillRate, "backfill-rate", envFloatOrDefault("BACKFILL_RATE", config.DefaultBackfillRate), "Requests per second the historical backfill is allowed to issue")
+	flags.StringVar(&cfg.ReconcileMode, "reconcile", envOrDefault("RECONCILE", string(config.DefaultReconcileMode)), "Whether the server re-reads recent activity on a timer to heal lost webhook deliveries (auto, off)")
+	flags.DurationVar(&cfg.ReconcileInterval, "reconcile-interval", envDurationOrDefault("RECONCILE_INTERVAL", config.DefaultReconcileInterval), "How often the reconciliation sync re-reads recent activity")
+	flags.DurationVar(&cfg.ReconcileLookback, "reconcile-lookback", envDurationOrDefault("RECONCILE_LOOKBACK", config.DefaultReconcileLookback), "How far back each reconciliation pass reaches; must exceed --reconcile-interval so passes overlap")
 	flags.StringVar(&cfg.APIAuth, "api-auth", envOrDefault("API_AUTH", string(config.DefaultAPIAuth)), "What the read API requires of callers (none, gitlab); gitlab verifies a GitLab token on every request")
 	flags.StringVar(&cfg.OAuthClientID, "oauth-client-id", os.Getenv("OAUTH_CLIENT_ID"), "Client ID of a hand-registered GitLab OAuth application; empty lets the app register a public one for itself")
 	flags.StringVar(&cfg.OAuthClientSecret, "oauth-client-secret", os.Getenv("OAUTH_CLIENT_SECRET"), "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
@@ -141,6 +145,19 @@ func envOrDefault(key, fallback string) string {
 // naming only the variable.
 func envFloatOrDefault(key string, fallback float64) float64 {
 	parsed, err := strconv.ParseFloat(os.Getenv(key), 64)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+// envDurationOrDefault reads a Go duration from an environment variable,
+// falling back for the same reason envFloatOrDefault does: Validate reports
+// the resulting problem against the flag's name, which is more use to an
+// operator than a parse error naming only the variable.
+func envDurationOrDefault(key string, fallback time.Duration) time.Duration {
+	parsed, err := time.ParseDuration(os.Getenv(key))
 	if err != nil {
 		return fallback
 	}
@@ -406,6 +423,7 @@ func serve(
 
 	startReconciliationLoops(ctx, cfg, conn, readClient, writeClient, report.NamespaceID, webhookURL)
 	startBackfill(ctx, cfg, conn, writeClient, liveFrom)
+	startReconcileLoop(ctx, cfg, conn, writeClient)
 
 	serveErr := make(chan error, 1)
 

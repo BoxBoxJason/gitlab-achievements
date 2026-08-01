@@ -1,4 +1,4 @@
-package backfill
+package eventsapi
 
 import (
 	"testing"
@@ -135,7 +135,7 @@ func TestNormalizeProjectEvent(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := kindsOf(normalizeProjectEvent(tc.event))
+			got := kindsOf(NormalizeProjectEvent(tc.event))
 
 			if len(got) != len(tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, got)
@@ -156,8 +156,8 @@ func TestNormalizeProjectEvent_DedupKeysAreStableAndPerKind(t *testing.T) {
 		PushData: gitlab.ProjectEventPushData{Action: "created", RefType: "branch", CommitCount: 2},
 	}
 
-	first := normalizeProjectEvent(event)
-	second := normalizeProjectEvent(event)
+	first := NormalizeProjectEvent(event)
+	second := NormalizeProjectEvent(event)
 
 	if len(first) != 3 {
 		t.Fatalf("expected 3 activities, got %d", len(first))
@@ -186,7 +186,7 @@ func TestNormalizeProjectEvent_CarriesActorAndTimestamp(t *testing.T) {
 		CreatedAt: "2024-05-03T10:11:12.000Z",
 	}
 
-	activities := normalizeProjectEvent(event)
+	activities := NormalizeProjectEvent(event)
 	if len(activities) != 1 {
 		t.Fatalf("expected 1 activity, got %d", len(activities))
 	}
@@ -209,7 +209,7 @@ func TestNormalizeProjectEvent_FallsBackToTheEmbeddedAuthorUsername(t *testing.T
 		Author: gitlab.BasicUser{ID: 10, Username: "bob"},
 	}
 
-	activities := normalizeProjectEvent(event)
+	activities := NormalizeProjectEvent(event)
 	if len(activities) != 1 {
 		t.Fatalf("expected 1 activity, got %d", len(activities))
 	}
@@ -225,7 +225,7 @@ func TestNormalizeProjectEvent_UnparseableTimestampKeepsTheActivity(t *testing.T
 		CreatedAt: "not a timestamp",
 	}
 
-	activities := normalizeProjectEvent(event)
+	activities := NormalizeProjectEvent(event)
 	if len(activities) != 1 {
 		t.Fatalf("expected the activity to survive an unreadable timestamp, got %d", len(activities))
 	}
@@ -279,7 +279,7 @@ func TestNormalizePipeline(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			activities := normalizePipeline(tc.pipeline)
+			activities := NormalizePipeline(tc.pipeline)
 
 			if len(activities) != len(tc.want) {
 				t.Fatalf("expected %v, got %v", tc.want, kindsOf(activities))
@@ -301,7 +301,7 @@ func TestNormalizePipeline_CarriesActorAndTimestamp(t *testing.T) {
 		User: &gitlab.BasicUser{ID: 10, Username: "alice"},
 	}
 
-	activities := normalizePipeline(pipeline)
+	activities := NormalizePipeline(pipeline)
 
 	if activities[0].ActorID != 10 || activities[0].ActorUsername != "alice" || activities[0].ProjectID != 7 {
 		t.Errorf("expected the triggering user and project to be carried over, got %+v", activities[0])
@@ -309,5 +309,118 @@ func TestNormalizePipeline_CarriesActorAndTimestamp(t *testing.T) {
 
 	if !activities[0].OccurredAt.Equal(createdAt) {
 		t.Errorf("expected %s, got %s", createdAt, activities[0].OccurredAt)
+	}
+}
+
+func TestNormalizeProjectEvent_KeyShapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		event *gitlab.ProjectEvent
+		kind  activity.Kind
+		want  string
+	}{
+		{
+			name: "a push is keyed on the ref it moved and the commit it moved it to",
+			event: &gitlab.ProjectEvent{
+				ID: 1, ProjectID: 7, AuthorID: 10, ActionName: "pushed to",
+				PushData: gitlab.ProjectEventPushData{
+					Action: "pushed", RefType: "branch", Ref: "main", CommitTo: "abc",
+				},
+			},
+			kind: activity.KindPush,
+			want: "push:7:refs/heads/main:abc:push",
+		},
+		{
+			name: "a tag push is keyed apart from a branch push",
+			event: &gitlab.ProjectEvent{
+				ID: 2, ProjectID: 7, AuthorID: 10, ActionName: "pushed new",
+				PushData: gitlab.ProjectEventPushData{
+					Action: "created", RefType: "tag", Ref: "v1", CommitTo: "abc",
+				},
+			},
+			kind: activity.KindTagCreated,
+			want: "tag_push:7:refs/tags/v1:abc:tag_created",
+		},
+		{
+			name: "a ref an instance already qualified is not qualified twice",
+			event: &gitlab.ProjectEvent{
+				ID: 3, ProjectID: 7, AuthorID: 10, ActionName: "pushed to",
+				PushData: gitlab.ProjectEventPushData{
+					Action: "pushed", RefType: "branch", Ref: "refs/heads/main", CommitTo: "abc",
+				},
+			},
+			kind: activity.KindPush,
+			want: "push:7:refs/heads/main:abc:push",
+		},
+		{
+			name: "a merge request is keyed on the merge request, not on the event",
+			event: &gitlab.ProjectEvent{
+				ID: 4, ProjectID: 7, AuthorID: 10,
+				TargetType: "MergeRequest", TargetID: 3300, ActionName: "accepted",
+			},
+			kind: activity.KindMergeRequestMerged,
+			want: "merge_request:3300:merged",
+		},
+		{
+			name: "an issue is keyed on the issue",
+			event: &gitlab.ProjectEvent{
+				ID: 5, ProjectID: 7, AuthorID: 10,
+				TargetType: "Issue", TargetID: 4400, ActionName: "opened",
+			},
+			kind: activity.KindIssueOpened,
+			want: "issue:4400:opened",
+		},
+		{
+			name: "a comment is keyed on the note",
+			event: &gitlab.ProjectEvent{
+				ID: 6, ProjectID: 7, AuthorID: 10,
+				TargetType: "Note", TargetID: 5500, ActionName: "commented on",
+				Note: gitlab.ProjectEventNote{ID: 5500},
+			},
+			kind: activity.KindComment,
+			want: "note:5500",
+		},
+		{
+			name: "a note reported without an id of its own falls back to the target",
+			event: &gitlab.ProjectEvent{
+				ID: 7, ProjectID: 7, AuthorID: 10,
+				TargetType: "Note", TargetID: 5501, ActionName: "commented on",
+			},
+			kind: activity.KindComment,
+			want: "note:5501",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, got := range NormalizeProjectEvent(tc.event) {
+				if got.Kind != tc.kind {
+					continue
+				}
+
+				if got.DedupKey != tc.want {
+					t.Errorf("expected %q, got %q", tc.want, got.DedupKey)
+				}
+
+				return
+			}
+
+			t.Fatalf("expected a %q activity, got %v", tc.kind, kindsOf(NormalizeProjectEvent(tc.event)))
+		})
+	}
+}
+
+func TestNormalizeProjectEvent_TagPushCountsNoCommits(t *testing.T) {
+	activities := NormalizeProjectEvent(&gitlab.ProjectEvent{
+		ID: 1, ProjectID: 7, AuthorID: 10, ActionName: "pushed new",
+		PushData: gitlab.ProjectEventPushData{
+			Action: "created", RefType: "tag", Ref: "v1", CommitTo: "abc", CommitCount: 40,
+		},
+	})
+
+	for _, got := range activities {
+		if got.Kind == activity.KindCommit {
+			t.Errorf("expected a tag to count no commits, it names ones an earlier push delivered")
+		}
 	}
 }

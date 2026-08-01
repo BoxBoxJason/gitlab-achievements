@@ -30,9 +30,46 @@ const (
 	// GitLab would allow, so a sweep never crowds out the API traffic the
 	// instance exists to serve.
 	DefaultHookRate = 20.0
+	// DefaultReconcileInterval is how often the reconciliation sync
+	// re-reads recent activity when no interval is configured.
+	//
+	// Daily is the cadence a safety net wants: webhooks are what keep the
+	// app current, and this only ever catches what they dropped, so running
+	// it more often spends an instance-wide read sweep to shorten a delay
+	// nobody is waiting on.
+	DefaultReconcileInterval = 24 * time.Hour
+	// DefaultReconcileLookback is how far back each reconciliation pass
+	// reaches when no window is configured.
+	//
+	// It is twice the default interval on purpose. Consecutive windows have
+	// to overlap rather than abut, or a delivery lost near a boundary falls
+	// between two passes, and doubling means a single missed or failed pass
+	// is still covered by the next one without relying on the watermark to
+	// widen the window.
+	DefaultReconcileLookback = 48 * time.Hour
 	// backfillSinceDateLayout is the calendar-date form --backfill-since
 	// accepts, alongside a Go duration.
 	backfillSinceDateLayout = "2006-01-02"
+)
+
+// ReconcileMode selects whether the serving process runs the periodic
+// reconciliation sync itself.
+type ReconcileMode string
+
+const (
+	// ReconcileModeAuto re-reads recent activity on a timer inside the
+	// serving process, once the historical backfill has finished. It is the
+	// default: a deployment that does nothing gets the safety net.
+	ReconcileModeAuto ReconcileMode = "auto"
+	// ReconcileModeOff never reconciles from the serving process, leaving
+	// it to an external scheduler running `gitlab-achievements reconcile`
+	// (a Kubernetes CronJob, a systemd timer). Intended for deployments
+	// that would rather the sweep be its own schedulable, observable job
+	// than a goroutine in a serving pod — and required where several
+	// replicas serve, so they don't all sweep the instance at once.
+	ReconcileModeOff ReconcileMode = "off"
+	// DefaultReconcileMode is used when no mode is configured.
+	DefaultReconcileMode = ReconcileModeAuto
 )
 
 // APIAuth selects what the read API requires of its callers.
@@ -137,6 +174,9 @@ type Config struct {
 	// BackfillMode selects whether the serving process walks the
 	// instance's history itself; see BackfillMode's constants.
 	BackfillMode string
+	// ReconcileMode selects whether the serving process runs the periodic
+	// reconciliation sync itself; see ReconcileMode's constants.
+	ReconcileMode string
 	// BackfillSince bounds how far back the historical backfill reaches,
 	// as either a calendar date ("2024-01-01") or a Go duration counted
 	// back from now ("720h"). Empty walks the instance's full history.
@@ -150,6 +190,13 @@ type Config struct {
 	// sweep is proportional to the size of the instance and repeats for as
 	// long as the app runs.
 	HookRate float64
+	// ReconcileInterval is how often the reconciliation sync re-reads
+	// recent activity, as a Go duration.
+	ReconcileInterval time.Duration
+	// ReconcileLookback is how far back each reconciliation pass reaches,
+	// as a Go duration. It must exceed ReconcileInterval so that
+	// consecutive windows overlap; see DefaultReconcileLookback.
+	ReconcileLookback time.Duration
 }
 
 // Validate checks that the configuration is complete and well-formed. It
@@ -183,6 +230,7 @@ func (c *Config) Validate() error {
 
 	errs = append(errs, c.validateHookScope()...)
 	errs = append(errs, c.validateBackfill()...)
+	errs = append(errs, c.validateReconcile()...)
 	errs = append(errs, c.validateAPI()...)
 
 	return errors.Join(errs...)
@@ -299,6 +347,41 @@ func (c *Config) validateBackfill() []error {
 	return errs
 }
 
+// validateReconcile checks the reconciliation sync's knobs.
+//
+// A look-back window no wider than the interval is rejected rather than
+// quietly accepted, because its failure mode is invisible: consecutive
+// windows would abut instead of overlapping, and activity GitLab timestamps
+// on the far side of a boundary would be read by neither pass. Nothing
+// would report the loss, since a delivery that never arrived leaves no
+// trace of having been missed.
+func (c *Config) validateReconcile() []error {
+	var errs []error
+
+	switch ReconcileMode(c.ReconcileMode) {
+	case ReconcileModeAuto, ReconcileModeOff:
+	default:
+		errs = append(errs, fmt.Errorf("reconcile must be one of %q or %q, got %q",
+			ReconcileModeAuto, ReconcileModeOff, c.ReconcileMode))
+	}
+
+	if c.ReconcileInterval <= 0 {
+		errs = append(errs, fmt.Errorf("reconcile-interval must be greater than 0, got %v", c.ReconcileInterval))
+	}
+
+	if c.ReconcileLookback <= 0 {
+		errs = append(errs, fmt.Errorf("reconcile-lookback must be greater than 0, got %v", c.ReconcileLookback))
+	}
+
+	if c.ReconcileInterval > 0 && c.ReconcileLookback > 0 && c.ReconcileLookback <= c.ReconcileInterval {
+		errs = append(errs, fmt.Errorf(
+			"reconcile-lookback (%v) must be greater than reconcile-interval (%v), so consecutive passes overlap",
+			c.ReconcileLookback, c.ReconcileInterval))
+	}
+
+	return errs
+}
+
 func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.ListenAddr) == "" {
 		c.ListenAddr = DefaultListenAddr
@@ -328,11 +411,30 @@ func (c *Config) applyDefaults() {
 		c.BackfillRate = DefaultBackfillRate
 	}
 
+	c.applyReconcileDefaults()
+
 	// Trailing slashes are stripped so callers can safely build URLs by
 	// concatenating PublicURL with a leading-slash path (e.g. the webhook
 	// path) without risking a double slash, which would break the URL
 	// match used to adopt an already-registered hook.
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+}
+
+// applyReconcileDefaults fills in the reconciliation sync's knobs, kept
+// apart from applyDefaults so neither grows past being readable at a
+// glance.
+func (c *Config) applyReconcileDefaults() {
+	if strings.TrimSpace(c.ReconcileMode) == "" {
+		c.ReconcileMode = string(DefaultReconcileMode)
+	}
+
+	if c.ReconcileInterval == 0 {
+		c.ReconcileInterval = DefaultReconcileInterval
+	}
+
+	if c.ReconcileLookback == 0 {
+		c.ReconcileLookback = DefaultReconcileLookback
+	}
 }
 
 type requiredField struct {

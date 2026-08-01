@@ -107,6 +107,32 @@ It runs bootstrap first, then walks, resuming near where an interrupted run
 stopped. On a large instance it is a long job by design: `BACKFILL_RATE`
 deliberately caps it to a trickle against someone's production GitLab.
 
+## Running the reconciliation sync separately
+
+By default the app re-reads the last 48 hours of activity a few minutes after
+startup and once a day thereafter, picking up webhook deliveries GitLab never
+managed to make. See
+[Reconciliation sync](../configuration.md#reconciliation-sync) for what it does
+and does not heal.
+
+That is the right setting for a Compose deployment, which is a single app
+container. To hand it to the host's cron instead, set `RECONCILE=off` in `.env`
+and schedule:
+
+```bash
+docker compose run --rm app reconcile
+```
+
+Compose has no scheduler of its own, so this needs a crontab entry (or a
+systemd timer) on the host pointing at the project directory:
+
+```cron
+0 3 * * *  cd /srv/gitlab-achievements && docker compose run --rm app reconcile
+```
+
+The subcommand needs the database to have been bootstrapped once, by the app or
+by `backfill`, and says so rather than sweeping the instance for nothing.
+
 ## Uninstalling
 
 `docker compose down -v` removes the app and its database, but nothing it put
