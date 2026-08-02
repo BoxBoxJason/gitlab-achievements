@@ -30,6 +30,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/webhook"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 )
 
@@ -88,6 +89,16 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 		Version: versionInfo(),
 		Short:   "Event-driven achievement awarder for self-hosted GitLab instances",
 		Long:    "Watches a self-hosted GitLab instance's activity and automatically awards GitLab Achievements to users.",
+		// A failure inside RunE is a runtime problem, not a misuse of the
+		// CLI, so printing the flag list at it helps nobody and costs a
+		// great deal: the usage output renders every flag's default, and
+		// the credential flags default to what the environment supplied.
+		// A single timed-out GitLab call would otherwise put the write
+		// token, the webhook secret and the database DSN into the logs.
+		SilenceUsage: true,
+		// Execute prints the error itself, with the same treatment for
+		// every subcommand; letting cobra print it too only duplicates it.
+		SilenceErrors: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return run(cfg)
 		},
@@ -109,11 +120,11 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags := rootCmd.PersistentFlags()
 
 	flags.StringVar(&cfg.GitLabURL, "gitlab-url", os.Getenv("GITLAB_URL"), "Base URL of the GitLab instance")
-	flags.StringVar(&cfg.GitLabReadToken, "gitlab-read-token", os.Getenv("GITLAB_READ_TOKEN"), "Read-only GitLab token (read_api scope)")
-	flags.StringVar(&cfg.GitLabWriteToken, "gitlab-write-token", os.Getenv("GITLAB_WRITE_TOKEN"), "Write-capable GitLab token (api scope), scoped down by role")
+	secretFlag(flags, &cfg.GitLabReadToken, "gitlab-read-token", "GITLAB_READ_TOKEN", "Read-only GitLab token (read_api scope)")
+	secretFlag(flags, &cfg.GitLabWriteToken, "gitlab-write-token", "GITLAB_WRITE_TOKEN", "Write-capable GitLab token (api scope), scoped down by role")
 	flags.StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
-	flags.StringVar(&cfg.DatabaseDSN, "database-dsn", os.Getenv("DATABASE_DSN"), "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
-	flags.StringVar(&cfg.WebhookSecret, "webhook-secret", os.Getenv("WEBHOOK_SECRET"), "Secret token used to validate incoming GitLab webhook deliveries")
+	secretFlag(flags, &cfg.DatabaseDSN, "database-dsn", "DATABASE_DSN", "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
+	secretFlag(flags, &cfg.WebhookSecret, "webhook-secret", "WEBHOOK_SECRET", "Secret token used to validate incoming GitLab webhook deliveries")
 	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register its GitLab webhooks")
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
 	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
@@ -127,7 +138,26 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.DurationVar(&cfg.ReconcileLookback, "reconcile-lookback", envDurationOrDefault("RECONCILE_LOOKBACK", config.DefaultReconcileLookback), "How far back each reconciliation pass reaches; must exceed --reconcile-interval so passes overlap")
 	flags.StringVar(&cfg.APIAuth, "api-auth", envOrDefault("API_AUTH", string(config.DefaultAPIAuth)), "What the read API requires of callers (none, gitlab); gitlab verifies a GitLab token on every request")
 	flags.StringVar(&cfg.OAuthClientID, "oauth-client-id", os.Getenv("OAUTH_CLIENT_ID"), "Client ID of a hand-registered GitLab OAuth application; empty lets the app register a public one for itself")
-	flags.StringVar(&cfg.OAuthClientSecret, "oauth-client-secret", os.Getenv("OAUTH_CLIENT_SECRET"), "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
+	secretFlag(flags, &cfg.OAuthClientSecret, "oauth-client-secret", "OAUTH_CLIENT_SECRET", "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
+}
+
+// secretFlag registers a flag whose value is a credential, taking its
+// value from env when the flag is absent.
+//
+// The environment value is assigned to target after registration rather
+// than handed to pflag as the flag's default, because pflag keeps the
+// default in DefValue and renders it in the usage output as
+// `(default "...")`. Registering the real token as a default is enough to
+// put it in front of anyone running --help, and in front of anyone reading
+// the logs of a command that printed its usage.
+//
+// pflag only writes to target when the flag actually appears on the
+// command line, so seeding it here does not stop an explicit flag from
+// winning, and an empty default is omitted from the usage output entirely.
+func secretFlag(flags *pflag.FlagSet, target *string, name, env, usage string) {
+	flags.StringVar(target, name, "", usage)
+
+	*target = os.Getenv(env)
 }
 
 func envOrDefault(key, fallback string) string {

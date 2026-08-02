@@ -226,3 +226,24 @@ type SyncState struct {
 	Value     string `gorm:"not null"`
 	ID        int64  `gorm:"primarykey"`
 }
+
+// Lease is a cross-process mutex held in the database, so that two
+// processes sharing one database cannot run a singleton pass at the same
+// time. The bootstrap sequence is the one that needs it: it decides what
+// to create on GitLab by looking at this database, so two of them running
+// together both see "not created yet" and both create it.
+//
+// Ownership is a lease rather than a flag because a holder can die without
+// releasing it. Owner identifies the current holder and ExpiresAt is how
+// long its claim stands without renewal, so a crashed holder's lock frees
+// itself instead of deadlocking every future start.
+//
+// The times are the applications' own, not the database's, which is worth
+// knowing where clocks between the processes contending for a lease can
+// drift by an appreciable fraction of the lease itself.
+type Lease struct {
+	ExpiresAt time.Time `gorm:"not null"`
+	Name      string    `gorm:"uniqueIndex;not null;size:64"`
+	Owner     string    `gorm:"not null;size:64"`
+	ID        int64     `gorm:"primarykey"`
+}

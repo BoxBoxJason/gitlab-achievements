@@ -1,0 +1,92 @@
+{{- if .Values.uninstallJob.enabled }}
+{{/*
+The uninstall pass, as a Job carrying the release's own configuration.
+
+It is an opt-in Job rather than a Helm pre-delete hook because it is not
+safe to run automatically: deleting the achievements deletes every award of
+them, and nothing brings those back. `helm uninstall` is an ordinary thing
+to type, and it must not be what wipes everybody's badges.
+
+Rendering it from the chart is what keeps it correct: it inherits the image
+the release runs, the same GitLab URL, namespace and PUBLIC_URL the hooks
+were registered against, the same credentials Secret, and the same pod
+labels, which is what any NetworkPolicy covering the Deployment selects on.
+A hand-written Job has to get all five right to remove anything at all.
+
+Run it with the serving Deployment scaled to zero: a running server
+re-registers the hooks on its next reconciliation sweep and recreates the
+achievements on its next start.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "gitlab-achievements.fullname" . }}-uninstall
+  labels:
+    {{- include "gitlab-achievements.labels" . | nindent 4 }}
+    app.kubernetes.io/component: uninstall
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  backoffLimit: {{ .Values.uninstallJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.uninstallJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      {{- with .Values.uninstallJob.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "gitlab-achievements.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: uninstall
+    spec:
+      # Removal is resumable: each record is dropped as its hook or
+      # achievement goes, so a killed pod leaves behind exactly what it had
+      # not reached yet and a re-run finishes the job.
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "gitlab-achievements.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: uninstall
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - uninstall
+            {{- if .Values.uninstallJob.dryRun }}
+            - --dry-run
+            {{- end }}
+            {{- if .Values.uninstallJob.keepAchievements }}
+            - --keep-achievements
+            {{- end }}
+            {{- if .Values.uninstallJob.sweep }}
+            - --sweep
+            {{- end }}
+          env:
+            {{- include "gitlab-achievements.env" . | nindent 12 }}
+            {{- with .Values.config.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            {{- include "gitlab-achievements.envFrom" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.uninstallJob.resources | nindent 12 }}
+      {{- with .Values.uninstallJob.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.uninstallJob.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.uninstallJob.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -35,6 +35,75 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 	}
 }
 
+// TestBuildRootCmd_SecretsAreNotFlagDefaults guards the property that keeps
+// credentials out of the usage output: the environment seeds the config
+// value, but never the flag's default, which is what --help renders.
+func TestBuildRootCmd_SecretsAreNotFlagDefaults(t *testing.T) {
+	secrets := map[string]string{
+		"GITLAB_READ_TOKEN":   "read-token-from-env",
+		"GITLAB_WRITE_TOKEN":  "write-token-from-env",
+		"DATABASE_DSN":        "postgres://user:password-from-env@localhost/achievements",
+		"WEBHOOK_SECRET":      "webhook-secret-from-env",
+		"OAUTH_CLIENT_SECRET": "oauth-secret-from-env",
+	}
+
+	for key, value := range secrets {
+		t.Setenv(key, value)
+	}
+
+	cfg := &config.Config{}
+	rootCmd := buildRootCmd(cfg)
+
+	// The environment still configures the process.
+	if cfg.GitLabWriteToken != secrets["GITLAB_WRITE_TOKEN"] {
+		t.Errorf("expected the write token to come from the environment, got %q", cfg.GitLabWriteToken)
+	}
+
+	if cfg.DatabaseDSN != secrets["DATABASE_DSN"] {
+		t.Errorf("expected the database DSN to come from the environment, got %q", cfg.DatabaseDSN)
+	}
+
+	usage := rootCmd.UsageString()
+
+	for key, value := range secrets {
+		if strings.Contains(usage, value) {
+			t.Errorf("usage output leaks %s: %q", key, usage)
+		}
+	}
+}
+
+// TestBuildRootCmd_ExplicitSecretFlagWins checks that seeding the value
+// after registration does not stop the flag from overriding it.
+func TestBuildRootCmd_ExplicitSecretFlagWins(t *testing.T) {
+	t.Setenv("GITLAB_WRITE_TOKEN", "from-env")
+
+	cfg := &config.Config{}
+	rootCmd := buildRootCmd(cfg)
+
+	err := rootCmd.ParseFlags([]string{"--gitlab-write-token", "from-flag"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.GitLabWriteToken != "from-flag" {
+		t.Errorf("expected the flag to win over the environment, got %q", cfg.GitLabWriteToken)
+	}
+}
+
+// TestBuildRootCmd_SilencesUsageOnRuntimeError pins the other half: a
+// failure inside RunE must not make cobra print the flag list.
+func TestBuildRootCmd_SilencesUsageOnRuntimeError(t *testing.T) {
+	rootCmd := buildRootCmd(&config.Config{})
+
+	if !rootCmd.SilenceUsage {
+		t.Error("expected SilenceUsage so runtime failures do not print every flag's default")
+	}
+
+	if !rootCmd.SilenceErrors {
+		t.Error("expected SilenceErrors so Execute is the only thing printing the error")
+	}
+}
+
 func TestRun_InvalidConfig(t *testing.T) {
 	err := run(&config.Config{})
 	if err == nil {

@@ -193,3 +193,37 @@ backfillJob:
   tolerations: []
   affinity: {}
   podAnnotations: {}
+
+# Removes what this app put on the GitLab instance: the event ingestion
+# webhooks it registered and the achievement definitions it created. Enable it,
+# upgrade, watch it finish, and only then `helm uninstall`, which removes the
+# workload but nothing on GitLab.
+#
+# Scale the Deployment to zero first. A running server re-registers the hooks on
+# its next reconciliation sweep and recreates the achievements on its next
+# start, so removing them underneath it accomplishes nothing.
+#
+# It is deliberately not a pre-delete hook: deleting an achievement deletes
+# every award of it, so the badges disappear from the profile of everyone who
+# earned one and nothing brings those back. That must be something you ask for,
+# not something `helm uninstall` does on your behalf.
+uninstallJob:
+  enabled: false
+  # Report what would be removed and call nothing. Worth one run of its own
+  # before the real thing.
+  dryRun: false
+  # Remove only the webhooks, leaving people the badges they earned.
+  keepAchievements: false
+  # Also enumerate the instance for hooks and achievements this app has no
+  # record of, for a database that was lost or restored from an old backup.
+  # Costs a full walk of every group or project, so it is not the default.
+  sweep: false
+  backoffLimit: 3
+  # Kept long enough to read the logs afterwards, which are the only report of
+  # what was removed and what was left behind.
+  ttlSecondsAfterFinished: 86400
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}

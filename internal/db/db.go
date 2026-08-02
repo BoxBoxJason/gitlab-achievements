@@ -78,6 +78,7 @@ func Migrate(conn *gorm.DB) error {
 		&RegisteredHook{},
 		&SyncState{},
 		&Session{},
+		&Lease{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database schema: %w", err)
