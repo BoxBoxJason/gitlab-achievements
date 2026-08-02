@@ -9,7 +9,7 @@ From the published chart:
 ```bash
 helm install gitlab-achievements \
   oci://ghcr.io/boxboxjason/gitlab-achievements-chart \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace gitlab-achievements --create-namespace \
   --values values.yaml
 ```
@@ -26,7 +26,7 @@ A minimal `values.yaml`:
 
 ```yaml
 image:
-  tag: "0.1.1"          # pin a release rather than tracking latest
+  tag: "0.2.0"          # pin a release rather than tracking latest
 
 config:
   gitlabUrl: https://gitlab.example.com
@@ -109,6 +109,8 @@ The chart ships no NetworkPolicy, because what it would have to allow depends en
 
 If GitLab is itself covered by a policy, the rule has to be added to *its* egress as well as to this app's ingress. An allowlist policy on the GitLab pods will not permit the delivery just because this app permits receiving it.
 
+Write the policy against `app.kubernetes.io/name`, not against the Deployment. The backfill and uninstall Jobs make the same calls to GitLab and the same connections to the database, and the chart gives their pods the release's selector labels precisely so one rule covers all three. A policy narrowed to the serving pods leaves both Jobs timing out against GitLab with nothing on either side to say why.
+
 ## Running the backfill as a Job
 
 By default the serving pod walks history in the background. On an instance big enough that the cold start deserves its own workload, hand it to a Job:
@@ -126,6 +128,8 @@ backfillJob:
 The chart refuses to render if you enable the Job while the Deployment is still set to `auto`, since both would walk the same history.
 
 The Job runs the same bootstrap the server does and then walks, resuming near where a killed pod stopped. It is a plain Job, not a Helm hook, so `helm install` does not wait on it. Re-running it means deleting it and upgrading again, with `backfillJob.force: true` if the previous walk completed.
+
+On a first install both the Job and the Deployment start at once and both want to bootstrap. They do not race: bootstrap takes a lease in the database and whichever loses waits for the other to finish, then finds the achievements and hooks already there and adopts them. Expect the Job to sit idle for as long as the first bootstrap takes before its walk begins.
 
 ## The reconciliation sync
 
@@ -152,43 +156,33 @@ Schema migrations run at startup, and `Recreate` means the old pod is gone befor
 
 ## Uninstalling
 
-`helm uninstall` removes the app, not what it put on GitLab. Clear that first, with a one-off Job carrying the release's own configuration:
+`helm uninstall` removes the app, not what it put on GitLab. Clear that first, with the chart's own uninstall Job:
 
 ```yaml
-# uninstall-job.yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: gitlab-achievements-uninstall
-spec:
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: uninstall
-          image: ghcr.io/boxboxjason/gitlab-achievements:0.1.1   # the version you deployed
-          args: ["uninstall"]          # --dry-run first, --keep-achievements to spare the badges
-          env:
-            - name: GITLAB_URL
-              value: https://gitlab.example.com
-            - name: ACHIEVEMENTS_NAMESPACE
-              value: achievements
-            - name: PUBLIC_URL
-              value: https://achievements.example.com
-          envFrom:
-            - secretRef:
-                name: gitlab-achievements
+uninstallJob:
+  enabled: true
+  dryRun: true          # report what would go, call nothing
 ```
 
 ```bash
 kubectl scale deployment gitlab-achievements --replicas=0 -n gitlab-achievements
-kubectl apply -f uninstall-job.yaml -n gitlab-achievements
+helm upgrade gitlab-achievements ./chart -n gitlab-achievements --values values.yaml
+kubectl logs -f job/gitlab-achievements-uninstall -n gitlab-achievements
+```
+
+Read what it reports, then take `dryRun` back off, delete the finished Job so a new one is created, and upgrade again:
+
+```bash
+kubectl delete job gitlab-achievements-uninstall -n gitlab-achievements
+helm upgrade gitlab-achievements ./chart -n gitlab-achievements --values values.yaml
 kubectl logs -f job/gitlab-achievements-uninstall -n gitlab-achievements
 helm uninstall gitlab-achievements --namespace gitlab-achievements
 ```
 
-Scaling to zero first matters: a running pod re-registers the hooks on its next hourly sweep, so removing them underneath it accomplishes nothing.
+Scaling to zero first matters: a running pod re-registers the hooks on its next sweep and recreates the achievements on its next start, so removing them underneath it accomplishes nothing.
 
-`uninstall` removes the webhooks and the achievements it created. Pass `--keep-achievements` to take only the hooks and leave people the badges they earned, because deleting an achievement deletes every award of it and nothing brings those back. Full details in [Uninstalling](../uninstall.md).
+The Job is opt-in rather than a `pre-delete` hook on purpose. Deleting an achievement deletes every award of it, and `helm uninstall` is too ordinary a thing to type for it to be what wipes your team's badges. Set `uninstallJob.keepAchievements: true` to take only the hooks and leave people what they earned, or `uninstallJob.sweep: true` to also hunt down what the database has no record of. Full details in [Uninstalling](../uninstall.md).
+
+Letting the chart render it is what keeps it working. It inherits the release's image, its GitLab URL, achievements namespace and `PUBLIC_URL` — the hooks can only be found under the URL they were registered against — its credentials Secret, and its pod labels. That last one matters more than it looks: a hand-written Job carries none of the labels a NetworkPolicy selects on, so it is denied its way to GitLab and fails on a connection timeout that reads like a GitLab outage.
 
 The database is yours and is left alone. It is also what the removal reads from, so dropping it first leaves the app no record of what it registered; `uninstall --sweep` enumerates the instance to recover from that.

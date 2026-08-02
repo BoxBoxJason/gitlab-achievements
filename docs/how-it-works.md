@@ -10,6 +10,8 @@ Every start begins the same way. The app checks that both tokens work and have t
 
 Bootstrap is all-or-nothing. If a token has lost a permission or GitLab rejects a mutation, startup fails rather than serving in a half-working state. Every problem it finds is reported in one pass, so you fix them together instead of one restart at a time. Nothing answers on the HTTP port until bootstrap finishes, which on a Free/CE instance with thousands of projects can take several minutes.
 
+Only one process bootstraps a database at a time. What already exists is read from that database, not from GitLab, so two passes running together would both conclude that nothing had been created yet and both try to create it — GitLab rejects the loser's achievements as names already taken. A lease row makes the second one wait, and by the time it runs it adopts what the first one built. That is what lets a deployment run its historical walk as a separate workload without timing its start against the server's.
+
 ### 2. Historical backfill
 
 Activity happened before you installed this. The app walks every group-owned project it can see and replays that history through the same rules live events go through, so a five-year-old instance does not start everyone at zero.

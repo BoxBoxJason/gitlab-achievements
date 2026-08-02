@@ -11,6 +11,9 @@ gitlab-achievements uninstall --sweep            # also hunt down what the datab
 
 Same flags and environment as the server.
 
+> [!IMPORTANT]
+> Removing the achievements needs 0.2.0 or later. Earlier versions have an `uninstall` that takes the webhooks off and stops there — it reports what it did, says nothing about achievements, and exits successfully, so a half-finished removal looks like a complete one. Run the subcommand from 0.2.0 or later whatever version the deployment itself was running; it reads the same database and removes what any earlier version created.
+
 > [!WARNING]
 > Deleting an achievement takes its awards with it. GitLab removes the badge from the profile of everyone holding it, and nothing brings those back. If people have earned things you would rather they keep, use `--keep-achievements`.
 

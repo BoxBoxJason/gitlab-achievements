@@ -16,6 +16,7 @@ import (
 
 	"github.com/boxboxjason/gitlab-achievements/internal/catalog"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
+	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/engine"
 )
 
@@ -48,7 +49,22 @@ type Report struct {
 // catalog and the event ingestion webhooks against the configured GitLab
 // instance. webhookURL is the fully-qualified URL GitLab should deliver
 // events to (the app's public URL plus its ingestion path).
+//
+// Only one process bootstraps a given database at a time; a second waits
+// its turn on a lease. Both halves of the reconciliation decide what to
+// create on GitLab by looking at this database, so two concurrent passes
+// both read "not created yet" and both try to create it. GitLab rejects
+// the loser's achievements with "Name has already been taken" and
+// bootstrap fails, which is exactly what a deployment running its
+// historical walk as a separate Job hits on a first install.
 func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
+	ctx, release, err := db.AcquireLease(ctx, conn, db.BootstrapLease, db.LeaseOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire the bootstrap lease: %w", err)
+	}
+
+	defer release()
+
 	namespaceID, err := verifyPermissions(ctx, clients.Read, clients.Write, cfg.AchievementsNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("permission verification failed: %w", err)

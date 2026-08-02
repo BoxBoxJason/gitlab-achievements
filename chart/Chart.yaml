@@ -8,7 +8,7 @@ description: Event-driven achievement awarder for self-hosted GitLab instances
 type: application
 # The version the publish workflow tags the OCI artifact with. Bump it in the
 # same commit as any chart change: a published version is never overwritten.
-version: 0.1.0
+version: 0.2.0
 # Default container image tag, overridable with image.tag.
 appVersion: "0.2.0"
 home: https://github.com/BoxBoxJason/gitlab-achievements
