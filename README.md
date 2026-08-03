@@ -22,6 +22,8 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 
 ## What people earn
 
+![GitLab Achievements](docs/profile.png)
+
 | Category | Criteria |
 | --- | --- |
 | **Git** | commits, pushes, branches created, tags created |
