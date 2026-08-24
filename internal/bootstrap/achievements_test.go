@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"errors"
-	"io"
+	"fmt"
 	"iter"
 	"testing"
 	"time"
@@ -74,18 +74,19 @@ func (f *fakeAchievementWriter) grantAward(achievementID, userID int64) *gitlab.
 	return awarded
 }
 
-// simulateAvatarUpload drains upload's content, as the real GraphQL client
-// would when streaming a multipart request, and reports the URL GitLab
-// would have assigned had this actually been uploaded.
+// simulateAvatarUpload records that an avatar rode along with the request
+// and reports the URL GitLab would have assigned had this actually been
+// uploaded. An upload keeps its own copy of the file and exposes neither
+// it nor its filename (see gitlab.NewGraphQLUpload), so there is nothing
+// to drain here and the URL is synthesized from the upload count.
 func (f *fakeAchievementWriter) simulateAvatarUpload(upload *gitlab.GraphQLUpload) *string {
 	if upload == nil {
 		return nil
 	}
 
 	f.avatarUploads++
-	_, _ = io.Copy(io.Discard, upload.Content)
 
-	url := "https://gitlab.example.com/uploads/" + upload.Filename
+	url := fmt.Sprintf("https://gitlab.example.com/uploads/avatar-%d.png", f.avatarUploads)
 
 	return &url
 }
@@ -269,7 +270,7 @@ func testConn(t *testing.T) *gorm.DB {
 	return conn
 }
 
-func TestSyncAchievements_CreatesMissingEntries(t *testing.T) {
+func TestReconcileAchievements_CreatesMissingEntries(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
@@ -278,7 +279,7 @@ func TestSyncAchievements_CreatesMissingEntries(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 2, Threshold: 100, Name: "Committer II", Description: "Made 100 commits."},
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -295,7 +296,7 @@ func TestSyncAchievements_CreatesMissingEntries(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_IdempotentOnRepeatRun(t *testing.T) {
+func TestReconcileAchievements_IdempotentOnRepeatRun(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
@@ -303,11 +304,11 @@ func TestSyncAchievements_IdempotentOnRepeatRun(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
 		t.Fatalf("expected no error on first run, got: %v", err)
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, entries)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err != nil {
 		t.Fatalf("expected no error on second run, got: %v", err)
 	}
@@ -324,14 +325,14 @@ func TestSyncAchievements_IdempotentOnRepeatRun(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_UpdatesDriftedEntry(t *testing.T) {
+func TestReconcileAchievements_UpdatesDriftedEntry(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", original); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -339,7 +340,7 @@ func TestSyncAchievements_UpdatesDriftedEntry(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits. Renamed."},
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, changed)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", changed)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -362,14 +363,14 @@ func TestSyncAchievements_UpdatesDriftedEntry(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
+func TestReconcileAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", original); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -377,7 +378,7 @@ func TestSyncAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 20, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, changed)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", changed)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -400,7 +401,7 @@ func TestSyncAchievements_ThresholdOnlyChangeSkipsGitLabCall(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_CreateErrorIsNotPersisted(t *testing.T) {
+func TestReconcileAchievements_CreateErrorIsNotPersisted(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{createErr: errors.New("permission denied")}
 
@@ -408,7 +409,7 @@ func TestSyncAchievements_CreateErrorIsNotPersisted(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	_, err := syncAchievements(t.Context(), write, conn, 42, entries)
+	_, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -477,14 +478,14 @@ func TestCreateAchievement_SkipsAvatarWhenNotConfigured(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
+func TestReconcileAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
 	withoutAvatar := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(t.Context(), write, conn, 42, withoutAvatar); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", withoutAvatar); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -492,7 +493,7 @@ func TestSyncAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/commit.png"},
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, withAvatar)
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", withAvatar)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

@@ -45,7 +45,7 @@ func createdAchievements(t *testing.T) (*gorm.DB, *fakeAchievementWriter) {
 		{CriteriaKey: "commits", Tier: 2, Threshold: 100, Name: "Committer II", Description: "Made 100 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
 		t.Fatalf("failed to install achievements for the cleanup test: %v", err)
 	}
 

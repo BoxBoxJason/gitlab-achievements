@@ -40,6 +40,24 @@ The total is derived, not accumulated. It is always recomputed as the sum of wha
 
 EXP exists only in this app's database. A GitLab achievement is a flat object with a name, a description and an avatar. No tier field, no points, nowhere to put it.
 
+## Keeping the catalog and GitLab in step
+
+Every start, and again on the hourly sweep, the app lists the achievements in your achievements group and makes them match the catalog. Each catalog entry ends the pass bound to exactly one GitLab achievement, whichever route it takes to get there:
+
+| What is found | What happens |
+| --- | --- |
+| No achievement under the entry's name | It is created, and the pairing recorded. |
+| One under the entry's name the database has no row for | It is adopted: the pairing is recorded against the achievement that is already there. |
+| The recorded achievement is gone, but one under the entry's name is there | The row is pointed back at it. |
+| The recorded achievement is gone entirely | It is created again, under a new ID. |
+| It is there, but its name, description or avatar has drifted | The catalog's version is pushed back over it. |
+
+Adoption is what makes the app survive losing its database. Which GitLab achievement belongs to which catalog entry lives in that database and nowhere else — a GitLab achievement carries no field this app could stamp its own identity into — so a store rebuilt from scratch, or restored from a backup older than the achievements it describes, would otherwise try to create all 275 again and be refused: **an achievement's name is unique within a namespace**. Matching by name instead turns that from a wedged startup into a no-op.
+
+It also keeps the badges. Deleting an achievement deletes every award of it, so an achievement recreated rather than adopted takes everyone's earned badge down with the original. Adoption never touches an award.
+
+The one thing it cannot verify is an avatar's contents: GitLab exposes an avatar's URL but not its bytes. An adopted achievement that already shows one is taken to be showing the catalog's; one showing none gets the catalog's uploaded.
+
 ## What reaches GitLab
 
 Only the top tier a user has reached in each criteria is ever pushed. Every tier below it stays recorded here and keeps paying its EXP. When a user is promoted, the new tier is awarded and the one it replaces is revoked, so a profile carries one badge per criteria rather than a run of eleven near-identical ones.

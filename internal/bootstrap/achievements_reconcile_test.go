@@ -8,24 +8,6 @@ import (
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
 )
 
-func TestReconcileAchievements_CreatesMissingEntries(t *testing.T) {
-	conn := testConn(t)
-	write := &fakeAchievementWriter{}
-
-	entries := []catalog.Entry{
-		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
-	}
-
-	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if report.Created != 1 {
-		t.Fatalf("expected 1 created, got %+v", report)
-	}
-}
-
 func TestReconcileAchievements_UnchangedEntryIsNotTouched(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
@@ -34,9 +16,14 @@ func TestReconcileAchievements_UnchangedEntryIsNotTouched(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
+
+	// The seeding pass above listed too, so the counter starts again here:
+	// what this asserts is that one reconciliation costs one listing, not
+	// one per catalog entry.
+	write.listCalls = 0
 
 	// The achievement is still present on GitLab's side (write.achievements
 	// still has it) and nothing about the catalog entry changed, so this
@@ -59,31 +46,6 @@ func TestReconcileAchievements_UnchangedEntryIsNotTouched(t *testing.T) {
 	}
 }
 
-func TestReconcileAchievements_UpdatesDriftedEntry(t *testing.T) {
-	conn := testConn(t)
-	write := &fakeAchievementWriter{}
-
-	original := []catalog.Entry{
-		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
-	}
-	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
-	}
-
-	changed := []catalog.Entry{
-		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits. Renamed."},
-	}
-
-	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", changed)
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if report.Updated != 1 {
-		t.Fatalf("expected 1 updated, got %+v", report)
-	}
-}
-
 func TestReconcileAchievements_HealsDriftMadeDirectlyOnGitLab(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
@@ -92,8 +54,8 @@ func TestReconcileAchievements_HealsDriftMadeDirectlyOnGitLab(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	var seeded appdb.AchievementDefinition
@@ -144,8 +106,8 @@ func TestReconcileAchievements_ReuploadsAvatarClearedOnGitLab(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/commit.png"},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	var seeded appdb.AchievementDefinition
@@ -184,8 +146,8 @@ func TestReconcileAchievements_RecreatesDeletedAchievement(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	var seeded appdb.AchievementDefinition
@@ -235,8 +197,8 @@ func TestReconcileAchievements_PropagatesListError(t *testing.T) {
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	write.listErr = errors.New("gitlab unavailable")
@@ -254,8 +216,8 @@ func TestReconcileAchievements_PropagatesUnexpectedUpdateError(t *testing.T) {
 	original := []catalog.Entry{
 		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits."},
 	}
-	if _, err := syncAchievements(t.Context(), write, conn, 42, original); err != nil {
-		t.Fatalf("expected no error seeding via bootstrap sync, got: %v", err)
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", original); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	changed := []catalog.Entry{

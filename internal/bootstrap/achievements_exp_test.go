@@ -61,7 +61,7 @@ func TestCreateAchievement_PersistsExpReward(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7)); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7)); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
@@ -75,15 +75,15 @@ func TestCreateAchievement_PersistsExpReward(t *testing.T) {
 	}
 }
 
-func TestSyncAchievements_ExpOnlyChangeSkipsGitLabCall(t *testing.T) {
+func TestReconcileAchievements_ExpOnlyChangeSkipsGitLabCall(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7)); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7)); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 70))
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 70))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestRepairExpTotals_RebuildsHoldersAfterARetune(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7)); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7)); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestRepairExpTotals_RebuildsHoldersAfterARetune(t *testing.T) {
 
 	// The retune pays more for a tier alice already holds. She earns
 	// nothing new, so only the sweep can bring her total along.
-	report, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 70))
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 70))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -146,13 +146,13 @@ func TestRepairExpTotals_BuildsTotalsOnTheUpgradeThatIntroducedExp(t *testing.T)
 	// What the schema migration leaves behind on an instance that has been
 	// awarding since before EXP existed: definitions worth nothing, awards
 	// against them, and holders sitting at zero.
-	if _, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 0)); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 0)); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
 	user := awardTo(t, conn, "alice", 100, 0)
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7))
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestRepairExpTotals_SkipsTheSweepWhenNothingChanged(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}
 
-	if _, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7)); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7)); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestRepairExpTotals_SkipsTheSweepWhenNothingChanged(t *testing.T) {
 	// periodic audit of every user on the instance.
 	user := awardTo(t, conn, "alice", 100, 999)
 
-	report, err := syncAchievements(t.Context(), write, conn, 42, expEntry(10, 7))
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", expEntry(10, 7))
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestReconcileAchievements_RecreatedEntryKeepsItsExpReward(t *testing.T) {
 	write := &fakeAchievementWriter{}
 
 	entries := expEntry(10, 7)
-	if _, err := syncAchievements(t.Context(), write, conn, 42, entries); err != nil {
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
 		t.Fatalf("expected no error seeding, got: %v", err)
 	}
 

@@ -77,6 +77,8 @@ This is the sharpest operational hazard in the whole API, because retrying a fai
 - A revoked award cannot be un-revoked, and revoking it twice errors. The way back is a fresh award, under a new ID.
 - **List**: `user.userAchievements(includeHidden: true)` returns unaccepted awards to a caller entitled to see them (the recipient, a namespace maintainer or owner, or an instance admin). Without `includeHidden`, a freshly awarded achievement is not listed at all. This is what lets the app recover user-achievement IDs it never stored.
 - `achievement.userAchievements` (via `ListAchievementRecipients`) is the same data keyed the other way, and is likewise admin-visible.
+- **List the definitions**: `namespace.achievements` (via `ListAchievements`) returns the achievements a namespace holds, with their IDs, names, descriptions and avatar URLs — but not the avatar's bytes, so a stored image cannot be diffed against a local one.
+- **A name is unique within a namespace.** Creating a second achievement under a name already taken there fails with `Name has already been taken`. That makes the name the only stable handle on an achievement other than the ID GitLab assigned it: nothing on an achievement can be stamped with an identity of this app's own.
 
 ## What this app does with all of it
 
@@ -85,6 +87,8 @@ This is the sharpest operational hazard in the whole API, because retrying a fai
 This is the same outcome the issue asked for ("only the highest earned tier of each criteria should be visible"), reached through what the app controls (what it awards) rather than through `showOnProfile`, which it does not control. It also settles the question the issue raised about ordering the two mutations around a crash: there is no visibility mutation to order, and award-then-revoke crashing in the middle leaves the old tier live for one reconciliation pass, never zero tiers.
 
 The reason it matters beyond profile tidiness is the email. One award is one email, and nothing about awarding is batched, so a first backfill over a mature instance would otherwise notify every user roughly a hundred times.
+
+**Achievements the namespace already holds are adopted, not created again.** Listing by namespace plus the uniqueness of names is what lets a database rebuilt from nothing match its catalog back to the achievements already on the instance instead of failing on every create. It matters more than a tidier startup: deleting an achievement deletes every award of it, so recreating rather than adopting would take everyone's badge with it. See [Achievements and EXP](achievements.md#keeping-the-catalog-and-gitlab-in-step).
 
 Two columns on `Award` carry the rest:
 

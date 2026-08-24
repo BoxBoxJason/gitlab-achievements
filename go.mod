@@ -6,7 +6,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	gitlab.com/gitlab-org/api/client-go/v2 v2.52.0
+	gitlab.com/gitlab-org/api/client-go/v2 v2.58.2
 	go.uber.org/zap v1.28.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/time v0.15.0
@@ -53,4 +53,4 @@ require (
 // TODO: drop this replace once achievements/system-hooks support lands
 // upstream (gitlab.com/gitlab-org/api/client-go, branch
 // feat/achievements-service-support) and a release is cut.
-replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.53.1-0.20260730101059-f79576d7edc9
+replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.58.3-0.20260823201250-f170b2671359

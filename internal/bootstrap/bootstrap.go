@@ -53,10 +53,13 @@ type Report struct {
 // Only one process bootstraps a given database at a time; a second waits
 // its turn on a lease. Both halves of the reconciliation decide what to
 // create on GitLab by looking at this database, so two concurrent passes
-// both read "not created yet" and both try to create it. GitLab rejects
-// the loser's achievements with "Name has already been taken" and
-// bootstrap fails, which is exactly what a deployment running its
-// historical walk as a separate Job hits on a first install.
+// both read "not created yet" and both try to create it, which is exactly
+// what a deployment running its historical walk as a separate Job hits on
+// a first install. The lease is what keeps the two apart; achievement
+// adoption (see ReconcileAchievements) is the second line of defence, since
+// a pass that finds the achievements already on GitLab now takes them over
+// rather than failing on "Name has already been taken". Webhooks have no
+// such fallback, so the lease is not optional.
 func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config, webhookURL string) (*Report, error) {
 	ctx, release, err := db.AcquireLease(ctx, conn, db.BootstrapLease, db.LeaseOptions{})
 	if err != nil {
@@ -70,7 +73,7 @@ func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config,
 		return nil, fmt.Errorf("permission verification failed: %w", err)
 	}
 
-	achievements, err := syncAchievements(ctx, clients.Write, conn, namespaceID, catalog.V1())
+	achievements, err := ReconcileAchievements(ctx, clients.Write, conn, namespaceID, cfg.AchievementsNamespace, catalog.V1())
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync achievement definitions: %w", err)
 	}
@@ -103,8 +106,11 @@ func Run(ctx context.Context, clients Client, conn *gorm.DB, cfg *config.Config,
 // the old catalog gave them indefinitely.
 //
 // Newly created definitions can't affect anyone: nobody holds an award for
-// an achievement that didn't exist a moment ago. Updated and recreated ones
-// can, so those are what trigger the sweep.
+// an achievement that didn't exist a moment ago. Adopted ones can't either,
+// for the reverse reason: the achievement existed but this database had no
+// row for it, so no award in here references it yet, and the awards GitLab
+// holds against it are picked up by ReconcileAwards instead. Updated and
+// recreated ones can, so those are what trigger the sweep.
 //
 // This also covers the upgrade that introduced EXP: every pre-existing
 // definition row comes out of the migration worth nothing, so the first
