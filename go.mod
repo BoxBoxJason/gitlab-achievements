@@ -11,8 +11,8 @@ require (
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/time v0.15.0
 	gorm.io/driver/mysql v1.6.0
-	gorm.io/driver/postgres v1.6.0
-	gorm.io/driver/sqlserver v1.6.3
+	gorm.io/driver/postgres v1.6.2
+	gorm.io/driver/sqlserver v1.6.4
 	gorm.io/gorm v1.31.2
 )
 
@@ -53,4 +53,4 @@ require (
 // TODO: drop this replace once achievements/system-hooks support lands
 // upstream (gitlab.com/gitlab-org/api/client-go, branch
 // feat/achievements-service-support) and a release is cut.
-replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.58.3-0.20260823201250-f170b2671359
+replace gitlab.com/gitlab-org/api/client-go/v2 => gitlab.com/gitlab-community/gitlab-org/api/client-go/v2 v2.58.3-0.20260824095825-fc4b4cca1386
