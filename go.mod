@@ -1,6 +1,6 @@
 module github.com/boxboxjason/gitlab-achievements
 
-go 1.26.4
+go 1.26.6
 
 require (
 	github.com/glebarez/sqlite v1.11.0
