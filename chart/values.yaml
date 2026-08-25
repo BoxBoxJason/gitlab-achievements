@@ -10,7 +10,7 @@ image:
   repository: ghcr.io/boxboxjason/gitlab-achievements
   # Pin this to a released version in production; empty falls back to the
   # chart's appVersion.
-  tag: "@sha256:ae36c4b8a336853077ddbb42971a538e835f4d581fc402ceaaf717c8a2444b85"
+  tag: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
