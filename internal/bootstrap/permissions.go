@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // readVerifier is the subset of gitlabclient.ReadClient permission

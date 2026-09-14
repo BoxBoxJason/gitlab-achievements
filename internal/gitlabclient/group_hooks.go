@@ -4,7 +4,7 @@ package gitlabclient
 import (
 	"fmt"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // ListGroupHooks lists every webhook registered on one group, following

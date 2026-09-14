@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // IsNotFound reports whether err represents a 404 response from GitLab.

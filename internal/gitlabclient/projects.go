@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"iter"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // namespaceKindGroup is what GitLab reports as a project namespace's kind

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/config"

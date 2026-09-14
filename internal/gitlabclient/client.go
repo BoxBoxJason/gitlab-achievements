@@ -26,7 +26,7 @@ package gitlabclient
 import (
 	"fmt"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // ReadClient talks to GitLab using a read_api-scoped token.

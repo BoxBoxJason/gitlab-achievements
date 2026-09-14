@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"iter"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // ListAchievements iterates every achievement defined in the namespace at

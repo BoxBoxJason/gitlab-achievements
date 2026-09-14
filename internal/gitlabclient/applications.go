@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"iter"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // OAuthScopeReadUser is the only scope this app asks for on behalf of a

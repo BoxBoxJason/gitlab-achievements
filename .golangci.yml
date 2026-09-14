@@ -27,6 +27,7 @@ linters:
     - depguard
     - err113
     - exhaustruct
+    - exhaustruct_v5
     - gomodguard
     - ireturn
     - lll
@@ -54,4 +55,4 @@ linters:
         - G704 # SSRF false positives on client HTTP calls (required for API client)
     gomoddirectives:
       replace-allow-list:
-        - gitlab.com/gitlab-org/api/client-go/v2 # temporary: unreleased achievements/system-hooks support, see go.mod
+        - gitlab.com/gitlab-org/api/client-go/v3 # temporary: unreleased achievements/system-hooks support, see go.mod

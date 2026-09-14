@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"iter"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // GetGroup retrieves a single group by ID or full path.

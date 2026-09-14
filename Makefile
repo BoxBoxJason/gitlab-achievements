@@ -14,6 +14,13 @@ CHART_TEST_VALUES ?= --set config.gitlabUrl=https://gitlab.example.com \
 	--set config.publicUrl=https://achievements.example.com \
 	--set secrets.existingSecret=credentials
 
+# Versions of the Go tools installed on demand by the targets below.
+# Kept as annotated variables so Renovate bumps them (see renovate.json customManagers).
+# renovate: datasource=go depName=gotest.tools/gotestsum
+gotestsum_version := v1.13.0
+# renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
+golangci_lint_version := v2.13.2
+
 # Default target
 .DEFAULT_GOAL := build
 
@@ -29,7 +36,7 @@ build: deps
 
 # Lint target
 lint: deps
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2; }
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(golangci_lint_version); }
 	@echo "Running golangci-lint..."
 	golangci-lint run ./...
 
@@ -39,7 +46,7 @@ dependency-check:
 
 # Test target
 test: deps
-	@command -v gotestsum >/dev/null 2>&1 || { echo "Installing gotestsum..."; go install gotest.tools/gotestsum@v1.13.0; }
+	@command -v gotestsum >/dev/null 2>&1 || { echo "Installing gotestsum..."; go install gotest.tools/gotestsum@$(gotestsum_version); }
 	@mkdir -p codequality
 	gotestsum --junitfile codequality/unit-tests.xml --format-icons octicons -- -coverprofile=codequality/coverage.out -covermode=atomic ./...
 	@echo "Coverage report generated: codequality/coverage.html"

@@ -3,7 +3,7 @@ package gitlabclient
 import (
 	"iter"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // ListUserContributionEvents iterates a user's contribution events (GET

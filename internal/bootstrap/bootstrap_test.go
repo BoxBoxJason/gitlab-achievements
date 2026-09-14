@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"

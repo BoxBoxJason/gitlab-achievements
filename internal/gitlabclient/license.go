@@ -3,7 +3,7 @@ package gitlabclient
 import (
 	"fmt"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 // GetLicense retrieves the instance's license, whose plan decides which

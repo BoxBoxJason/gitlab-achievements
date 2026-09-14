@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 )
 
 func TestIteratePages_MultiPage(t *testing.T) {
