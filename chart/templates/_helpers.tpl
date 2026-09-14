@@ -104,3 +104,45 @@ operator's, the key names are the app's environment variables.
 - secretRef:
     name: {{ include "gitlab-achievements.secretName" . }}
 {{- end }}
+
+{{/*
+The database DSN written into the Secret this chart creates: whatever the
+operator set, or a SQLite file under persistence.mountPath when they left it
+empty and persistence is enabled. Not used when secrets.existingSecret names
+a Secret the operator manages themselves.
+*/}}
+{{- define "gitlab-achievements.databaseDsn" -}}
+{{- if .Values.secrets.databaseDsn }}
+{{- .Values.secrets.databaseDsn }}
+{{- else if .Values.persistence.enabled }}
+{{- printf "sqlite://%s/gitlab-achievements.db" (trimSuffix "/" .Values.persistence.mountPath) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the PersistentVolumeClaim mounted for the default SQLite database:
+one the operator already has, or the one this chart creates.
+*/}}
+{{- define "gitlab-achievements.pvcName" -}}
+{{- default (printf "%s-data" (include "gitlab-achievements.fullname" .)) .Values.persistence.existingClaim }}
+{{- end }}
+
+{{/*
+The data volume, shared by the Deployment and both Jobs so all three see the
+same SQLite file. Empty when persistence is disabled, e.g. because
+secrets.databaseDsn points at a database managed elsewhere.
+*/}}
+{{- define "gitlab-achievements.volumes" -}}
+{{- if .Values.persistence.enabled -}}
+- name: data
+  persistentVolumeClaim:
+    claimName: {{ include "gitlab-achievements.pvcName" . }}
+{{- end }}
+{{- end }}
+
+{{- define "gitlab-achievements.volumeMounts" -}}
+{{- if .Values.persistence.enabled -}}
+- name: data
+  mountPath: {{ .Values.persistence.mountPath }}
+{{- end }}
+{{- end }}

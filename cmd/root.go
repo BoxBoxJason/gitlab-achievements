@@ -123,7 +123,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	secretFlag(flags, &cfg.GitLabReadToken, "gitlab-read-token", "GITLAB_READ_TOKEN", "Read-only GitLab token (read_api scope)")
 	secretFlag(flags, &cfg.GitLabWriteToken, "gitlab-write-token", "GITLAB_WRITE_TOKEN", "Write-capable GitLab token (api scope), scoped down by role")
 	flags.StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
-	secretFlag(flags, &cfg.DatabaseDSN, "database-dsn", "DATABASE_DSN", "Database connection string (postgres://, sqlite://, mysql://, or sqlserver://)")
+	secretFlag(flags, &cfg.DatabaseDSN, "database-dsn", "DATABASE_DSN", fmt.Sprintf("Database connection string (postgres://, sqlite://, mysql://, or sqlserver://); defaults to %q", config.DefaultDatabaseDSN))
 	secretFlag(flags, &cfg.WebhookSecret, "webhook-secret", "WEBHOOK_SECRET", "Secret token used to validate incoming GitLab webhook deliveries")
 	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register its GitLab webhooks")
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")

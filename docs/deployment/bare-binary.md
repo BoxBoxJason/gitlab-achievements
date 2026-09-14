@@ -50,7 +50,9 @@ What every setting does is in [configuration.md](../configuration.md); the templ
 
 ## 4. The database
 
-PostgreSQL, on this host or elsewhere:
+Left unset, `DATABASE_DSN` defaults to SQLite at `/var/lib/gitlab-achievements/data.db`, which is what a single-host install wants: nothing else to run, at the cost of being one file rather than a service, so make sure it's on backed-up storage. The unit's `StateDirectory=gitlab-achievements` (see the `.service` file) creates and owns `/var/lib/gitlab-achievements` automatically, so nothing further to set up.
+
+To use PostgreSQL (or MySQL/MariaDB, or SQL Server) instead, on this host or elsewhere:
 
 ```sql
 CREATE USER achievements WITH PASSWORD '...';
@@ -61,13 +63,7 @@ CREATE DATABASE achievements OWNER achievements;
 DATABASE_DSN=postgres://achievements:...@localhost:5432/achievements?sslmode=require
 ```
 
-The app creates its own schema at startup, so an empty database is enough.
-
-For a small install you can skip the server entirely and use SQLite:
-
-```ini
-DATABASE_DSN=sqlite:///var/lib/gitlab-achievements/data.db
-```
+The app creates its own schema at startup, so an empty database is enough either way.
 
 The unit's `StateDirectory` creates `/var/lib/gitlab-achievements` owned by the service account, so that path works with no further setup. That file then holds every user's EXP and the record of which awards were delivered, so back it up.
 

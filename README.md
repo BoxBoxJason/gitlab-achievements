@@ -78,7 +78,7 @@ $ curl -s https://achievements.example.com/api/v1/users/alice/exp
 
 ## Deploy it
 
-One static binary plus a SQL database (PostgreSQL, SQLite, MySQL/MariaDB or SQL Server). No agent on your GitLab, no plugin, no patched instance.
+One static binary. It keeps its state in SQLite by default — no separate database to run — or PostgreSQL, MySQL/MariaDB, or SQL Server if you'd rather. No agent on your GitLab, no plugin, no patched instance.
 
 | Target | What you get | Guide |
 | --- | --- | --- |

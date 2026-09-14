@@ -6,7 +6,7 @@ Everything is validated at startup, all at once. A misconfigured deployment repo
 
 ## Required
 
-The app refuses to start without these seven.
+The app refuses to start without these six.
 
 | Flag | Environment | What it is |
 | --- | --- | --- |
@@ -14,9 +14,10 @@ The app refuses to start without these seven.
 | `--gitlab-read-token` | `GITLAB_READ_TOKEN` | Token with `read_api` scope, used for all data fetching |
 | `--gitlab-write-token` | `GITLAB_WRITE_TOKEN` | Token with `api` scope on an instance-admin account, used to manage webhooks and achievements. Must differ from the read token |
 | `--achievements-namespace` | `ACHIEVEMENTS_NAMESPACE` | Full path of the group owning the achievement definitions, e.g. `achievements` |
-| `--database-dsn` | `DATABASE_DSN` | Where state is kept, see [Databases](#databases) |
 | `--webhook-secret` | `WEBHOOK_SECRET` | Shared secret GitLab presents on every delivery |
 | `--public-url` | `PUBLIC_URL` | Base URL GitLab reaches this app at. Trailing slashes are stripped; the webhook path is appended |
+
+`--database-dsn` / `DATABASE_DSN` is not in this list: left unset, it defaults to a local SQLite file, see [Databases](#databases).
 
 Where the two credentials come from, and what trusting the admin one implies, is in [GitLab-side setup](gitlab-setup.md).
 
@@ -24,6 +25,7 @@ Where the two credentials come from, and what trusting the admin one implies, is
 
 | Flag | Environment | Default | What it does |
 | --- | --- | --- | --- |
+| `--database-dsn` | `DATABASE_DSN` | `sqlite:///var/lib/gitlab-achievements/data.db` | Where state is kept, see [Databases](#databases) |
 | `--listen-addr` | `LISTEN_ADDR` | `:8080` | Address the HTTP server binds to |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--hook-scope` | `HOOK_SCOPE` | `auto` | `auto`, `group`, `project`, see [Webhooks](webhooks.md#which-kind-and-why) |
@@ -60,7 +62,7 @@ The DBMS is picked from the DSN's scheme:
 | `mysql://` | `mysql://user:password@tcp(localhost:3306)/achievements?parseTime=true` |
 | `sqlserver://` | `sqlserver://user:password@localhost:1433?database=achievements` |
 
-PostgreSQL is what the deployment guides assume. SQLite is a reasonable choice for a small single-host install, where it makes the app a self-contained process with a file for state. Note that the file is then the only copy of every user's EXP, so it belongs on backed-up storage rather than in a container that will be replaced.
+SQLite is the default: nothing to stand up alongside the app, at the cost of being a single file rather than a service, so it belongs on backed-up storage rather than in a container that will be replaced (see the [Helm chart](deployment/kubernetes.md#the-database)'s PVC for the Kubernetes case). PostgreSQL, MySQL, and SQL Server are the scale-up path once one process and one file stop being enough, or where operational convention already points at a managed database.
 
 Migrations run at startup against whichever you pick. The schema is created on first start, so an empty database is all that has to exist.
 

@@ -1,6 +1,6 @@
 # Kubernetes
 
-A Helm chart lives in [`chart/`](../../chart). It deploys the app and nothing else: point it at a PostgreSQL you already manage. Work through [GitLab-side setup](../gitlab-setup.md) first.
+A Helm chart lives in [`chart/`](../../chart). By default it deploys the app plus a small PVC for a self-contained SQLite database; point it at a PostgreSQL, MySQL, or SQL Server you already manage instead if you'd rather. Work through [GitLab-side setup](../gitlab-setup.md) first.
 
 ## Install
 
@@ -66,15 +66,19 @@ kubectl -n gitlab-achievements create secret generic gitlab-achievements-credent
   --from-literal=DATABASE_DSN='postgres://achievements:...@postgres.databases.svc:5432/achievements?sslmode=require'
 ```
 
+To run the default SQLite database from an `existingSecret`, set `DATABASE_DSN` to a path under `persistence.mountPath` yourself, e.g. `sqlite:///data/gitlab-achievements.db` — the app's own built-in default points elsewhere (`/var/lib/gitlab-achievements/data.db`), which is not on the PVC and, with `securityContext.readOnlyRootFilesystem: true`, is not writable at all. Only the Secret the chart creates itself (no `existingSecret` set) resolves an empty `secrets.databaseDsn` to the PVC path automatically; see [The database](#the-database) below.
+
 Add `OAUTH_CLIENT_SECRET` only if you registered a confidential OAuth application by hand.
 
 You can also set `secrets.gitlabReadToken` and friends and let the chart create the Secret. That puts an instance-admin token in your values file and in the release's stored manifest, which is a poor fit for anything committed to git. See the trust callout in [GitLab-side setup](../gitlab-setup.md#4-create-the-write-credential). When the chart owns the Secret it annotates the pod with its checksum, so rotating a token in values rolls the pod instead of leaving it running on the old credential.
 
 ## The database
 
-The chart deploys no database. A bundled one would be a dependency to version, patch and CVE-track for the sake of a workload that is trivially small and belongs on whatever PostgreSQL your cluster already has.
+By default the chart runs SQLite: `persistence.enabled: true` creates a 1Gi PVC (`persistence.size`), mounted at `persistence.mountPath` (`/data`), and `secrets.databaseDsn` left empty resolves to a file on it. Nothing external to stand up, patch, or CVE-track for a workload this small; a single-replica `Recreate` Deployment is exactly what a SQLite file wants, since it is never opened by two writers at once. The file is the only copy of every user's EXP, so back up the volume — a `VolumeSnapshot`, or whatever your storage class supports — the same as you would a database.
 
-Point `DATABASE_DSN` at it. Any of the schemes in [configuration.md](../configuration.md#databases) works; PostgreSQL is what this is tested against. The app creates its own schema at startup, so an empty database and a user that owns it are enough.
+Set `secrets.databaseDsn` (or an `existingSecret` carrying `DATABASE_DSN`) to point at a PostgreSQL, MySQL, or SQL Server you manage instead, and set `persistence.enabled: false` so the release doesn't carry an unused PVC. Any of the schemes in [configuration.md](../configuration.md#databases) works; PostgreSQL is what this is tested against outside of SQLite. The app creates its own schema at startup, so an empty database and a user that owns it are enough.
+
+`persistence.existingClaim` mounts a PVC you already created instead of one the chart manages, e.g. to pick a specific storage class or reuse one across upgrades independent of the release.
 
 ## Why one replica
 
@@ -104,7 +108,7 @@ The chart's Ingress is optional and plain. A Gateway API route, a `LoadBalancer`
 The chart ships no NetworkPolicy, because what it would have to allow depends entirely on where GitLab and the database live. On a cluster that defaults to deny, three flows need opening, and two of them are easy to forget because nothing fails loudly:
 
 - **app to GitLab**, for every API call it makes, including the one `/readyz` depends on.
-- **app to PostgreSQL**.
+- **app to the database**, when it is external (PostgreSQL, MySQL, SQL Server). Not needed for the default SQLite, which is a file on the pod's own PVC rather than a network call.
 - **GitLab to app**, on the Service port, when `config.publicUrl` is a cluster-internal address. Without it, hooks register successfully and every delivery is dropped. The app simply sees no events, and the failures are visible only on GitLab's side under the hook's **Recent events**.
 
 If GitLab is itself covered by a policy, the rule has to be added to *its* egress as well as to this app's ingress. An allowlist policy on the GitLab pods will not permit the delivery just because this app permits receiving it.

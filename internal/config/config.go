@@ -47,6 +47,14 @@ const (
 	// is still covered by the next one without relying on the watermark to
 	// widen the window.
 	DefaultReconcileLookback = 48 * time.Hour
+	// DefaultDatabaseDSN is used when no database DSN is configured. SQLite
+	// needs nothing standing up alongside the app, unlike every other
+	// supported DBMS, which is what makes it the default rather than
+	// PostgreSQL: a deployment that configures nothing still starts. The
+	// path is under /var/lib rather than the working directory so a bare
+	// binary and the container image (whose default WORKDIR need not be
+	// writable) land the file in the same conventional place.
+	DefaultDatabaseDSN = "sqlite:///var/lib/gitlab-achievements/data.db"
 	// backfillSinceDateLayout is the calendar-date form --backfill-since
 	// accepts, alongside a Go duration.
 	backfillSinceDateLayout = "2006-01-02"
@@ -403,6 +411,10 @@ func (c *Config) applyDefaults() {
 		c.APIAuth = string(DefaultAPIAuth)
 	}
 
+	if strings.TrimSpace(c.DatabaseDSN) == "" {
+		c.DatabaseDSN = DefaultDatabaseDSN
+	}
+
 	if c.HookRate == 0 {
 		c.HookRate = DefaultHookRate
 	}
@@ -448,7 +460,6 @@ func (c *Config) requiredFields() []requiredField {
 		{"gitlab-read-token", c.GitLabReadToken},
 		{"gitlab-write-token", c.GitLabWriteToken},
 		{"achievements-namespace", c.AchievementsNamespace},
-		{"database-dsn", c.DatabaseDSN},
 		{"webhook-secret", c.WebhookSecret},
 		{"public-url", c.PublicURL},
 	}

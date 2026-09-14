@@ -77,6 +77,14 @@ spec:
             {{- include "gitlab-achievements.envFrom" . | nindent 12 }}
           resources:
             {{- toYaml .Values.uninstallJob.resources | nindent 12 }}
+          {{- with (include "gitlab-achievements.volumeMounts" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with (include "gitlab-achievements.volumes" .) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
       {{- with .Values.uninstallJob.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

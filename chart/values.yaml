@@ -86,12 +86,31 @@ secrets:
   gitlabWriteToken: ""
   # Shared secret GitLab presents on every webhook delivery.
   webhookSecret: ""
-  # Database connection string. The chart deploys no database: point this at a
-  # PostgreSQL you manage, e.g.
+  # Database connection string. Left empty, it defaults to a SQLite file under
+  # persistence.mountPath, backed by the PVC below. Point it at a PostgreSQL,
+  # MySQL, or SQL Server you manage instead, e.g.
   # postgres://user:password@postgres.databases.svc:5432/achievements?sslmode=require
+  # — in which case persistence can be disabled, since nothing local needs it.
   databaseDsn: ""
   # Only needed alongside config.api.oauthClientId for a confidential client.
   oauthClientSecret: ""
+
+# Backs the default SQLite database with a PersistentVolumeClaim, mounted at
+# persistence.mountPath. Ignored if secrets.databaseDsn points at a database
+# you manage elsewhere (PostgreSQL, MySQL, SQL Server) — disable it then, so
+# the release doesn't carry an unused volume.
+persistence:
+  enabled: true
+  # Claim the chart creates. Set to use one you already have instead; the
+  # chart neither creates nor deletes it, and size/storageClassName/accessMode
+  # below are ignored.
+  existingClaim: ""
+  size: 1Gi
+  # Empty uses the cluster's default StorageClass.
+  storageClassName: ""
+  accessMode: ReadWriteOnce
+  # Directory the volume is mounted at. The default SQLite DSN points inside it.
+  mountPath: /data
 
 service:
   type: ClusterIP

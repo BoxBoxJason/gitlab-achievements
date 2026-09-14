@@ -27,7 +27,7 @@ The app image is built `FROM scratch` and holds nothing but the binary, so there
 
 ## What to set
 
-Everything in `.env.example` is annotated, and the seven required settings are listed in [configuration.md](../configuration.md). Two are compose-specific:
+Everything in `.env.example` is annotated, and the six required settings are listed in [configuration.md](../configuration.md). Two are compose-specific:
 
 - **`DATABASE_DSN`** points at the bundled database by hostname `db`: `postgres://achievements:<password>@db:5432/achievements?sslmode=disable`. TLS is off because the connection never leaves compose's own network.
 - **`POSTGRES_PASSWORD`** has to be the same password as the one in that DSN. It is spelled twice because the app and PostgreSQL are configured separately, and it is the most common reason a first start fails on the database.

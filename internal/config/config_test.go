@@ -34,6 +34,19 @@ func TestValidate_Valid(t *testing.T) {
 	}
 }
 
+func TestValidate_DefaultsDatabaseDSNToSQLite(t *testing.T) {
+	cfg := validConfig()
+	cfg.DatabaseDSN = ""
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.DatabaseDSN != DefaultDatabaseDSN {
+		t.Errorf("expected the dsn to default to %q, got %q", DefaultDatabaseDSN, cfg.DatabaseDSN)
+	}
+}
+
 func TestValidate_MissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -44,7 +57,6 @@ func TestValidate_MissingRequiredFields(t *testing.T) {
 		{"missing gitlab-read-token", func(c *Config) { c.GitLabReadToken = "" }, "gitlab-read-token is required"},
 		{"missing gitlab-write-token", func(c *Config) { c.GitLabWriteToken = "" }, "gitlab-write-token is required"},
 		{"missing achievements-namespace", func(c *Config) { c.AchievementsNamespace = "" }, "achievements-namespace is required"},
-		{"missing database-dsn", func(c *Config) { c.DatabaseDSN = "" }, "database-dsn is required"},
 		{"missing webhook-secret", func(c *Config) { c.WebhookSecret = "" }, "webhook-secret is required"},
 		{"missing public-url", func(c *Config) { c.PublicURL = "" }, "public-url is required"},
 		{"blank gitlab-url (whitespace only)", func(c *Config) { c.GitLabURL = "   " }, "gitlab-url is required"},

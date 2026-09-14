@@ -54,6 +54,14 @@ spec:
             {{- include "gitlab-achievements.envFrom" . | nindent 12 }}
           resources:
             {{- toYaml .Values.backfillJob.resources | nindent 12 }}
+          {{- with (include "gitlab-achievements.volumeMounts" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with (include "gitlab-achievements.volumes" .) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
       {{- with .Values.backfillJob.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
