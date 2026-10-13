@@ -44,6 +44,12 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | `--exclude-users` | `EXCLUDE_USERS` | *(unset)* | Usernames or GitLab user IDs to leave out, comma-separated |
 | `--exclude-username-pattern` | `EXCLUDE_USERNAME_PATTERN` | *(unset)* | Regular expression; matching usernames are left out |
 | `--allow-opt-out` | `ALLOW_OPT_OUT` | `true` | Let users leave themselves out through the API. Needs `--api-auth gitlab` |
+| `--session-secret` | `SESSION_SECRET` | *(derived from `WEBHOOK_SECRET`)* | Key the GitLab tokens browser sessions hold are encrypted under, at least 32 characters. Changing it signs everybody out |
+| `--session-lifetime` | `SESSION_LIFETIME` | `168h` | How long a browser stays signed in. Sessions renew their GitLab token as it runs out |
+| `--api-auth-cache-ttl` | `API_AUTH_CACHE_TTL` | `1m` | How long a verified credential is trusted before GitLab is asked again, and so how long a revoked token keeps working. `0s` disables, at most `1h` |
+| `--api-allowed-group` | `API_ALLOWED_GROUP` | *(unset)* | Full path of a group; only its members and instance admins may use the API. Needs `--api-auth gitlab` |
+| `--oauth-return-origins` | `OAUTH_RETURN_ORIGINS` | *(unset)* | Origins besides `--public-url`'s that a login may return to, comma-separated, e.g. `https://rankings.example.com` |
+| `--frontend-dir` | `FRONTEND_DIR` | *(unset)* | Directory of a built static frontend served at `/`. See [Serving a frontend](frontend.md) |
 
 ## Subcommands
 

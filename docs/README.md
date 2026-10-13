@@ -9,6 +9,7 @@
 | [Kubernetes](deployment/kubernetes.md) | Helm chart, secrets, probes, ingress, running the backfill as a Job |
 | [Docker Compose](deployment/docker-compose.md) | App plus PostgreSQL on one host, TLS in front, backups, scheduled jobs |
 | [Bare binary](deployment/bare-binary.md) | systemd unit against a database you manage, plus timers |
+| [Serving a frontend](frontend.md) | Putting a rankings page on the API's origin, signing in from it |
 | [Metrics](metrics.md) | What is exported for Prometheus, and what to alert on |
 | [Uninstalling](uninstall.md) | Taking the webhooks and achievements back off your instance |
 

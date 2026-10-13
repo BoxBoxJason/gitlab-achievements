@@ -191,3 +191,7 @@ The Job is opt-in rather than a `pre-delete` hook on purpose. Deleting an achiev
 Letting the chart render it is what keeps it working. It inherits the release's image, its GitLab URL, achievements namespace and `PUBLIC_URL` — the hooks can only be found under the URL they were registered against — its credentials Secret, and its pod labels. That last one matters more than it looks: a hand-written Job carries none of the labels a NetworkPolicy selects on, so it is denied its way to GitLab and fails on a connection timeout that reads like a GitLab outage.
 
 The database is yours and is left alone. It is also what the removal reads from, so dropping it first leaves the app no record of what it registered; `uninstall --sweep` enumerates the instance to recover from that.
+
+## A frontend on the same origin
+
+`frontend.enabled` copies a static frontend out of an image of yours and serves it at `/` beside the API, so it can use the login session without any CORS. [Serving a frontend](../frontend.md) covers the values, and the alternative of routing paths at the Ingress instead.
