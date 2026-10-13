@@ -93,6 +93,22 @@ jobs:
       - name: Run Test (Makefile)
         run: make test
 
+  govulncheck:
+    name: Vulnerability check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: true
+
+      # Reports only vulnerabilities in code paths the binary actually calls,
+      # in its dependencies and in the Go standard library it was built with.
+      - name: Run govulncheck (Makefile)
+        run: make vulncheck
+
   oci:
     name: Build OCI Image
     runs-on: ubuntu-latest
