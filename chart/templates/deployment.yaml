@@ -52,12 +52,19 @@ spec:
             - name: http
               containerPort: {{ include "gitlab-achievements.containerPort" . }}
               protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
           env:
             {{- include "gitlab-achievements.env" . | nindent 12 }}
             - name: BACKFILL
               value: {{ .Values.config.backfill.mode | quote }}
             - name: RECONCILE
               value: {{ .Values.config.reconcile.mode | quote }}
+            - name: METRICS_ADDR
+              value: {{ ternary (printf ":%v" .Values.metrics.port) "off" .Values.metrics.enabled | quote }}
             {{- with .Values.config.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
