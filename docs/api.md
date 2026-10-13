@@ -9,6 +9,9 @@ GitLab shows which achievements somebody holds but has no notion of EXP, so this
 | `GET` | `/api/v1/users/{ref}` | EXP total, criteria counters, and every tier earned |
 | `GET` | `/api/v1/users/{ref}/exp` | The EXP total alone |
 | `GET` | `/api/v1/leaderboard?limit=N` | Top N users by EXP (default 10, max 100) |
+| `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part](participation.md#opting-out) |
+
+Users who are [left out](participation.md) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
 
 `{ref}` is either a numeric GitLab user ID or a username. An all-digit ref is tried as an ID first and falls back to a username, so an all-numeric username still resolves unless it collides with a real user ID. Usernames resolve through whatever this app last saw, so somebody who was renamed on GitLab is still found under their current name.
 

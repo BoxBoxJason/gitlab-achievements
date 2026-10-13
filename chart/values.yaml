@@ -69,6 +69,20 @@ config:
     # Client ID of a hand-registered OAuth application. Empty lets the app
     # register a public one for itself when auth is gitlab.
     oauthClientId: ""
+  # Who takes part. See docs/participation.md.
+  exclusions:
+    # Leave out the accounts GitLab flags as bots: project and group access
+    # token users, service accounts, GitLab's own bots.
+    bots: true
+    # Usernames or GitLab user IDs to leave out.
+    users: []
+    #  - renovate
+    #  - "1234"
+    # Regular expression (RE2); matching usernames are left out.
+    usernamePattern: ""
+    # Let users opt themselves out through the API. Only takes effect with
+    # api.auth: gitlab, since the API has to know who is asking.
+    allowOptOut: true
   # Extra environment variables, appended last so they can override anything
   # above. Standard Kubernetes env entries, so valueFrom works.
   extraEnv: []

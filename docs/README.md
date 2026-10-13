@@ -17,6 +17,7 @@
 | Guide | What it covers |
 | --- | --- |
 | [How it works](how-it-works.md) | The lifecycle from bootstrap to steady state, the two tokens, where state lives |
+| [Who takes part](participation.md) | Bot exclusion, excluding accounts by name or pattern, opting out |
 | [Achievements and EXP](achievements.md) | The catalog, the curves, how EXP is derived, what reaches GitLab |
 | [The API](api.md) | Endpoints, response shapes, authentication |
 | [Webhooks](webhooks.md) | Which hooks get registered and why, the hourly sweep, event coverage |

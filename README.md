@@ -98,6 +98,7 @@ Everything lives in [docs/](docs/).
 | [Configuration](docs/configuration.md) | Every flag and environment variable |
 | [How it works](docs/how-it-works.md) | The lifecycle, from bootstrap to steady state |
 | [Achievements & EXP](docs/achievements.md) | The catalog, the tiers, and what reaches GitLab |
+| [Who takes part](docs/participation.md) | Bots left out by default, excluding accounts, opting out |
 | [The API](docs/api.md) | Endpoints, responses, authentication |
 | [Webhooks](docs/webhooks.md) | Which hooks get registered, and why |
 | [Historical backfill](docs/backfill.md) | Awarding for activity that predates the bot |

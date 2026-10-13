@@ -124,6 +124,14 @@ separately, through envFrom, so they never appear in a pod spec.
   value: {{ .Values.config.api.auth | quote }}
 - name: OAUTH_CLIENT_ID
   value: {{ .Values.config.api.oauthClientId | quote }}
+- name: EXCLUDE_BOTS
+  value: {{ .Values.config.exclusions.bots | quote }}
+- name: EXCLUDE_USERS
+  value: {{ join "," .Values.config.exclusions.users | quote }}
+- name: EXCLUDE_USERNAME_PATTERN
+  value: {{ .Values.config.exclusions.usernamePattern | quote }}
+- name: ALLOW_OPT_OUT
+  value: {{ .Values.config.exclusions.allowOptOut | quote }}
 {{- end }}
 
 {{/*
