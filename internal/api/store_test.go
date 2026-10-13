@@ -317,7 +317,7 @@ func TestLeaderboard_OrdersByEXPDescending(t *testing.T) {
 
 	s := &store{conn: conn}
 
-	board, err := s.Leaderboard(t.Context(), 10)
+	board, err := s.Leaderboard(t.Context(), page{limit: 10}, window{period: PeriodAll})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestLeaderboard_BreaksTiesByUserID(t *testing.T) {
 
 	s := &store{conn: conn}
 
-	board, err := s.Leaderboard(t.Context(), 10)
+	board, err := s.Leaderboard(t.Context(), page{limit: 10}, window{period: PeriodAll})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestLeaderboard_HonorsTheLimit(t *testing.T) {
 
 	s := &store{conn: conn}
 
-	board, err := s.Leaderboard(t.Context(), 2)
+	board, err := s.Leaderboard(t.Context(), page{limit: 2}, window{period: PeriodAll})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -126,6 +127,9 @@ func (a *API) routes() {
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}", a.handleUser)
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}/exp", a.handleUserEXP)
 	read.HandleFunc("GET "+PathPrefix+"leaderboard", a.handleLeaderboard)
+	read.HandleFunc("GET "+PathPrefix+"leaderboard/criteria/{criteria}", a.handleCriteriaLeaderboard)
+	read.HandleFunc("GET "+PathPrefix+"achievements", a.handleAchievements)
+	read.HandleFunc("GET "+PathPrefix+"achievements/{criteria}/icon", a.handleAchievementIcon)
 	a.optOutRoutes(read)
 
 	a.mux.Handle(PathPrefix, a.protect(read))
@@ -172,14 +176,49 @@ func (a *API) handleUserEXP(resp http.ResponseWriter, req *http.Request) {
 
 // handleLeaderboard serves the top users by EXP.
 func (a *API) handleLeaderboard(resp http.ResponseWriter, req *http.Request) {
-	limit, err := leaderboardLimit(req.URL.Query().Get("limit"))
+	slice, err := parsePage(req)
 	if err != nil {
 		writeError(resp, http.StatusBadRequest, err.Error())
 
 		return
 	}
 
-	board, err := a.store.Leaderboard(req.Context(), limit)
+	span, err := parseWindow(req, time.Now())
+	if err != nil {
+		writeError(resp, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	board, err := a.store.Leaderboard(req.Context(), slice, span)
+	if err != nil {
+		a.fail(resp, req, err)
+
+		return
+	}
+
+	a.writeJSON(resp, board)
+}
+
+// handleCriteriaLeaderboard serves the ranking for one criteria's counter.
+//
+// It has no period: counters hold running totals, not a history, so there
+// is nothing to tell how much of a count was earned inside a window.
+func (a *API) handleCriteriaLeaderboard(resp http.ResponseWriter, req *http.Request) {
+	if req.URL.Query().Has("period") || req.URL.Query().Has("since") {
+		writeError(resp, http.StatusBadRequest, "per-criteria rankings cover all time only: counters keep totals, not history")
+
+		return
+	}
+
+	slice, err := parsePage(req)
+	if err != nil {
+		writeError(resp, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	board, err := a.store.criteriaLeaderboard(req.Context(), req.PathValue("criteria"), slice)
 	if err != nil {
 		a.fail(resp, req, err)
 
@@ -222,6 +261,12 @@ func leaderboardLimit(raw string) (int, error) {
 func (a *API) fail(resp http.ResponseWriter, req *http.Request, err error) {
 	if errors.Is(err, ErrUserUnknown) {
 		writeError(resp, http.StatusNotFound, "no activity recorded for this user")
+
+		return
+	}
+
+	if errors.Is(err, ErrCriteriaUnknown) {
+		writeError(resp, http.StatusNotFound, "no such criteria")
 
 		return
 	}
