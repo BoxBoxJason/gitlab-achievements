@@ -48,6 +48,23 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Container image reference, shared by every workload so they always run the
+same build. The digest, when set, is appended rather than substituted for the
+tag: repository:tag@digest is valid and keeps the version readable.
+*/}}
+{{- define "gitlab-achievements.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- if hasPrefix "@" $tag -}}
+{{- fail "image.tag must be a tag, not a digest: put sha256:... in image.digest instead" -}}
+{{- end -}}
+{{- $ref := printf "%s:%s" .Values.image.repository $tag -}}
+{{- with .Values.image.digest -}}
+{{- $ref = printf "%s@%s" $ref (trimPrefix "@" .) -}}
+{{- end -}}
+{{- $ref -}}
+{{- end }}
+
+{{/*
 Name of the Secret holding the credentials: the one the operator manages, or
 the one this chart creates.
 */}}
