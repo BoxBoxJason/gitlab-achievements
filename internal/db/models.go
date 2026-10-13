@@ -14,13 +14,25 @@ import "time"
 // equals the sum of ExpReward over the user's awards, and the engine
 // recomputes it from those awards rather than accumulating it forward (see
 // engine.RecomputeEXP for why).
+//
+// ExcludedReason is empty for a user who takes part, and otherwise says why
+// they do not (see the exclusion package). It is stored rather than worked
+// out at read time so the leaderboard can filter on it in SQL: part of the
+// decision rests on a configured username pattern no DBMS can evaluate
+// portably, and part on a GitLab lookup the read path must never make.
+// IsBot and BotCheckedAt cache that lookup, which never changes for a given
+// account; OptedOutAt records a user's own request to be left out.
 type User struct {
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Username     string `gorm:"not null"`
-	ID           int64  `gorm:"primarykey"`
-	GitLabUserID int64  `gorm:"uniqueIndex;not null"`
-	ExpTotal     int64  `gorm:"column:exp_total;not null;default:0"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	BotCheckedAt   *time.Time
+	OptedOutAt     *time.Time
+	Username       string `gorm:"not null"`
+	ExcludedReason string `gorm:"not null;default:'';index"`
+	ID             int64  `gorm:"primarykey"`
+	GitLabUserID   int64  `gorm:"uniqueIndex;not null"`
+	ExpTotal       int64  `gorm:"column:exp_total;not null;default:0"`
+	IsBot          bool   `gorm:"not null;default:false"`
 }
 
 // AchievementDefinition is a local mirror of a GitLab achievement, tracking

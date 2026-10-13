@@ -428,3 +428,30 @@ func TestReconcileAwards_LeavesSupersededAwardsSettled(t *testing.T) {
 		t.Errorf("expected an already-superseded tier not to be counted again, got %+v", report)
 	}
 }
+
+func TestReconcileAwards_PushesNothingForExcludedUsers(t *testing.T) {
+	conn := testConn(t)
+	write := &fakeAchievementWriter{}
+
+	bot := seedUser(t, conn, write, "project_4_bot_beef", 100)
+	def := seedTier(t, conn, "commits", 1, 9)
+	award := seedAward(t, conn, bot, def, appdb.AwardStatusPending)
+
+	err := conn.Model(&appdb.User{}).Where("id = ?", bot.ID).Update("excluded_reason", "bot").Error
+	if err != nil {
+		t.Fatalf("failed to exclude user: %v", err)
+	}
+
+	report, err := ReconcileAwards(t.Context(), write, conn)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if write.awardCalls != 0 || report.Confirmed != 0 {
+		t.Fatalf("expected nothing pushed for an excluded user, got %d calls and %+v", write.awardCalls, report)
+	}
+
+	if reloaded := reloadAward(t, conn, award.ID); reloaded.Status != appdb.AwardStatusPending {
+		t.Errorf("expected the award to be left as it was, got %q", reloaded.Status)
+	}
+}

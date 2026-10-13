@@ -148,7 +148,12 @@ func executeBackfill(
 		return fmt.Errorf("failed to build rate-limited gitlab read client: %w", err)
 	}
 
-	achievements := engine.New(conn)
+	filter, err := buildExclusionFilter(cfg, conn, readClient)
+	if err != nil {
+		return err
+	}
+
+	achievements := engine.New(conn, engine.WithFilter(filter))
 
 	zap.L().Info("historical backfill starting",
 		zap.Float64("requests_per_second", cfg.BackfillRate),

@@ -1,6 +1,7 @@
 package gitlabclient
 
 import (
+	"context"
 	"fmt"
 	"iter"
 
@@ -44,4 +45,16 @@ func (c *ReadClient) ListUsers(opt *gitlab.ListUsersOptions, options ...gitlab.R
 	return iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.User, *gitlab.Response, error) {
 		return c.raw.Users.ListUsers(opt, withExtra(options, reqOpts...)...)
 	})
+}
+
+// IsBot reports whether GitLab flags the account as a bot: the users behind
+// project and group access tokens, service accounts, and GitLab's own
+// internal bots all carry the flag.
+func (c *ReadClient) IsBot(ctx context.Context, gitlabUserID int64) (bool, error) {
+	user, err := c.GetUser(gitlabUserID, nil, gitlab.WithContext(ctx))
+	if err != nil {
+		return false, err
+	}
+
+	return user.Bot, nil
 }

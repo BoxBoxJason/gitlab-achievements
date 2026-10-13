@@ -219,7 +219,12 @@ func executeReconcile(ctx context.Context, cfg *config.Config, conn *gorm.DB, wr
 		return fmt.Errorf("failed to build rate-limited gitlab read client: %w", err)
 	}
 
-	achievements := engine.New(conn)
+	filter, err := buildExclusionFilter(cfg, conn, readClient)
+	if err != nil {
+		return err
+	}
+
+	achievements := engine.New(conn, engine.WithFilter(filter))
 
 	report, err := reconcile.Run(ctx, readClient, conn, achievements, reconcile.Options{
 		Lookback: cfg.ReconcileLookback,
