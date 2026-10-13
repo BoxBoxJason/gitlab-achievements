@@ -132,11 +132,16 @@ func (a *API) writeOptOutStatus(resp http.ResponseWriter, req *http.Request, ide
 		return
 	}
 
-	a.writeJSON(resp, OptOutStatus{
+	a.writeJSON(resp, participation(a.exclusions, reason, optedOutAt))
+}
+
+// participation describes a user's standing as the API reports it.
+func participation(exclusions Exclusions, reason exclusion.Reason, optedOutAt *time.Time) *OptOutStatus {
+	return &OptOutStatus{
 		OptedOut:   optedOutAt != nil,
 		OptedOutAt: optedOutAt,
 		Excluded:   reason != exclusion.Included,
 		Reason:     string(reason),
-		Allowed:    a.exclusions.AllowsOptOut(),
-	})
+		Allowed:    exclusions.AllowsOptOut(),
+	}
 }

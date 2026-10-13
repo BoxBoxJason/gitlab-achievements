@@ -4,9 +4,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/api"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
@@ -184,7 +188,7 @@ func TestNewHTTPServer_BoundsEveryPhaseOfAConnection(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
 	cfg := &config.Config{ListenAddr: ":0"}
-	srv := newHTTPServer(cfg, nil, nil, http.NotFoundHandler(), api.New(conn, api.Options{}))
+	srv := newHTTPServer(cfg, nil, nil, http.NotFoundHandler(), mustAPI(t, conn), nil)
 
 	for name, timeout := range map[string]time.Duration{
 		"ReadHeaderTimeout": srv.ReadHeaderTimeout,
@@ -303,5 +307,60 @@ func TestCheckBoolEnv_RejectsNonBoolean(t *testing.T) {
 	err = checkBoolEnv()
 	if err != nil {
 		t.Fatalf("expected a valid boolean to pass, got %v", err)
+	}
+}
+
+func mustAPI(t *testing.T, conn *gorm.DB) *api.API {
+	t.Helper()
+
+	readAPI, err := api.New(conn, api.Options{})
+	if err != nil {
+		t.Fatalf("failed to build api: %v", err)
+	}
+
+	return readAPI
+}
+
+func TestNewHTTPServer_FrontendNeverShadowsTheAPI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("frontend"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := &config.Config{ListenAddr: ":0", FrontendDir: dir}
+
+	site, err := buildFrontend(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	conn, err := db.Open("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+
+	srv := newHTTPServer(cfg, nil, nil, http.NotFoundHandler(), mustAPI(t, conn), site)
+
+	for path, frontendExpected := range map[string]bool{
+		"/":                   true,
+		"/rankings":           true,
+		"/healthz":            false,
+		"/api/v1/leaderboard": false,
+		"/oauth/login":        false,
+		"/api/v1/nope":        false,
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if got := strings.Contains(rec.Body.String(), "frontend"); got != frontendExpected {
+			t.Errorf("GET %s: served the frontend = %v, want %v (status %d)", path, got, frontendExpected, rec.Code)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/webhooks/gitlab", nil))
+
+	if strings.Contains(rec.Body.String(), "frontend") {
+		t.Error("expected webhook deliveries to reach the receiver, not the frontend")
 	}
 }

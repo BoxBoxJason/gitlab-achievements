@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 const (
@@ -31,18 +34,26 @@ const (
 	// Only the browser that started the flow holds it, which is what stops
 	// an intercepted authorization code from being exchanged by anyone else.
 	verifierCookie = "gitlab_achievements_oauth_verifier"
+	// returnCookie carries where to send the browser once it is logged in.
+	returnCookie = "gitlab_achievements_oauth_return"
+
+	// returnToParam is the login query parameter naming where to land.
+	returnToParam = "return_to"
 
 	// flowTTL bounds how long a login may sit half-finished. It only has to
 	// outlast a human deciding whether to authorize the application.
 	flowTTL = 10 * time.Minute
 	// stateBytes is the entropy in the CSRF nonce.
 	stateBytes = 32
-	// exchangeTimeout bounds the authorization-code exchange. oauth2 uses
-	// http.DefaultClient, which has no timeout of its own, and the server's
-	// WriteTimeout does not cancel a handler's context, so without this a
-	// slow token endpoint would outlive the response it is meant to feed.
-	exchangeTimeout = 10 * time.Second
+	// tokenEndpointTimeout bounds one call to GitLab's token endpoint, for
+	// the same reason the identity lookup is bounded: a slow instance must
+	// not hold requests open for as long as it takes to answer.
+	tokenEndpointTimeout = 10 * time.Second
 )
+
+// errReturnTo reports a return_to the login flow will not send a browser
+// to.
+var errReturnTo = errors.New("return_to must be a path on this app or a URL on an allowed origin")
 
 // OAuthOptions configures the login flow.
 type OAuthOptions struct {
@@ -57,6 +68,9 @@ type OAuthOptions struct {
 	// client relying on PKCE alone.
 	ClientID     string
 	ClientSecret string
+	// ReturnOrigins are the origins, besides PublicURL's own, a browser may
+	// be sent back to after logging in, e.g. https://rankings.example.com.
+	ReturnOrigins []string
 }
 
 // oauthFlow implements the authorization-code flow against GitLab.
@@ -65,10 +79,12 @@ type OAuthOptions struct {
 // client it is what secures the exchange at all; for the confidential one
 // it costs nothing and closes code interception regardless.
 type oauthFlow struct {
-	config   *oauth2.Config
-	sessions *sessions
-	verifier Verifier
-	secure   bool
+	config        *oauth2.Config
+	sessions      *sessions
+	verifier      Verifier
+	httpClient    *http.Client
+	returnOrigins map[string]bool
+	secure        bool
 }
 
 // newOAuthFlow builds the flow.
@@ -79,6 +95,14 @@ type oauthFlow struct {
 // over a plain-http deployment and the flow would silently never complete.
 func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) *oauthFlow {
 	base := strings.TrimRight(opts.GitLabURL, "/")
+
+	origins := map[string]bool{}
+
+	for _, origin := range append([]string{opts.PublicURL}, opts.ReturnOrigins...) {
+		if normalized, ok := originOf(origin); ok {
+			origins[normalized] = true
+		}
+	}
 
 	return &oauthFlow{
 		config: &oauth2.Config{
@@ -93,7 +117,12 @@ func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) 
 		},
 		sessions: sessionStore,
 		verifier: verifier,
-		secure:   strings.HasPrefix(strings.ToLower(opts.PublicURL), "https://"),
+		httpClient: &http.Client{
+			Timeout:   tokenEndpointTimeout,
+			Transport: metrics.Transport("oauth", http.DefaultTransport),
+		},
+		returnOrigins: origins,
+		secure:        strings.HasPrefix(strings.ToLower(opts.PublicURL), "https://"),
 	}
 }
 
@@ -107,8 +136,20 @@ func (f *oauthFlow) routes(mux *http.ServeMux) {
 
 // handleLogin sends the browser to GitLab to authorize this application,
 // having first stashed the CSRF nonce and PKCE verifier it will need to
-// finish the exchange when GitLab sends it back.
+// finish the exchange when GitLab sends it back, and where it asked to land
+// afterwards.
+//
+// A return_to that is not allowed is refused here, before the browser goes
+// anywhere, rather than ignored: a frontend passing a wrong URL should find
+// out when it is developed, not by its users landing somewhere unexpected.
 func (f *oauthFlow) handleLogin(resp http.ResponseWriter, req *http.Request) {
+	returnTo, err := f.returnTo(req.URL.Query().Get(returnToParam))
+	if err != nil {
+		writeError(resp, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
 	state, err := randomToken()
 	if err != nil {
 		zap.L().Error("failed to start an oauth login", zap.Error(err))
@@ -121,6 +162,12 @@ func (f *oauthFlow) handleLogin(resp http.ResponseWriter, req *http.Request) {
 
 	f.setFlowCookie(resp, stateCookie, state)
 	f.setFlowCookie(resp, verifierCookie, verifier)
+
+	if returnTo != "" {
+		// Encoded so that whatever characters the URL holds survive being a
+		// cookie value.
+		f.setFlowCookie(resp, returnCookie, base64.RawURLEncoding.EncodeToString([]byte(returnTo)))
+	}
 
 	http.Redirect(resp, req,
 		f.config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)),
@@ -159,11 +206,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	exchangeCtx, cancel := context.WithTimeout(req.Context(), exchangeTimeout)
-	token, err := f.config.Exchange(exchangeCtx, code, oauth2.VerifierOption(verifier.Value))
-
-	cancel()
-
+	token, err := f.config.Exchange(f.tokenContext(req.Context()), code, oauth2.VerifierOption(verifier.Value))
 	if err != nil {
 		f.clearFlowCookies(resp)
 		zap.L().Warn("failed to exchange an oauth authorization code", zap.Error(err))
@@ -204,12 +247,21 @@ func (f *oauthFlow) validateCallback(req *http.Request) (string, error) {
 // its cookie.
 //
 // The token is verified once here before any session exists, so a login
-// that produced a credential GitLab will not honor fails at the login
-// rather than on the next request. It also yields the username, which is
-// what the browser is sent to: with no UI of its own, the most useful place
-// to land somebody who just logged in is their own record.
+// that produced a credential GitLab will not honor, or one for an account
+// outside the allowed group, fails at the login rather than on the next
+// request. It also yields the username, for the default landing page: with
+// no return_to, the most useful place to land somebody who just logged in
+// is their own record.
 func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token *oauth2.Token) {
 	identity, err := f.verifier.Verify(req.Context(), token.AccessToken)
+	if errors.Is(err, ErrForbidden) {
+		f.clearFlowCookies(resp)
+		zap.L().Info("refused a login from outside the allowed group", zap.Error(err))
+		writeError(resp, http.StatusForbidden, "this GitLab account is not allowed to use this app")
+
+		return
+	}
+
 	if err != nil {
 		f.clearFlowCookies(resp)
 		zap.L().Warn("gitlab issued a token it would not then honor", zap.Error(err))
@@ -218,7 +270,7 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 		return
 	}
 
-	sessionID, err := f.sessions.create(req.Context(), token.AccessToken, token.Expiry)
+	sessionID, expiresAt, err := f.sessions.create(req.Context(), tokensOf(token))
 	if err != nil {
 		f.clearFlowCookies(resp)
 		zap.L().Error("failed to open a session", zap.Error(err))
@@ -227,10 +279,142 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 		return
 	}
 
-	f.clearFlowCookies(resp)
-	http.SetCookie(resp, f.cookie(SessionCookie, sessionID, sessionCookieAge(token.Expiry)))
+	landing := PathPrefix + "users/" + url.PathEscape(identity.Username)
 
-	http.Redirect(resp, req, PathPrefix+"users/"+url.PathEscape(identity.Username), http.StatusFound)
+	if returnTo := f.stashedReturnTo(req); returnTo != "" {
+		landing = returnTo
+	}
+
+	f.clearFlowCookies(resp)
+	http.SetCookie(resp, f.cookie(SessionCookie, sessionID, int(time.Until(expiresAt).Seconds())))
+
+	// landing is either this app's own path or a URL returnTo checked
+	// against the allowed origins, so it cannot redirect anywhere else.
+	http.Redirect(resp, req, landing, http.StatusFound) //nolint:gosec // see above
+}
+
+// stashedReturnTo reads back the destination handleLogin stashed.
+//
+// It is checked again rather than trusted: the cookie came back from the
+// browser, and only what handleLogin would have accepted is used.
+func (f *oauthFlow) stashedReturnTo(req *http.Request) string {
+	cookie, err := req.Cookie(returnCookie)
+	if err != nil {
+		return ""
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return ""
+	}
+
+	returnTo, err := f.returnTo(string(raw))
+	if err != nil {
+		return ""
+	}
+
+	return returnTo
+}
+
+// refresh renews a session's tokens with GitLab, for the authenticator.
+func (f *oauthFlow) refresh(ctx context.Context, refreshToken string) (sessionTokens, error) {
+	// An expired token holding only the refresh token is what makes the
+	// token source go to GitLab rather than hand the token straight back.
+	stale := &oauth2.Token{RefreshToken: refreshToken, Expiry: time.Unix(0, 0)}
+
+	token, err := f.config.TokenSource(f.tokenContext(ctx), stale).Token()
+	if err != nil {
+		var retrieve *oauth2.RetrieveError
+		if errors.As(err, &retrieve) && refreshRefused(retrieve) {
+			return sessionTokens{}, fmt.Errorf("%w: %s", errRefreshRejected, retrieve.ErrorCode)
+		}
+
+		return sessionTokens{}, fmt.Errorf("failed to refresh the session token: %w", err)
+	}
+
+	return tokensOf(token), nil
+}
+
+// refreshRefused reports whether GitLab's answer to a refresh means the
+// refresh token is dead, as opposed to GitLab failing to answer properly.
+// OAuth says invalid_grant; a 400 or 401 without an error code is treated
+// the same, since retrying it would only be refused again.
+func refreshRefused(retrieve *oauth2.RetrieveError) bool {
+	if retrieve.ErrorCode == "invalid_grant" {
+		return true
+	}
+
+	if retrieve.Response == nil {
+		return false
+	}
+
+	return retrieve.Response.StatusCode == http.StatusBadRequest || retrieve.Response.StatusCode == http.StatusUnauthorized
+}
+
+// tokenContext hands the oauth2 library the client it should call GitLab's
+// token endpoint with. Left to itself it would use http.DefaultClient, which
+// has no timeout at all.
+func (f *oauthFlow) tokenContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, oauth2.HTTPClient, f.httpClient)
+}
+
+// tokensOf is what a session keeps of an OAuth token.
+func tokensOf(token *oauth2.Token) sessionTokens {
+	return sessionTokens{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		Expiry:       token.Expiry,
+	}
+}
+
+// returnTo resolves where a browser may be sent after logging in, or the
+// empty string for the default.
+//
+// A path on this app is always allowed. An absolute URL is allowed only on
+// an origin the operator listed (or PublicURL's own), which is what keeps
+// the login from becoming an open redirect that hands a phishing page a
+// link starting with this app's trusted address. Protocol-relative and
+// backslash forms are refused because browsers resolve "//evil.example" and
+// "/\evil.example" to another host while they look like paths.
+func (f *oauthFlow) returnTo(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+
+	if strings.ContainsAny(raw, "\\\r\n\t") || strings.HasPrefix(raw, "//") {
+		return "", errReturnTo
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", errReturnTo
+	}
+
+	if parsed.Scheme == "" && parsed.Host == "" && strings.HasPrefix(raw, "/") {
+		return parsed.String(), nil
+	}
+
+	origin, ok := originOf(raw)
+	if !ok || !f.returnOrigins[origin] {
+		return "", errReturnTo
+	}
+
+	return parsed.String(), nil
+}
+
+// originOf returns the scheme://host of an absolute http(s) URL.
+func originOf(raw string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return "", false
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+
+	return scheme + "://" + strings.ToLower(parsed.Host), true
 }
 
 // handleLogout ends the session the cookie names and clears it.
@@ -240,6 +424,8 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 	cookie, err := req.Cookie(SessionCookie)
 	if err == nil {
+		f.forgetIdentity(req.Context(), cookie.Value)
+
 		destroyErr := f.sessions.destroy(req.Context(), cookie.Value)
 		if destroyErr != nil {
 			zap.L().Warn("failed to delete a session on logout", zap.Error(destroyErr))
@@ -250,6 +436,21 @@ func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 	// left paired with a cookie that still points at it.
 	http.SetCookie(resp, f.cookie(SessionCookie, "", -1))
 	resp.WriteHeader(http.StatusNoContent)
+}
+
+// forgetIdentity drops a session's token from the identity cache, if there
+// is one, so the identity it vouched for is not still honored for the rest
+// of the cache window.
+func (f *oauthFlow) forgetIdentity(ctx context.Context, sessionID string) {
+	cache, ok := f.verifier.(*cachingVerifier)
+	if !ok {
+		return
+	}
+
+	tokens, err := f.sessions.load(ctx, sessionID)
+	if err == nil {
+		cache.forget(tokens.AccessToken)
+	}
 }
 
 // setFlowCookie stores one short-lived value for the duration of a login.
@@ -264,7 +465,7 @@ func (f *oauthFlow) setFlowCookie(resp http.ResponseWriter, name, value string) 
 // or not, so a failed attempt cannot be replayed and a stale verifier
 // cannot be paired with a later code.
 func (f *oauthFlow) clearFlowCookies(resp http.ResponseWriter) {
-	for _, name := range []string{stateCookie, verifierCookie} {
+	for _, name := range []string{stateCookie, verifierCookie, returnCookie} {
 		cookie := f.cookie(name, "", -1) //nolint:gosec // attributes are set by f.cookie
 		cookie.Path = OAuthPathPrefix
 
@@ -288,21 +489,6 @@ func (f *oauthFlow) cookie(name, value string, maxAge int) *http.Cookie {
 		Secure:   f.secure,
 		SameSite: http.SameSiteLaxMode,
 	}
-}
-
-// sessionCookieAge matches the cookie's lifetime to the token's, falling
-// back to the session store's own default when GitLab supplied no expiry.
-func sessionCookieAge(expiry time.Time) int {
-	if expiry.IsZero() {
-		return int(defaultSessionTTL.Seconds())
-	}
-
-	remaining := time.Until(expiry)
-	if remaining <= 0 {
-		return int(defaultSessionTTL.Seconds())
-	}
-
-	return int(remaining.Seconds())
 }
 
 // randomToken returns a URL-safe random value for use as a CSRF nonce.

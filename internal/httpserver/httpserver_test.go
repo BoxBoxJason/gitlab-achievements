@@ -228,7 +228,10 @@ func TestMount_ReachesTheReadAPIThroughItsOwnPrefixes(t *testing.T) {
 		t.Fatalf("failed to seed a user: %v", err)
 	}
 
-	readAPI := api.New(conn, api.Options{})
+	readAPI, err := api.New(conn, api.Options{})
+	if err != nil {
+		t.Fatalf("failed to build the api: %v", err)
+	}
 
 	srv := httpserver.New(okCheck, okCheck, nil)
 	srv.Mount(api.PathPrefix, readAPI.Handler())

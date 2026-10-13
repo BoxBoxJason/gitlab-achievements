@@ -622,3 +622,49 @@ func TestValidate_RejectsAnInvalidExcludePattern(t *testing.T) {
 		t.Fatalf("expected the pattern to be rejected, got %v", err)
 	}
 }
+
+func TestValidate_SessionAndOAuthSettings(t *testing.T) {
+	tests := []struct {
+		mutate func(*Config)
+		name   string
+		want   string
+	}{
+		{name: "short session secret", mutate: func(c *Config) { c.SessionSecret = "too-short" }, want: "session-secret"},
+		{name: "negative cache ttl", mutate: func(c *Config) { c.APIAuthCacheTTL = -time.Second }, want: "api-auth-cache-ttl"},
+		{name: "huge cache ttl", mutate: func(c *Config) { c.APIAuthCacheTTL = 48 * time.Hour }, want: "api-auth-cache-ttl"},
+		{name: "negative lifetime", mutate: func(c *Config) { c.SessionLifetime = -time.Hour }, want: "session-lifetime"},
+		{name: "origin with a path", mutate: func(c *Config) { c.OAuthReturnOrigins = []string{"https://rankings.example.com/app"} }, want: "oauth-return-origins"},
+		{name: "origin without scheme", mutate: func(c *Config) { c.OAuthReturnOrigins = []string{"rankings.example.com"} }, want: "oauth-return-origins"},
+		{name: "allowed group without auth", mutate: func(c *Config) { c.APIAllowedGroup = "engineering" }, want: "api-allowed-group"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validConfig()
+			test.mutate(cfg)
+
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected an error naming %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestValidate_AcceptsAFullyConfiguredSignIn(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = string(APIAuthGitLab)
+	cfg.APIAllowedGroup = "engineering"
+	cfg.SessionSecret = strings.Repeat("s", 32)
+	cfg.APIAuthCacheTTL = 30 * time.Second
+	cfg.OAuthReturnOrigins = []string{"https://rankings.example.com", "http://localhost:5173/"}
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.SessionLifetime != DefaultSessionLifetime {
+		t.Errorf("expected the default session lifetime, got %v", cfg.SessionLifetime)
+	}
+}

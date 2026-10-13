@@ -16,14 +16,14 @@ import (
 )
 
 func TestSessions_RoundTripsAToken(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 
-	id, err := s.create(t.Context(), "gitlab-token", time.Now().Add(time.Hour))
+	id, _, err := s.create(t.Context(), sessionTokens{AccessToken: "gitlab-token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	got, err := s.token(t.Context(), id)
+	got, err := s.loadToken(t.Context(), id)
 	if err != nil {
 		t.Fatalf("expected the session to resolve, got: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestSessions_RoundTripsAToken(t *testing.T) {
 
 // A guessable session identifier is a session anyone can take.
 func TestSessions_IdentifiersAreUnpredictable(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 	seen := make(map[string]bool)
 
 	for range 100 {
-		id, err := s.create(t.Context(), "token", time.Now().Add(time.Hour))
+		id, _, err := s.create(t.Context(), sessionTokens{AccessToken: "token", Expiry: time.Now().Add(time.Hour)})
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
@@ -55,28 +55,28 @@ func TestSessions_IdentifiersAreUnpredictable(t *testing.T) {
 // Expiry is enforced in the query, so an aged-out session is refused even
 // if pruning has not yet run.
 func TestSessions_RefusesAnExpiredSessionBeforePruning(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 
-	id, err := s.create(t.Context(), "token", time.Now().Add(-time.Minute))
+	id, _, err := s.create(t.Context(), sessionTokens{AccessToken: "token", Expiry: time.Now().Add(-time.Minute)})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
 	// A past expiry falls back to the default TTL, so force the row to be
 	// genuinely stale rather than relying on that.
-	if err := s.conn.Model(&appdb.Session{}).Where("id = ?", id).Update("expires_at", time.Now().UTC().Add(-time.Hour)).Error; err != nil {
+	if err := s.conn.Model(&appdb.Session{}).Where("id = ?", sessionKey(id)).Update("expires_at", time.Now().UTC().Add(-time.Hour)).Error; err != nil {
 		t.Fatalf("failed to age the session: %v", err)
 	}
 
-	if _, err := s.token(t.Context(), id); !errors.Is(err, errNoSession) {
+	if _, err := s.loadToken(t.Context(), id); !errors.Is(err, errNoSession) {
 		t.Errorf("expected an expired session to be refused, got: %v", err)
 	}
 }
 
 func TestSessions_DestroyEndsTheSession(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 
-	id, err := s.create(t.Context(), "token", time.Now().Add(time.Hour))
+	id, _, err := s.create(t.Context(), sessionTokens{AccessToken: "token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestSessions_DestroyEndsTheSession(t *testing.T) {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	if _, err := s.token(t.Context(), id); !errors.Is(err, errNoSession) {
+	if _, err := s.loadToken(t.Context(), id); !errors.Is(err, errNoSession) {
 		t.Errorf("expected the session to be gone, got: %v", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestSessions_DestroyEndsTheSession(t *testing.T) {
 // Logging out twice, or out of a session that expired in between, should
 // leave the caller logged out rather than erroring.
 func TestSessions_DestroyIsIdempotent(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 
 	if err := s.destroy(t.Context(), "never-existed"); err != nil {
 		t.Errorf("expected deleting a missing session to be a no-op, got: %v", err)
@@ -101,19 +101,19 @@ func TestSessions_DestroyIsIdempotent(t *testing.T) {
 }
 
 func TestSessions_PruneRemovesOnlyExpiredRows(t *testing.T) {
-	s := &sessions{conn: testConn(t)}
+	s := testSessions(t)
 
-	live, err := s.create(t.Context(), "live", time.Now().Add(time.Hour))
+	live, _, err := s.create(t.Context(), sessionTokens{AccessToken: "live", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	dead, err := s.create(t.Context(), "dead", time.Now().Add(time.Hour))
+	dead, _, err := s.create(t.Context(), sessionTokens{AccessToken: "dead", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	if err := s.conn.Model(&appdb.Session{}).Where("id = ?", dead).Update("expires_at", time.Now().UTC().Add(-time.Hour)).Error; err != nil {
+	if err := s.conn.Model(&appdb.Session{}).Where("id = ?", sessionKey(dead)).Update("expires_at", time.Now().UTC().Add(-time.Hour)).Error; err != nil {
 		t.Fatalf("failed to age the session: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestSessions_PruneRemovesOnlyExpiredRows(t *testing.T) {
 		t.Errorf("expected one session pruned, got %d", pruned)
 	}
 
-	if _, err := s.token(t.Context(), live); err != nil {
+	if _, err := s.loadToken(t.Context(), live); err != nil {
 		t.Errorf("expected the live session to survive, got: %v", err)
 	}
 }
@@ -135,7 +135,7 @@ func TestSessions_PruneRemovesOnlyExpiredRows(t *testing.T) {
 func testOAuthAPI(t *testing.T, conn *gorm.DB, verifier Verifier) *API {
 	t.Helper()
 
-	return New(conn, Options{
+	return mustNew(conn, Options{
 		Verifier: verifier,
 		OAuth: &OAuthOptions{
 			GitLabURL: "https://gitlab.example.com",
@@ -211,7 +211,7 @@ func TestLogin_StashesFlowStateInHttpOnlyCookies(t *testing.T) {
 // A Secure cookie is never sent back over plain http, so marking one on an
 // http deployment would leave the flow unable to ever complete.
 func TestLogin_DoesNotMarkCookiesSecureOnAPlainHTTPDeployment(t *testing.T) {
-	api := New(testConn(t), Options{
+	api := mustNew(testConn(t), Options{
 		Verifier: &stubVerifier{identity: &gitlabclient.Identity{ID: 1}},
 		OAuth: &OAuthOptions{
 			GitLabURL: "http://gitlab.internal",
@@ -303,7 +303,7 @@ func TestLogout_ClearsTheSessionAndItsCookie(t *testing.T) {
 	conn := testConn(t)
 	api := testOAuthAPI(t, conn, &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
 
-	id, err := api.sessions.create(t.Context(), "token", time.Now().Add(time.Hour))
+	id, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("failed to create a session: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestLogout_ClearsTheSessionAndItsCookie(t *testing.T) {
 		t.Fatalf("expected 204, got %d", rec.Code)
 	}
 
-	if _, err := api.sessions.token(t.Context(), id); !errors.Is(err, errNoSession) {
+	if _, err := api.sessions.loadToken(t.Context(), id); !errors.Is(err, errNoSession) {
 		t.Errorf("expected the session to be gone, got: %v", err)
 	}
 
@@ -358,20 +358,10 @@ func TestOAuthRoutes_AreNotBehindAuthentication(t *testing.T) {
 // Without OAuth configured there is no login flow, and the routes should
 // simply not be there rather than half-answer.
 func TestOAuthRoutes_AbsentWhenNotConfigured(t *testing.T) {
-	api := New(testConn(t), Options{Verifier: &stubVerifier{identity: &gitlabclient.Identity{ID: 1}}})
+	api := mustNew(testConn(t), Options{Verifier: &stubVerifier{identity: &gitlabclient.Identity{ID: 1}}})
 
 	if rec := get(t, api, LoginPath); rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 with no OAuth configured, got %d", rec.Code)
-	}
-}
-
-func TestSessionCookieAge_FallsBackWhenGitLabGivesNoExpiry(t *testing.T) {
-	if got := sessionCookieAge(time.Time{}); got != int(defaultSessionTTL.Seconds()) {
-		t.Errorf("expected the default TTL, got %d", got)
-	}
-
-	if got := sessionCookieAge(time.Now().Add(-time.Hour)); got != int(defaultSessionTTL.Seconds()) {
-		t.Errorf("expected the default TTL for an already-past expiry, got %d", got)
 	}
 }
 
@@ -380,7 +370,7 @@ func TestNewOAuthFlow_BuildsGitLabEndpointsFromTheBaseURL(t *testing.T) {
 		GitLabURL: "https://gitlab.example.com/",
 		PublicURL: "https://achievements.example.com/",
 		ClientID:  "id",
-	}, &sessions{conn: testConn(t)}, &stubVerifier{})
+	}, testSessions(t), &stubVerifier{})
 
 	if !strings.HasSuffix(flow.config.Endpoint.AuthURL, "/oauth/authorize") ||
 		strings.Contains(flow.config.Endpoint.AuthURL, "//oauth") {

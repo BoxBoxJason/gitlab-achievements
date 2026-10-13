@@ -62,7 +62,7 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 
 // openAPI builds an unauthenticated API over conn.
 func openAPI(conn *gorm.DB) *API {
-	return New(conn, Options{})
+	return mustNew(conn, Options{})
 }
 
 func TestHandleUserEXP_ServesTheTotal(t *testing.T) {
@@ -162,7 +162,7 @@ func TestAuth_OpenWhenNoVerifierIsConfigured(t *testing.T) {
 func authenticatedAPI(t *testing.T, conn *gorm.DB, verifier Verifier) *API {
 	t.Helper()
 
-	return New(conn, Options{Verifier: verifier})
+	return mustNew(conn, Options{Verifier: verifier})
 }
 
 func TestAuth_RejectsARequestWithNoCredential(t *testing.T) {
@@ -280,7 +280,7 @@ func TestAuth_AcceptsASessionCookie(t *testing.T) {
 	verifier := &stubVerifier{identity: &gitlabclient.Identity{ID: 1, Username: "caller"}}
 	api := authenticatedAPI(t, conn, verifier)
 
-	id, err := api.sessions.create(t.Context(), "gitlab-access-token", time.Now().Add(time.Hour))
+	id, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "gitlab-access-token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("failed to create a session: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestAuth_PrefersTheHeaderOverTheCookie(t *testing.T) {
 	verifier := &recordingVerifier{identity: &gitlabclient.Identity{ID: 1}}
 	api := authenticatedAPI(t, conn, verifier)
 
-	id, err := api.sessions.create(t.Context(), "session-token", time.Now().Add(time.Hour))
+	id, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "session-token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("failed to create a session: %v", err)
 	}
@@ -341,4 +341,15 @@ func (v *recordingVerifier) Verify(_ context.Context, token string) (*gitlabclie
 	v.lastToken = token
 
 	return v.identity, nil
+}
+
+// mustNew builds an API for a test. Construction fails only if the system
+// random source does, which would fail every test anyway.
+func mustNew(conn *gorm.DB, opts Options) *API {
+	api, err := New(conn, opts)
+	if err != nil {
+		panic(err)
+	}
+
+	return api
 }

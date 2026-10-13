@@ -20,7 +20,7 @@ func optOutAPI(t *testing.T, conn *gorm.DB, allow bool) *API {
 		t.Fatalf("failed to build policy: %v", err)
 	}
 
-	return New(conn, Options{
+	return mustNew(conn, Options{
 		Verifier:   &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}},
 		Exclusions: exclusion.NewFilter(conn, policy, nil, allow),
 	})
@@ -98,7 +98,7 @@ func TestOptOut_UnavailableWithoutAuthentication(t *testing.T) {
 		t.Fatalf("failed to build policy: %v", err)
 	}
 
-	api := New(conn, Options{Exclusions: exclusion.NewFilter(conn, policy, nil, true)})
+	api := mustNew(conn, Options{Exclusions: exclusion.NewFilter(conn, policy, nil, true)})
 
 	if rec := send(api, http.MethodPost, OptOutPath); rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 without authentication, got %d", rec.Code)
