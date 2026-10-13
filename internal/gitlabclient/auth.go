@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // ErrInvalidToken reports that GitLab rejected the presented credential:
@@ -67,7 +69,10 @@ func NewTokenVerifier(baseURL string) (*TokenVerifier, error) {
 
 	return &TokenVerifier{
 		baseURL: trimmed,
-		http:    &http.Client{Timeout: verifyTimeout},
+		http: &http.Client{
+			Timeout:   verifyTimeout,
+			Transport: metrics.Transport("verify", http.DefaultTransport),
+		},
 	}, nil
 }
 

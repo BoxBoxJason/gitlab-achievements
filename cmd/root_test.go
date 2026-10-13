@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -195,4 +196,60 @@ func TestNewHTTPServer_BoundsEveryPhaseOfAConnection(t *testing.T) {
 			t.Errorf("expected %s to be set, got %v", name, timeout)
 		}
 	}
+}
+
+func TestStartMetricsServer_FailsOnAnAddressInUse(t *testing.T) {
+	taken, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve a port: %v", err)
+	}
+
+	t.Cleanup(func() { _ = taken.Close() })
+
+	_, err = startMetricsServer(&config.Config{MetricsAddr: taken.Addr().String()})
+	if err == nil {
+		t.Fatal("expected binding an address already in use to fail the start")
+	}
+}
+
+func TestStartMetricsServer_ServesMetrics(t *testing.T) {
+	probe, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to find a free port: %v", err)
+	}
+
+	addr := probe.Addr().String()
+	_ = probe.Close()
+
+	stop, err := startMetricsServer(&config.Config{MetricsAddr: addr})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Cleanup(stop)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/metrics", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to scrape metrics: %v", err)
+	}
+
+	defer resp.Body.Close() //nolint:errcheck // test cleanup
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /metrics, got %d", resp.StatusCode)
+	}
+}
+
+func TestStartMetricsServer_Disabled(t *testing.T) {
+	stop, err := startMetricsServer(&config.Config{MetricsAddr: config.MetricsDisabled})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stop()
 }

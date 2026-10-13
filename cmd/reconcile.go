@@ -135,9 +135,9 @@ func startReconcileLoop(ctx context.Context, cfg *config.Config, conn *gorm.DB, 
 		zap.Duration("first_pass_in", delay),
 	)
 
-	pass := func(ctx context.Context) error {
+	pass := tracked("activity_reconcile", func(ctx context.Context) error {
 		return executeReconcile(ctx, cfg, conn, writeClient)
-	}
+	})
 
 	onError := func(err error) {
 		zap.L().Error("activity reconciliation failed, the next pass covers the same window", zap.Error(err))

@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // maxPayloadBytes bounds how large a delivery this app will read. GitLab
@@ -98,13 +99,15 @@ func NewReceiver(secret string, queue dispatcher) *Receiver {
 //     cost the hook its registration over events that were never
 //     interesting.
 func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+	eventType := gitlab.HookEventType(req)
+	label := eventTypeLabel(eventType)
+
 	if !r.authenticate(req) {
+		metrics.WebhookDelivery(label, metrics.DeliveryUnauthorized)
 		http.Error(resp, "invalid token", http.StatusUnauthorized)
 
 		return
 	}
-
-	eventType := gitlab.HookEventType(req)
 
 	payload, err := io.ReadAll(http.MaxBytesReader(resp, req.Body, maxPayloadBytes))
 	if err != nil {
@@ -112,13 +115,20 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			zap.String("event_type", string(eventType)),
 			zap.Error(err),
 		)
+		metrics.WebhookDelivery(label, metrics.DeliveryUnparsable)
 		resp.WriteHeader(http.StatusOK)
 
 		return
 	}
 
-	events := r.parse(eventType, payload)
+	events, parsed := r.parse(eventType, payload)
 	if len(events) == 0 {
+		result := metrics.DeliveryIgnored
+		if !parsed && subscribedEvents[eventType] {
+			result = metrics.DeliveryUnparsable
+		}
+
+		metrics.WebhookDelivery(label, result)
 		resp.WriteHeader(http.StatusOK)
 
 		return
@@ -131,12 +141,26 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			zap.Int("activities", len(events)),
 			zap.Error(err),
 		)
+		metrics.WebhookDelivery(label, metrics.DeliveryRejected)
 		http.Error(resp, "not accepting deliveries right now", http.StatusServiceUnavailable)
 
 		return
 	}
 
+	metrics.WebhookDelivery(label, metrics.DeliveryAccepted)
 	resp.WriteHeader(http.StatusOK)
+}
+
+// eventTypeLabel bounds the event type a delivery reports to the ones this
+// app subscribes to. The header is set by whoever sent the request, and is
+// read before the token is checked, so passing it through as a metric label
+// would let anyone mint series.
+func eventTypeLabel(eventType gitlab.EventType) string {
+	if subscribedEvents[eventType] {
+		return string(eventType)
+	}
+
+	return "other"
 }
 
 // authenticate compares the delivery's token against the configured secret
@@ -150,14 +174,14 @@ func (r *Receiver) authenticate(req *http.Request) bool {
 
 // parse turns a raw delivery into the activities it represents, reporting
 // nothing for the event types and payload shapes this app tracks nothing
-// for.
+// for. The second result reports whether the payload parsed at all.
 //
 // GitLab delivers event types beyond the ones a hook subscribed to (a
 // subgroup event on a group hook, a type added in a newer GitLab), so an
 // unrecognized type is expected rather than exceptional. A type this app
 // did ask for that won't parse is a different matter: something was lost,
 // and it is logged at warn so it shows up without the hook being failed.
-func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) []activity.Event {
+func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) ([]activity.Event, bool) {
 	parsed, err := gitlab.ParseWebhook(eventType, payload)
 	if err != nil {
 		if subscribedEvents[eventType] {
@@ -172,8 +196,8 @@ func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) []activity.
 			)
 		}
 
-		return nil
+		return nil, false
 	}
 
-	return normalize(parsed, time.Now())
+	return normalize(parsed, time.Now()), true
 }

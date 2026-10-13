@@ -12,6 +12,13 @@ import (
 const (
 	// DefaultListenAddr is used when no listen address is configured.
 	DefaultListenAddr = ":8080"
+	// DefaultMetricsAddr is where Prometheus metrics are served when no
+	// address is configured. It is a listener of its own rather than a path
+	// on ListenAddr, because ListenAddr is what an ingress exposes to
+	// GitLab and to browsers, and metrics are for the cluster only.
+	DefaultMetricsAddr = ":9090"
+	// MetricsDisabled is the metrics-addr value that serves no metrics.
+	MetricsDisabled = "off"
 	// DefaultLogLevel is used when no log level is configured.
 	DefaultLogLevel = "info"
 	// DefaultBackfillRate is the request-per-second cap the historical
@@ -160,7 +167,10 @@ type Config struct {
 	// bootstrap (see the README's "how it works" section).
 	PublicURL  string
 	ListenAddr string
-	LogLevel   string
+	// MetricsAddr is the address Prometheus metrics are served on, apart
+	// from ListenAddr, or MetricsDisabled to serve none.
+	MetricsAddr string
+	LogLevel    string
 	// HookScope selects which kind of webhook is registered to feed live
 	// event ingestion; see HookScope's constants. The default resolves it
 	// from the instance's license.
@@ -240,6 +250,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateBackfill()...)
 	errs = append(errs, c.validateReconcile()...)
 	errs = append(errs, c.validateAPI()...)
+	errs = append(errs, c.validateMetrics()...)
 
 	return errors.Join(errs...)
 }
@@ -247,6 +258,11 @@ func (c *Config) Validate() error {
 // AuthMode returns the configured read-API authentication mode.
 func (c *Config) AuthMode() APIAuth {
 	return APIAuth(c.APIAuth)
+}
+
+// MetricsEnabled reports whether a metrics listener should be started.
+func (c *Config) MetricsEnabled() bool {
+	return c.MetricsAddr != MetricsDisabled
 }
 
 // ParseBackfillSince resolves BackfillSince into the earliest moment the
@@ -309,6 +325,18 @@ func (c *Config) validateAPI() []error {
 	}
 
 	return errs
+}
+
+// validateMetrics checks the metrics listener does not collide with the
+// main one: binding the same address twice fails at startup with an error
+// about the port rather than about the configuration.
+func (c *Config) validateMetrics() []error {
+	if c.MetricsEnabled() && c.MetricsAddr == c.ListenAddr {
+		return []error{fmt.Errorf("metrics-addr must differ from listen-addr (both %q); use %q to disable metrics",
+			c.MetricsAddr, MetricsDisabled)}
+	}
+
+	return nil
 }
 
 // validateHookScope checks the webhook strategy, so an unknown value is
@@ -397,6 +425,10 @@ func (c *Config) applyDefaults() {
 
 	if strings.TrimSpace(c.LogLevel) == "" {
 		c.LogLevel = DefaultLogLevel
+	}
+
+	if strings.TrimSpace(c.MetricsAddr) == "" {
+		c.MetricsAddr = DefaultMetricsAddr
 	}
 
 	if strings.TrimSpace(c.BackfillMode) == "" {

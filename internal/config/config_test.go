@@ -552,3 +552,41 @@ func TestValidate_ReconcileDurationsMustBePositive(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_DefaultsMetricsAddr(t *testing.T) {
+	cfg := validConfig()
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.MetricsAddr != DefaultMetricsAddr || !cfg.MetricsEnabled() {
+		t.Fatalf("expected metrics on %q by default, got %q (enabled=%v)", DefaultMetricsAddr, cfg.MetricsAddr, cfg.MetricsEnabled())
+	}
+}
+
+func TestValidate_MetricsCanBeDisabled(t *testing.T) {
+	cfg := validConfig()
+	cfg.MetricsAddr = MetricsDisabled
+
+	err := cfg.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.MetricsEnabled() {
+		t.Fatal("expected metrics to be disabled")
+	}
+}
+
+func TestValidate_MetricsAddrMustDifferFromListenAddr(t *testing.T) {
+	cfg := validConfig()
+	cfg.ListenAddr = ":8080"
+	cfg.MetricsAddr = ":8080"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "metrics-addr must differ") {
+		t.Fatalf("expected a collision error, got %v", err)
+	}
+}

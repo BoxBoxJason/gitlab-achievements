@@ -36,6 +36,7 @@ import (
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // Engine evaluates activity against the achievement definitions stored in
@@ -88,6 +89,7 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 		// maps this kind onto a criteria should still see the event on a
 		// re-run rather than find it marked done and skip it forever.
 		e.skipped.Add(1)
+		metrics.EngineEvent("untracked")
 
 		return nil
 	}
@@ -115,11 +117,14 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 
 	if counted {
 		e.processed.Add(1)
+		metrics.EngineEvent("counted")
 	} else {
 		e.skipped.Add(1)
+		metrics.EngineEvent("duplicate")
 	}
 
 	e.awarded.Add(int64(awarded))
+	metrics.TiersAwarded(awarded)
 
 	return nil
 }
