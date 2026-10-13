@@ -124,6 +124,14 @@ separately, through envFrom, so they never appear in a pod spec.
   value: {{ .Values.config.api.auth | quote }}
 - name: OAUTH_CLIENT_ID
   value: {{ .Values.config.api.oauthClientId | quote }}
+- name: API_ALLOWED_GROUP
+  value: {{ .Values.config.api.allowedGroup | quote }}
+- name: API_AUTH_CACHE_TTL
+  value: {{ .Values.config.api.authCacheTTL | quote }}
+- name: SESSION_LIFETIME
+  value: {{ .Values.config.api.sessionLifetime | quote }}
+- name: OAUTH_RETURN_ORIGINS
+  value: {{ join "," .Values.config.api.returnOrigins | quote }}
 - name: EXCLUDE_BOTS
   value: {{ .Values.config.exclusions.bots | quote }}
 - name: EXCLUDE_USERS
