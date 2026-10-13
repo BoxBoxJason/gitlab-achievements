@@ -151,7 +151,7 @@ var (
 		Namespace: namespace,
 		Subsystem: "engine",
 		Name:      "events_total",
-		Help:      "Activities the achievement engine evaluated, by outcome: counted, duplicate, untracked, or excluded.",
+		Help:      "Activities the achievement engine evaluated, by outcome: counted, duplicate, or untracked.",
 	}, []string{"outcome"})
 
 	engineTiers = prometheus.NewCounter(prometheus.CounterOpts{
