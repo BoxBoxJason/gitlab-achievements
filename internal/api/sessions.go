@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -58,8 +59,11 @@ func (t sessionTokens) expiresWithin(margin time.Duration) bool {
 // table holds only a hash of that identifier and encrypted tokens, so a
 // copy of it is not a way in either.
 type sessions struct {
-	conn     *gorm.DB
-	sealer   *sealer
+	conn   *gorm.DB
+	sealer *sealer
+	// unsaved holds, by row key, renewed tokens that could not be written
+	// back (see update). It is a sync.Map so the zero value is ready.
+	unsaved  sync.Map
 	lifetime time.Duration
 }
 
@@ -130,11 +134,23 @@ func (s *sessions) load(ctx context.Context, sessionID string) (sessionTokens, e
 		First(&row).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		s.unsaved.Delete(key)
+
 		return sessionTokens{}, errNoSession
 	}
 
 	if err != nil {
 		return sessionTokens{}, fmt.Errorf("failed to load session: %w", err)
+	}
+
+	if held, ok := s.unsaved.Load(key); ok {
+		tokens, _ := held.(sessionTokens)
+
+		if s.save(ctx, key, tokens) == nil {
+			s.unsaved.CompareAndDelete(key, held)
+		}
+
+		return tokens, nil
 	}
 
 	tokens, err := s.unseal(&row)
@@ -149,8 +165,36 @@ func (s *sessions) load(ctx context.Context, sessionID string) (sessionTokens, e
 
 // update replaces the tokens a session holds, after a refresh. The session
 // keeps the end it was created with.
+//
+// GitLab spends the old refresh token the moment it issues new ones, so
+// renewed tokens that fail to be written are the only working credentials
+// the session has left: dropping them would log the user out on their next
+// request. They are held in memory instead, served by load in place of the
+// row's spent ones, and written back on the next load that finds the
+// database answering. The error is still returned, for the caller to log.
+//
+// Held tokens live in this process only. A deployment running several
+// replicas could still lose a session whose next request lands elsewhere
+// before the write succeeds; one replica, which is what this app runs as,
+// cannot.
 func (s *sessions) update(ctx context.Context, sessionID string, tokens sessionTokens) error {
-	row := db.Session{ID: sessionKey(sessionID)}
+	key := sessionKey(sessionID)
+
+	err := s.save(ctx, key, tokens)
+	if err != nil {
+		s.unsaved.Store(key, tokens)
+
+		return err
+	}
+
+	s.unsaved.Delete(key)
+
+	return nil
+}
+
+// save writes tokens onto the row keyed key.
+func (s *sessions) save(ctx context.Context, key string, tokens sessionTokens) error {
+	row := db.Session{ID: key}
 
 	err := s.sealInto(&row, tokens)
 	if err != nil {
@@ -177,7 +221,10 @@ func (s *sessions) destroy(ctx context.Context, sessionID string) error {
 		return nil
 	}
 
-	err := s.conn.WithContext(ctx).Where("id = ?", sessionKey(sessionID)).Delete(&db.Session{}).Error
+	key := sessionKey(sessionID)
+	s.unsaved.Delete(key)
+
+	err := s.conn.WithContext(ctx).Where("id = ?", key).Delete(&db.Session{}).Error
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}

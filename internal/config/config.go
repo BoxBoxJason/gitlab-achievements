@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/origin"
 )
 
 const (
@@ -205,9 +207,11 @@ type Config struct {
 	OAuthClientID     string
 	OAuthClientSecret string
 	// SessionSecret keys the encryption of the GitLab tokens browser
-	// sessions hold. Optional: left empty, the key is derived from
-	// WebhookSecret, which every deployment already keeps out of the
-	// database. Changing it ends every session.
+	// sessions hold. Required with GitLab authentication, which is the only
+	// mode that has sessions. It is a secret of its own rather than one
+	// borrowed from elsewhere (the webhook secret, say), so that its
+	// strength is checked here and nothing else that knows it can decrypt a
+	// copy of the session table. Changing it ends every session.
 	SessionSecret string
 	// APIAllowedGroup restricts the API to members of one GitLab group (its
 	// full path), inherited membership included, plus instance admins.
@@ -373,7 +377,7 @@ func (c *Config) validateAPI() []error {
 			APIAuthGitLab, c.APIAuth))
 	}
 
-	if strings.TrimSpace(c.APIAllowedGroup) != "" && c.AuthMode() != APIAuthGitLab {
+	if c.APIAllowedGroup != "" && c.AuthMode() != APIAuthGitLab {
 		errs = append(errs, fmt.Errorf("api-allowed-group has no effect unless api-auth is %q, got %q",
 			APIAuthGitLab, c.APIAuth))
 	}
@@ -385,7 +389,11 @@ func (c *Config) validateAPI() []error {
 func (c *Config) validateSessions() []error {
 	var errs []error
 
-	if c.SessionSecret != "" && len(c.SessionSecret) < minSessionSecretLength {
+	switch {
+	case c.SessionSecret == "" && c.AuthMode() == APIAuthGitLab:
+		errs = append(errs, fmt.Errorf("session-secret is required when api-auth is %q: it encrypts the GitLab tokens "+
+			"browser sessions hold; generate one with `openssl rand -base64 48`", APIAuthGitLab))
+	case c.SessionSecret != "" && len(c.SessionSecret) < minSessionSecretLength:
 		errs = append(errs, fmt.Errorf("session-secret must be at least %d characters", minSessionSecretLength))
 	}
 
@@ -397,28 +405,13 @@ func (c *Config) validateSessions() []error {
 		errs = append(errs, fmt.Errorf("api-auth-cache-ttl must be between 0 and %v, got %v", maxAPIAuthCacheTTL, c.APIAuthCacheTTL))
 	}
 
-	for _, origin := range c.OAuthReturnOrigins {
-		if !isOrigin(origin) {
-			errs = append(errs, fmt.Errorf("oauth-return-origins entries must be origins like https://rankings.example.com, got %q", origin))
+	for _, configured := range c.OAuthReturnOrigins {
+		if _, ok := origin.Parse(configured); !ok {
+			errs = append(errs, fmt.Errorf("oauth-return-origins entries must be origins like https://rankings.example.com, got %q", configured))
 		}
 	}
 
 	return errs
-}
-
-// isOrigin reports whether raw is a bare http(s) origin: a scheme and a
-// host, with nothing after them but an optional trailing slash.
-func isOrigin(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" {
-		return false
-	}
-
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return false
-	}
-
-	return strings.TrimRight(parsed.Path, "/") == ""
 }
 
 // validateMetrics checks the metrics listener does not collide with the
@@ -625,9 +618,15 @@ func (c *Config) applyAPIDefaults() {
 		c.APIAuth = string(DefaultAPIAuth)
 	}
 
-	if c.SessionLifetime == 0 {
-		c.SessionLifetime = DefaultSessionLifetime
-	}
+	// Trimmed so that a blank value means no restriction everywhere, not
+	// only in validation: an untrimmed "  " would otherwise be looked up as
+	// a group and refuse everybody.
+	c.APIAllowedGroup = strings.TrimSpace(c.APIAllowedGroup)
+
+	// SessionLifetime is deliberately not defaulted here: the flag already
+	// defaults it, so zero can only be an explicit SESSION_LIFETIME=0, and
+	// quietly turning that into a week of sign-in is the opposite of what
+	// whoever wrote it likely meant. Validation refuses it instead.
 }
 
 type requiredField struct {

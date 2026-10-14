@@ -106,8 +106,9 @@ secrets:
   # Name of a Secret you manage yourself (External Secrets, SOPS, sealed
   # secrets...). It is loaded with envFrom, so its keys must be named
   # GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN, WEBHOOK_SECRET, DATABASE_DSN and,
-  # where applicable, OAUTH_CLIENT_SECRET and SESSION_SECRET. Set it and leave the values below
-  # empty, or leave it empty and let the chart create the Secret from them.
+  # where applicable, OAUTH_CLIENT_SECRET and SESSION_SECRET (required with
+  # config.api.auth: gitlab). Set it and leave the values below empty, or
+  # leave it empty and let the chart create the Secret from them.
   existingSecret: ""
   # GitLab token with read_api scope, used for all data fetching.
   gitlabReadToken: ""
@@ -126,8 +127,8 @@ secrets:
   # Only needed alongside config.api.oauthClientId for a confidential client.
   oauthClientSecret: ""
   # Key for encrypting the GitLab tokens browser sessions hold, at least 32
-  # characters. Optional: empty derives one from webhookSecret. Changing it
-  # signs everybody out.
+  # characters. Required when config.api.auth is gitlab; generate one with
+  # `openssl rand -base64 48`. Changing it signs everybody out.
   sessionSecret: ""
 
 # Backs the default SQLite database with a PersistentVolumeClaim, mounted at

@@ -33,8 +33,7 @@ var errUnsealable = errors.New("stored credential cannot be decrypted")
 // working credentials for everyone logged in.
 //
 // It is AES-256-GCM under a key derived from a secret the operator supplies
-// (SESSION_SECRET, or failing that the webhook secret, which every
-// deployment already has and keeps out of the database). Each ciphertext is
+// (SESSION_SECRET) and keeps out of the database. Each ciphertext is
 // bound to the session it belongs to through GCM's additional data, so a
 // sealed token copied onto another session's row does not decrypt there.
 type sealer struct {

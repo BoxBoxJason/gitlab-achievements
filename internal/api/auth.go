@@ -171,15 +171,31 @@ func (a *authenticator) credential(req *http.Request) (string, error) {
 		return "", errNoCredential
 	}
 
-	tokens, err := a.sessions.load(req.Context(), cookie.Value)
+	return a.sessionToken(req.Context(), cookie.Value)
+}
+
+// sessionToken returns the access token the session behind a cookie holds,
+// renewing it first if it is about to run out.
+func (a *authenticator) sessionToken(ctx context.Context, sessionID string) (string, error) {
+	tokens, err := a.sessions.load(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}
 
 	if a.refresher != nil && tokens.RefreshToken != "" && tokens.expiresWithin(refreshMargin) {
-		tokens, err = a.refresh(req.Context(), cookie.Value)
-		if err != nil {
-			return "", err
+		renewed, refreshErr := a.refresh(ctx, sessionID)
+
+		switch {
+		case refreshErr == nil:
+			tokens = renewed
+		case errors.Is(refreshErr, errNoSession) || !time.Now().Before(tokens.Expiry):
+			return "", refreshErr
+		default:
+			// Renewal starts a little early, so a token GitLab could not
+			// renew just now usually still works: use it rather than
+			// answering 503 for a credential that is fine, and try again
+			// on the next request.
+			zap.L().Warn("failed to renew a session, using its current token meanwhile", zap.Error(refreshErr))
 		}
 	}
 
@@ -221,9 +237,12 @@ func (a *authenticator) refresh(ctx context.Context, sessionID string) (sessionT
 			return sessionTokens{}, fmt.Errorf("failed to renew session: %w", err)
 		}
 
+		// The renewal worked even if recording it did not: the session
+		// store holds the new tokens until it can write them (see
+		// sessions.update), so the request goes ahead on them.
 		err = a.sessions.update(renewCtx, sessionID, tokens)
 		if err != nil {
-			return sessionTokens{}, err
+			zap.L().Warn("renewed a session but failed to save its tokens, holding them until it can", zap.Error(err))
 		}
 
 		return tokens, nil

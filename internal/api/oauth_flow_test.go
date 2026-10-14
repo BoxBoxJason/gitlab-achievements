@@ -49,6 +49,22 @@ func fakeGitLab(t *testing.T, refuseRefresh bool) *httptest.Server {
 	return server
 }
 
+// rejectingGitLab answers every token request as GitLab does when the app's
+// own OAuth client credentials are wrong.
+func rejectingGitLab(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(resp http.ResponseWriter, _ *http.Request) {
+		resp.Header().Set("Content-Type", "application/json")
+		resp.WriteHeader(http.StatusUnauthorized)
+		_, _ = resp.Write([]byte(`{"error":"invalid_client","error_description":"Client authentication failed"}`))
+	}))
+
+	t.Cleanup(server.Close)
+
+	return server
+}
+
 func flowAPI(t *testing.T, gitlabURL string, verifier Verifier) *API {
 	t.Helper()
 
@@ -95,9 +111,9 @@ func TestLogin_ReturnsToTheRequestedPage(t *testing.T) {
 	api := flowAPI(t, gitlab.URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}})
 
 	for returnTo, want := range map[string]string{
-		"":                                        "/api/v1/users/alice",
-		"/rankings?tab=week#top":                  "/rankings?tab=week#top",
-		"https://rankings.example.com/me":         "https://rankings.example.com/me",
+		"":                                "/api/v1/users/alice",
+		"/rankings?tab=week#top":          "/rankings?tab=week#top",
+		"https://rankings.example.com/me": "https://rankings.example.com/me",
 		"https://achievements.example.com/boards": "https://achievements.example.com/boards",
 	} {
 		rec := login(t, api, returnTo)
@@ -202,6 +218,13 @@ func TestOAuthFlow_RefreshAgainstGitLab(t *testing.T) {
 	_, err = refusing.oauth.refresh(t.Context(), "revoked")
 	if !errors.Is(err, errRefreshRejected) {
 		t.Fatalf("expected invalid_grant to end the session, got %v", err)
+	}
+
+	misconfigured := flowAPI(t, rejectingGitLab(t).URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
+
+	_, err = misconfigured.oauth.refresh(t.Context(), "fine")
+	if err == nil || errors.Is(err, errRefreshRejected) {
+		t.Fatalf("expected a rejected client not to end the session, got %v", err)
 	}
 
 	unreachable := flowAPI(t, "http://127.0.0.1:1", &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})

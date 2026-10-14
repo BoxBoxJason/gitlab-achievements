@@ -159,9 +159,9 @@ Unless `OAUTH_CLIENT_ID` names an application you registered by hand, the app re
 
 ### Sessions
 
-GitLab access tokens last two hours. A session keeps the refresh token GitLab issues with the access token and renews it shortly before it runs out, so nobody is sent back to GitLab mid-visit. Requests that arrive together on an expiring session share one renewal; GitLab refresh tokens work only once. A session lasts `SESSION_LIFETIME` (seven days by default), after which the browser logs in again. If GitLab refuses a renewal (the user revoked the application, or the token was used elsewhere), the session ends with a `401`.
+GitLab access tokens last two hours. A session keeps the refresh token GitLab issues with the access token and renews it shortly before it runs out, so nobody is sent back to GitLab mid-visit. Requests that arrive together on an expiring session share one renewal; GitLab refresh tokens work only once. A session lasts `SESSION_LIFETIME` (seven days by default), after which the browser logs in again. If GitLab refuses a renewal (the user revoked the application, or the token was used elsewhere), the session ends with a `401`. If GitLab instead rejects this app's own OAuth client (a client secret rotated on GitLab but not here), sessions are kept: requests keep working on their current token until it expires and then get `503`, the log reports the misconfiguration, and the sessions resume once the credentials are fixed.
 
-The session table holds neither the cookie nor a usable token. Rows are keyed by the SHA-256 of the cookie's value, and both tokens are encrypted with AES-256-GCM under a key derived from `SESSION_SECRET`, or from `WEBHOOK_SECRET` when that is unset. A database dump or backup therefore hands out no working credentials. Changing whichever secret is in use signs everybody out.
+The session table holds neither the cookie nor a usable token. Rows are keyed by the SHA-256 of the cookie's value, and both tokens are encrypted with AES-256-GCM under a key derived from `SESSION_SECRET`, which the app refuses to start without when `API_AUTH=gitlab`. A database dump or backup therefore hands out no working credentials. Changing the secret signs everybody out.
 
 ### Coming back to your page
 

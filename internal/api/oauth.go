@@ -16,6 +16,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
+	"github.com/boxboxjason/gitlab-achievements/internal/origin"
 )
 
 const (
@@ -98,8 +99,8 @@ func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) 
 
 	origins := map[string]bool{}
 
-	for _, origin := range append([]string{opts.PublicURL}, opts.ReturnOrigins...) {
-		if normalized, ok := originOf(origin); ok {
+	for _, configured := range append([]string{opts.PublicURL}, opts.ReturnOrigins...) {
+		if normalized, ok := origin.Of(configured); ok {
 			origins[normalized] = true
 		}
 	}
@@ -329,6 +330,15 @@ func (f *oauthFlow) refresh(ctx context.Context, refreshToken string) (sessionTo
 			return sessionTokens{}, fmt.Errorf("%w: %s", errRefreshRejected, retrieve.ErrorCode)
 		}
 
+		if errors.As(err, &retrieve) && clientRejected(retrieve) {
+			// Every session renewing hits this until the deployment is
+			// fixed, so it is logged as the configuration error it is
+			// rather than left to read as GitLab being flaky.
+			zap.L().Error("gitlab rejected this app's oauth client while renewing a session; "+
+				"check oauth-client-id and oauth-client-secret against the application on gitlab",
+				zap.String("error", retrieve.ErrorCode))
+		}
+
 		return sessionTokens{}, fmt.Errorf("failed to refresh the session token: %w", err)
 	}
 
@@ -337,18 +347,32 @@ func (f *oauthFlow) refresh(ctx context.Context, refreshToken string) (sessionTo
 
 // refreshRefused reports whether GitLab's answer to a refresh means the
 // refresh token is dead, as opposed to GitLab failing to answer properly.
-// OAuth says invalid_grant; a 400 or 401 without an error code is treated
-// the same, since retrying it would only be refused again.
+// OAuth says invalid_grant; a 400 without an error code is treated the
+// same, since retrying it would only be refused again.
+//
+// Anything about the client is deliberately not: invalid_client, and the
+// 401 OAuth reserves for client authentication failing, mean this app's own
+// credentials are wrong (a secret rotated on GitLab but not here). Ending
+// sessions over that would log everybody out for an operator's mistake,
+// one renewal at a time, when the sessions themselves are fine and resume
+// working once the credentials are corrected.
 func refreshRefused(retrieve *oauth2.RetrieveError) bool {
 	if retrieve.ErrorCode == "invalid_grant" {
 		return true
 	}
 
-	if retrieve.Response == nil {
-		return false
+	return retrieve.ErrorCode == "" && retrieve.Response != nil &&
+		retrieve.Response.StatusCode == http.StatusBadRequest
+}
+
+// clientRejected reports whether GitLab refused a refresh because of this
+// app's OAuth client rather than the session's refresh token.
+func clientRejected(retrieve *oauth2.RetrieveError) bool {
+	if retrieve.ErrorCode == "invalid_client" || retrieve.ErrorCode == "unauthorized_client" {
+		return true
 	}
 
-	return retrieve.Response.StatusCode == http.StatusBadRequest || retrieve.Response.StatusCode == http.StatusUnauthorized
+	return retrieve.Response != nil && retrieve.Response.StatusCode == http.StatusUnauthorized
 }
 
 // tokenContext hands the oauth2 library the client it should call GitLab's
@@ -394,27 +418,12 @@ func (f *oauthFlow) returnTo(raw string) (string, error) {
 		return parsed.String(), nil
 	}
 
-	origin, ok := originOf(raw)
-	if !ok || !f.returnOrigins[origin] {
+	target, ok := origin.Of(raw)
+	if !ok || !f.returnOrigins[target] {
 		return "", errReturnTo
 	}
 
 	return parsed.String(), nil
-}
-
-// originOf returns the scheme://host of an absolute http(s) URL.
-func originOf(raw string) (string, bool) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Host == "" || parsed.User != nil {
-		return "", false
-	}
-
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", false
-	}
-
-	return scheme + "://" + strings.ToLower(parsed.Host), true
 }
 
 // handleLogout ends the session the cookie names and clears it.
@@ -442,7 +451,7 @@ func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 // is one, so the identity it vouched for is not still honored for the rest
 // of the cache window.
 func (f *oauthFlow) forgetIdentity(ctx context.Context, sessionID string) {
-	cache, ok := f.verifier.(*cachingVerifier)
+	cache, ok := f.verifier.(identityForgetter)
 	if !ok {
 		return
 	}

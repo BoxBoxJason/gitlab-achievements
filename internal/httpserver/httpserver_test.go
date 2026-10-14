@@ -168,6 +168,27 @@ func TestMountWebhook_RejectsMethodsGitLabNeverUses(t *testing.T) {
 	}
 }
 
+func TestMountWebhook_StillRejectsOtherMethodsUnderACatchAll(t *testing.T) {
+	srv := httpserver.New(okCheck, okCheck, nil)
+	srv.MountWebhook(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.Mount("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("expected the catch-all not to answer the webhook path")
+
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	resp := doRequest(t, srv, http.MethodGet, httpserver.WebhookPath)
+	if resp.Code != http.StatusMethodNotAllowed || resp.Header().Get("Allow") != http.MethodPost {
+		t.Errorf("expected 405 allowing POST, got %d (Allow: %q)", resp.Code, resp.Header().Get("Allow"))
+	}
+
+	if resp := doRequest(t, srv, http.MethodPost, httpserver.WebhookPath); resp.Code != http.StatusOK {
+		t.Errorf("expected deliveries still to reach the webhook handler, got %d", resp.Code)
+	}
+}
+
 func TestHandler_WebhookPathIsNotServedWhenNothingIsMounted(t *testing.T) {
 	srv := httpserver.New(okCheck, okCheck, nil)
 

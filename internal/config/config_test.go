@@ -15,6 +15,8 @@ func validConfig() *Config {
 		DatabaseDSN:           "postgres://user:pass@localhost:5432/achievements",
 		WebhookSecret:         "s3cr3t",
 		PublicURL:             "https://achievements.example.com",
+		SessionLifetime:       DefaultSessionLifetime,
+		SessionSecret:         strings.Repeat("k", minSessionSecretLength),
 	}
 }
 
@@ -376,6 +378,18 @@ func TestValidate_AcceptsEveryAPIAuthMode(t *testing.T) {
 	}
 }
 
+// Without GitLab authentication there are no sessions, so nothing needs
+// encrypting and no secret is asked for.
+func TestValidate_NoSessionSecretNeededWithoutAuthentication(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIAuth = string(APIAuthNone)
+	cfg.SessionSecret = ""
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+}
+
 func TestValidate_RejectsAnUnknownAPIAuthMode(t *testing.T) {
 	cfg := validConfig()
 	cfg.APIAuth = "sometimes"
@@ -630,9 +644,15 @@ func TestValidate_SessionAndOAuthSettings(t *testing.T) {
 		want   string
 	}{
 		{name: "short session secret", mutate: func(c *Config) { c.SessionSecret = "too-short" }, want: "session-secret"},
+		{name: "gitlab auth without session secret", mutate: func(c *Config) {
+			c.APIAuth = string(APIAuthGitLab)
+			c.SessionSecret = ""
+		}, want: "session-secret is required"},
 		{name: "negative cache ttl", mutate: func(c *Config) { c.APIAuthCacheTTL = -time.Second }, want: "api-auth-cache-ttl"},
 		{name: "huge cache ttl", mutate: func(c *Config) { c.APIAuthCacheTTL = 48 * time.Hour }, want: "api-auth-cache-ttl"},
 		{name: "negative lifetime", mutate: func(c *Config) { c.SessionLifetime = -time.Hour }, want: "session-lifetime"},
+		{name: "zero lifetime", mutate: func(c *Config) { c.SessionLifetime = 0 }, want: "session-lifetime"},
+		{name: "origin with a fragment", mutate: func(c *Config) { c.OAuthReturnOrigins = []string{"https://rankings.example.com#top"} }, want: "oauth-return-origins"},
 		{name: "origin with a path", mutate: func(c *Config) { c.OAuthReturnOrigins = []string{"https://rankings.example.com/app"} }, want: "oauth-return-origins"},
 		{name: "origin without scheme", mutate: func(c *Config) { c.OAuthReturnOrigins = []string{"rankings.example.com"} }, want: "oauth-return-origins"},
 		{name: "allowed group without auth", mutate: func(c *Config) { c.APIAllowedGroup = "engineering" }, want: "api-allowed-group"},
@@ -662,9 +682,5 @@ func TestValidate_AcceptsAFullyConfiguredSignIn(t *testing.T) {
 	err := cfg.Validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if cfg.SessionLifetime != DefaultSessionLifetime {
-		t.Errorf("expected the default session lifetime, got %v", cfg.SessionLifetime)
 	}
 }

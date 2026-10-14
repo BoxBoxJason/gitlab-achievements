@@ -75,6 +75,24 @@ func TestHandler_MissingAssetsAre404(t *testing.T) {
 	}
 }
 
+func TestHandler_NavigationToADottedRouteGetsTheIndex(t *testing.T) {
+	handler := site(t)
+
+	page := httptest.NewRequest(http.MethodGet, "/users/first.last", nil)
+	page.Header.Set("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, page)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Rankings") {
+		t.Fatalf("navigation to /users/first.last = %d %q, want the index", rec.Code, rec.Body.String())
+	}
+
+	if code := fetch(handler, "/users/first.last").Code; code != http.StatusNotFound {
+		t.Fatalf("non-navigation fetch of a dotted missing path = %d, want 404", code)
+	}
+}
+
 func TestHandler_IndexIsNeverCachedAndHeadersAreSet(t *testing.T) {
 	handler := site(t)
 

@@ -137,6 +137,7 @@ func TestRun_BootstrapFailure(t *testing.T) {
 		DatabaseDSN:           "sqlite://:memory:",
 		WebhookSecret:         "s3cr3t",
 		PublicURL:             "https://achievements.example.com",
+		SessionLifetime:       config.DefaultSessionLifetime,
 	}
 
 	err := run(cfg)

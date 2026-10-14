@@ -12,9 +12,6 @@ import (
 )
 
 const (
-	// DefaultIdentityCacheTTL is how long a verified credential is trusted
-	// without asking GitLab again, when nothing else is configured.
-	DefaultIdentityCacheTTL = time.Minute
 	// identityCacheEntries bounds the cache. Far above the number of people
 	// who could plausibly be using the API within one TTL, it exists only
 	// so a stream of distinct bogus tokens cannot grow it without limit
@@ -85,6 +82,12 @@ type cachingVerifier struct {
 	now     func() time.Time
 	ttl     time.Duration
 	mu      sync.Mutex
+}
+
+// identityForgetter is a Verifier that remembers identities and can be told
+// to drop one, which is what logout needs without knowing the cache's type.
+type identityForgetter interface {
+	forget(token string)
 }
 
 type cachedIdentity struct {

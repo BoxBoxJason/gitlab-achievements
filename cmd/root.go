@@ -169,7 +169,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.ExcludeUsernamePattern, "exclude-username-pattern", os.Getenv("EXCLUDE_USERNAME_PATTERN"), "Regular expression (RE2); users whose username matches are left out of achievements")
 	flags.BoolVar(&cfg.AllowOptOut, "allow-opt-out", envBoolOrDefault(envAllowOptOut, true), "Let users leave themselves out through the API (needs --api-auth gitlab)")
 	secretFlag(flags, &cfg.OAuthClientSecret, "oauth-client-secret", "OAUTH_CLIENT_SECRET", "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
-	secretFlag(flags, &cfg.SessionSecret, "session-secret", "SESSION_SECRET", "Key for encrypting the GitLab tokens browser sessions hold, at least 32 characters; empty derives one from --webhook-secret")
+	secretFlag(flags, &cfg.SessionSecret, "session-secret", "SESSION_SECRET", "Key for encrypting the GitLab tokens browser sessions hold, at least 32 characters; required when --api-auth is gitlab")
 	flags.DurationVar(&cfg.SessionLifetime, "session-lifetime", envDurationOrDefault("SESSION_LIFETIME", config.DefaultSessionLifetime), "How long a browser stays logged in; sessions renew their GitLab token as it runs out")
 	flags.DurationVar(&cfg.APIAuthCacheTTL, "api-auth-cache-ttl", envDurationOrDefault("API_AUTH_CACHE_TTL", config.DefaultAPIAuthCacheTTL), "How long a verified GitLab credential is trusted before asking GitLab again (also how long a revoked token keeps working); 0 disables")
 	flags.StringVar(&cfg.APIAllowedGroup, "api-allowed-group", os.Getenv("API_ALLOWED_GROUP"), "Full path of a GitLab group; only its members (and instance admins) may use the API")
@@ -489,7 +489,7 @@ func buildAPI(
 ) (*api.API, error) {
 	opts := api.Options{
 		Exclusions:       filter,
-		SessionSecret:    sessionSecret(cfg),
+		SessionSecret:    cfg.SessionSecret,
 		SessionLifetime:  cfg.SessionLifetime,
 		IdentityCacheTTL: cfg.APIAuthCacheTTL,
 	}
@@ -549,20 +549,6 @@ func newAPI(conn *gorm.DB, opts api.Options) (*api.API, error) {
 	}
 
 	return readAPI, nil
-}
-
-// sessionSecret is the key browser sessions' tokens are encrypted under:
-// the configured one, or else the webhook secret. The webhook secret is a
-// fair default because every deployment has one, keeps it out of the
-// database, and already treats it as a credential; the sealer derives its
-// key through HKDF with a purpose of its own, so the two uses never share
-// a key.
-func sessionSecret(cfg *config.Config) string {
-	if cfg.SessionSecret != "" {
-		return cfg.SessionSecret
-	}
-
-	return cfg.WebhookSecret
 }
 
 // buildServer assembles everything the listener serves: webhook ingestion,

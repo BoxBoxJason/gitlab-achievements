@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
@@ -143,6 +145,75 @@ func TestSessions_UnreadableRowsEndTheSession(t *testing.T) {
 	}
 }
 
+// failUpdates makes every UPDATE on conn fail while the returned flag is
+// set, standing in for the database going away between a renewal and its
+// write; reads keep working.
+func failUpdates(t *testing.T, conn *gorm.DB) *atomic.Bool {
+	t.Helper()
+
+	var failing atomic.Bool
+
+	failing.Store(true)
+
+	err := conn.Callback().Update().Before("gorm:update").Register("test:fail_updates", func(tx *gorm.DB) {
+		if failing.Load() {
+			_ = tx.AddError(errors.New("database unavailable"))
+		}
+	})
+	if err != nil {
+		t.Fatalf("failed to register callback: %v", err)
+	}
+
+	return &failing
+}
+
+func TestSessions_HoldRenewedTokensTheDatabaseRefused(t *testing.T) {
+	store := testSessions(t)
+
+	id, _, err := store.create(t.Context(), sessionTokens{AccessToken: "old-access", RefreshToken: "spent"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	failing := failUpdates(t, store.conn)
+
+	renewed := sessionTokens{AccessToken: "new-access", RefreshToken: "rotated"}
+	if err := store.update(t.Context(), id, renewed); err == nil {
+		t.Fatal("expected the failed write to be reported")
+	}
+
+	tokens, err := store.load(t.Context(), id)
+	if err != nil || tokens.RefreshToken != "rotated" {
+		t.Fatalf("expected the renewed tokens rather than the spent ones, got %+v (%v)", tokens, err)
+	}
+
+	failing.Store(false)
+
+	if _, err := store.load(t.Context(), id); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// A store without the held copy reads only what reached the database.
+	fresh := &sessions{conn: store.conn, sealer: store.sealer, lifetime: DefaultSessionLifetime}
+
+	tokens, err = fresh.load(t.Context(), id)
+	if err != nil || tokens.RefreshToken != "rotated" {
+		t.Fatalf("expected the held tokens written back once the database answered, got %+v (%v)", tokens, err)
+	}
+
+	failing.Store(true)
+	_ = store.update(t.Context(), id, sessionTokens{AccessToken: "newer", RefreshToken: "newer"})
+	failing.Store(false)
+
+	if err := store.destroy(t.Context(), id); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, err := store.load(t.Context(), id); !errors.Is(err, errNoSession) {
+		t.Errorf("expected held tokens not to outlive a logout, got %v", err)
+	}
+}
+
 // fakeRefresher stands in for GitLab's token endpoint.
 type fakeRefresher struct {
 	err   error
@@ -228,6 +299,27 @@ func TestAuth_RenewsAnExpiredSessionTransparently(t *testing.T) {
 	}
 }
 
+func TestAuth_RenewalSurvivesFailingToSaveIt(t *testing.T) {
+	refresher := &fakeRefresher{}
+	verifier := &recordingVerifier{identity: &gitlabclient.Identity{ID: 1}}
+	api, id := refreshingAPI(t, refresher, verifier)
+	failing := failUpdates(t, api.sessions.conn)
+
+	rec := get(t, api, "/api/v1/users/alice/exp", withSession(id))
+	if rec.Code != http.StatusOK || verifier.lastToken != "renewed-from-original" {
+		t.Fatalf("expected the renewed token to serve the request, got %d with %q", rec.Code, verifier.lastToken)
+	}
+
+	failing.Store(false)
+
+	get(t, api, "/api/v1/users/alice/exp", withSession(id))
+
+	if refresher.calls.Load() != 1 || verifier.lastToken != "renewed-from-original" {
+		t.Errorf("expected the held token reused without spending the refresh token again, got %d renewals and %q",
+			refresher.calls.Load(), verifier.lastToken)
+	}
+}
+
 // GitLab's refresh tokens work once, so concurrent requests on an expiring
 // session must share one renewal rather than race and spend it twice.
 func TestAuth_ConcurrentRequestsShareOneRenewal(t *testing.T) {
@@ -283,5 +375,30 @@ func TestAuth_UnreachableTokenEndpointIs503(t *testing.T) {
 
 	if _, err := api.sessions.load(t.Context(), id); err != nil {
 		t.Errorf("expected the session to survive a transient failure, got %v", err)
+	}
+}
+
+// Renewal starts a minute early, so a token GitLab could not renew just now
+// still works and is used rather than answered with 503.
+func TestAuth_UnreachableTokenEndpointFallsBackToAStillValidToken(t *testing.T) {
+	refresher := &fakeRefresher{err: errors.New("connection refused")}
+	verifier := &recordingVerifier{identity: &gitlabclient.Identity{ID: 1}}
+	api, _ := refreshingAPI(t, refresher, verifier)
+
+	id, _, err := api.sessions.create(t.Context(), sessionTokens{
+		AccessToken:  "nearly-expired",
+		RefreshToken: "original",
+		Expiry:       time.Now().Add(30 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	if rec := get(t, api, "/api/v1/users/alice/exp", withSession(id)); rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on a still-valid token, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	if verifier.lastToken != "nearly-expired" {
+		t.Errorf("expected the current token to be used, got %q", verifier.lastToken)
 	}
 }

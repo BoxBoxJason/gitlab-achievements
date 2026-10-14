@@ -59,7 +59,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	setSecurityHeaders(resp.Header())
 
-	switch h.resolve(req.URL.Path) {
+	switch h.resolve(req.URL.Path, wantsPage(req)) {
 	case servedIndex:
 		h.serveIndex(resp, req)
 	case servedFile:
@@ -77,9 +77,15 @@ const (
 )
 
 // resolve decides how to answer a request path: with the file it names,
-// with index.html (the root, or a client-side route: no such file and no
-// extension, or a directory, which is never listed), or not at all.
-func (h *handler) resolve(requestPath string) int {
+// with index.html (the root, or a client-side route: no such file and
+// either no extension or a browser navigating to it, or a directory, which
+// is never listed), or not at all.
+//
+// The navigation case is what lets a route whose last segment holds a dot,
+// like /users/first.last (GitLab usernames often do), reach the app's
+// router, while a missing script or stylesheet, which the browser does not
+// fetch as a page, is still a 404 rather than index.html served as code.
+func (h *handler) resolve(requestPath string, navigation bool) int {
 	name := strings.TrimPrefix(path.Clean("/"+requestPath), "/")
 	if name == "" || name == indexFile {
 		return servedIndex
@@ -90,11 +96,17 @@ func (h *handler) resolve(requestPath string) int {
 	switch {
 	case err == nil && !info.IsDir():
 		return servedFile
-	case (err == nil || errors.Is(err, fs.ErrNotExist)) && path.Ext(name) == "":
+	case (err == nil || errors.Is(err, fs.ErrNotExist)) && (path.Ext(name) == "" || navigation):
 		return servedIndex
 	default:
 		return servedNothing
 	}
+}
+
+// wantsPage reports whether the browser is loading a document, as opposed to
+// a script, stylesheet, image or fetch, which never ask for text/html.
+func wantsPage(req *http.Request) bool {
+	return strings.Contains(req.Header.Get("Accept"), "text/html")
 }
 
 // serveIndex answers with index.html, never cached, so a deployment of a
