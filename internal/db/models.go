@@ -152,7 +152,8 @@ const (
 // from GitLab rather than set by this app. It is the only signal here that
 // an award was ever actually seen by anyone.
 type Award struct {
-	AwardedAt               time.Time
+	// AwardedAt is indexed for the period leaderboards, which filter on it.
+	AwardedAt               time.Time `gorm:"index"`
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	Status                  AwardStatus           `gorm:"not null;default:pending"`

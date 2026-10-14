@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +185,29 @@ func TestProcess_AwardsEveryTierReached(t *testing.T) {
 
 	if !awards[0].AwardedAt.Equal(commitEvent("", 1).OccurredAt) {
 		t.Errorf("expected the award to be dated when the activity happened, got %s", awards[0].AwardedAt)
+	}
+}
+
+// SQLite compares stored times as text, offset included, so the period
+// leaderboards are only right if every award is written in one zone.
+func TestProcess_DatesAwardsInUTC(t *testing.T) {
+	conn := testConn(t)
+	seedDefinitions(t, conn, catalog.CriteriaCommits, 1)
+
+	event := commitEvent("project_event:1:commit", 1)
+	event.OccurredAt = event.OccurredAt.In(time.FixedZone("", 2*60*60))
+
+	if err := New(conn).Process(t.Context(), event); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var stored string
+	if err := conn.Raw("SELECT awarded_at || '' FROM awards").Scan(&stored).Error; err != nil {
+		t.Fatalf("failed to read the stored award time: %v", err)
+	}
+
+	if !strings.HasSuffix(stored, "+00:00") {
+		t.Errorf("expected the award time stored in UTC, got %q", stored)
 	}
 }
 

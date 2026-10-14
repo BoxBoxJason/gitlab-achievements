@@ -216,3 +216,25 @@ func TestV1_TiersAreNumberedFromOne(t *testing.T) {
 		}
 	}
 }
+
+func TestAllCriteria_EveryCriteriaHasACategoryAndATitle(t *testing.T) {
+	known := map[string]bool{
+		catalog.CategoryGit: true, catalog.CategoryMergeRequests: true, catalog.CategoryIssues: true,
+		catalog.CategoryCICD: true, catalog.CategoryCollaboration: true, catalog.CategoryEngagement: true,
+	}
+
+	criteria := catalog.AllCriteria()
+	if len(criteria) != 25 {
+		t.Fatalf("expected 25 criteria, got %d", len(criteria))
+	}
+
+	for _, entry := range criteria {
+		if !known[entry.Category] {
+			t.Errorf("criteria %q has unknown category %q", entry.Key, entry.Category)
+		}
+
+		if entry.Title == "" || strings.Contains(entry.Title, "%") {
+			t.Errorf("criteria %q has a malformed title %q", entry.Key, entry.Title)
+		}
+	}
+}

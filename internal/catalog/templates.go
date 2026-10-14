@@ -30,6 +30,9 @@ type Template struct {
 	ExpCurve Curve
 	// CriteriaKey is the counter the tiers are earned off.
 	CriteriaKey string
+	// Category groups related criteria for display. GitLab has no notion of
+	// one, so like the tier it only lives in this app.
+	Category string
 	// Title names the achievement, with a %s where the tier's numeral goes
 	// ("Committer %s" becomes "Committer I", "Committer II", ...).
 	Title string
@@ -119,6 +122,7 @@ var templates = []Template{
 	//////////////////////// GIT ////////////////////////
 	{
 		CriteriaKey: CriteriaCommits,
+		Category:    CategoryGit,
 		Title:       "Committer %s",
 		Description: "Author %d commits.",
 		AvatarPath:  "assets/commit.png",
@@ -127,6 +131,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaPushes,
+		Category:    CategoryGit,
 		Title:       "Product Shipping %s",
 		Description: "Push %d times.",
 		AvatarPath:  "assets/push.png",
@@ -135,6 +140,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaBranchesCreated,
+		Category:    CategoryGit,
 		Title:       "Friend of the Trees %s",
 		Description: "Create %d branches.",
 		AvatarPath:  "assets/branch.png",
@@ -143,6 +149,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaTagsCreated,
+		Category:    CategoryGit,
 		Title:       "Tagger %s",
 		Description: "Create %d tags.",
 		AvatarPath:  "assets/tag.png",
@@ -153,6 +160,7 @@ var templates = []Template{
 	//////////////////////// MERGE REQUESTS & REVIEW ////////////////////////
 	{
 		CriteriaKey: CriteriaMergeRequestsOpened,
+		Category:    CategoryMergeRequests,
 		Title:       "Merge Request Opener %s",
 		Description: "Open %d merge requests.",
 		AvatarPath:  "assets/mropen.png",
@@ -161,6 +169,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaMergeRequestsMerged,
+		Category:    CategoryMergeRequests,
 		Title:       "Merger %s",
 		Description: "Merge %d merge requests.",
 		AvatarPath:  "assets/merge.png",
@@ -169,6 +178,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaMergeRequestsApproved,
+		Category:    CategoryMergeRequests,
 		Title:       "Stamp of Approval %s",
 		Description: "Approve %d merge requests.",
 		AvatarPath:  "assets/stamp.png",
@@ -177,6 +187,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaMergeRequestsClosed,
+		Category:    CategoryMergeRequests,
 		Title:       "Second Thoughts %s",
 		Description: "Close %d merge requests without merging them.",
 		AvatarPath:  "assets/reject.png",
@@ -185,6 +196,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaMergeRequestsMergedFast,
+		Category:    CategoryMergeRequests,
 		Title:       "Rubber Stamp %s",
 		Description: "Merge %d merge requests within an hour of them being opened.",
 		AvatarPath:  "assets/stopwatch.png",
@@ -193,6 +205,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaComments,
+		Category:    CategoryMergeRequests,
 		Title:       "Commentator %s",
 		Description: "Leave %d comments.",
 		AvatarPath:  "assets/comment.png",
@@ -201,6 +214,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaDiscussionsResolved,
+		Category:    CategoryMergeRequests,
 		Title:       "Loose Ends %s",
 		Description: "Resolve %d review discussions.",
 		AvatarPath:  "assets/resolved.png",
@@ -211,6 +225,7 @@ var templates = []Template{
 	//////////////////////// ISSUES ////////////////////////
 	{
 		CriteriaKey: CriteriaIssuesOpened,
+		Category:    CategoryIssues,
 		Title:       "Issue Opener %s",
 		Description: "Open %d issues.",
 		AvatarPath:  "assets/bug.png",
@@ -219,6 +234,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaIssuesClosed,
+		Category:    CategoryIssues,
 		Title:       "Problem Solver %s",
 		Description: "Close %d issues.",
 		AvatarPath:  "assets/fix.png",
@@ -229,6 +245,7 @@ var templates = []Template{
 	//////////////////////// CI/CD ////////////////////////
 	{
 		CriteriaKey: CriteriaPipelinesRun,
+		Category:    CategoryCICD,
 		Title:       "Pipeline Operator %s",
 		Description: "Trigger %d pipelines.",
 		AvatarPath:  "assets/pipes.png",
@@ -237,6 +254,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaPipelinesSucceeded,
+		Category:    CategoryCICD,
 		Title:       "All Green %s",
 		Description: "Trigger %d pipelines that pass.",
 		AvatarPath:  "assets/allgreen.png",
@@ -245,6 +263,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaPipelinesFailed,
+		Category:    CategoryCICD,
 		Title:       "Firefighter %s",
 		Description: "Trigger %d pipelines that fail.",
 		AvatarPath:  "assets/firefighter.png",
@@ -253,6 +272,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaJobsRun,
+		Category:    CategoryCICD,
 		Title:       "Assembly Line %s",
 		Description: "Run %d CI jobs.",
 		AvatarPath:  "assets/gears.png",
@@ -265,6 +285,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaDeployments,
+		Category:    CategoryCICD,
 		Title:       "Ship It %s",
 		Description: "Deploy %d times.",
 		AvatarPath:  "assets/rocket.png",
@@ -273,6 +294,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaDeploymentsSucceeded,
+		Category:    CategoryCICD,
 		Title:       "Stuck the Landing %s",
 		Description: "Complete %d deployments successfully.",
 		AvatarPath:  "assets/bullseye.png",
@@ -283,6 +305,7 @@ var templates = []Template{
 	//////////////////////// COLLABORATION ////////////////////////
 	{
 		CriteriaKey: CriteriaEmojiAwarded,
+		Category:    CategoryCollaboration,
 		Title:       "Reaction Time %s",
 		Description: "React to %d issues, merge requests, or comments.",
 		AvatarPath:  "assets/thumbsup.png",
@@ -291,6 +314,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaWikiPagesCreated,
+		Category:    CategoryCollaboration,
 		Title:       "Librarian %s",
 		Description: "Create %d wiki pages.",
 		AvatarPath:  "assets/librarian.png",
@@ -301,6 +325,7 @@ var templates = []Template{
 	//////////////////////// ENGAGEMENT ////////////////////////
 	{
 		CriteriaKey: CriteriaActiveDays,
+		Category:    CategoryEngagement,
 		Title:       "Regular %s",
 		Description: "Be active on %d separate days.",
 		AvatarPath:  "assets/mug.png",
@@ -309,6 +334,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaActivityStreak,
+		Category:    CategoryEngagement,
 		Title:       "Connection Streak %s",
 		Description: "Stay active %d days in a row.",
 		AvatarPath:  "assets/streak.png",
@@ -321,6 +347,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaNightOwlDays,
+		Category:    CategoryEngagement,
 		Title:       "Night Owl %s",
 		Description: "Be active after midnight on %d separate days.",
 		AvatarPath:  "assets/owl.png",
@@ -329,6 +356,7 @@ var templates = []Template{
 	},
 	{
 		CriteriaKey: CriteriaEarlyBirdDays,
+		Category:    CategoryEngagement,
 		Title:       "Early Bird %s",
 		Description: "Be active before dawn on %d separate days.",
 		AvatarPath:  "assets/bird.png",

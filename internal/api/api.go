@@ -20,6 +20,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -32,7 +33,7 @@ const (
 	// PathPrefix is the subtree the read API is served under. Every route
 	// this app adds later, including any that writes, belongs under this
 	// prefix and behind the same authentication rather than inventing its
-	// own.
+	// own. The one exception is the achievement icon; see routes.
 	PathPrefix = "/api/v1/"
 	// OAuthPathPrefix is the subtree the OAuth login flow is served under.
 	// It sits outside PathPrefix because it is how a browser acquires a
@@ -55,6 +56,7 @@ type API struct {
 	auth       *authenticator
 	sessions   *sessions
 	mux        *http.ServeMux
+	icons      map[string]icon
 }
 
 // Options configures an API.
@@ -80,6 +82,7 @@ func New(conn *gorm.DB, opts Options) *API {
 		sessions:   sessionStore,
 		mux:        http.NewServeMux(),
 		exclusions: opts.Exclusions,
+		icons:      loadIcons(),
 	}
 
 	if opts.Verifier != nil {
@@ -121,14 +124,26 @@ func (a *API) PruneSessions(ctx context.Context) (int64, error) {
 // The read endpoints go behind authentication where it is configured; the
 // OAuth routes never do, since they are how a browser gets a credential in
 // the first place.
+//
+// Nor does the achievement icon. A page shows it with an <img> tag, which
+// cannot send an Authorization header, so behind a bearer token it would
+// never load; behind the session cookie, every icon on a page would cost a
+// GitLab round trip to verify the cookie. It gives nothing away either:
+// the images are compiled into the binary, the same set for every
+// instance, and GitLab already shows them on profiles. Being public is
+// also what lets its Cache-Control say public. The route is more specific
+// than PathPrefix, so ServeMux sends icon requests to it.
 func (a *API) routes() {
 	read := http.NewServeMux()
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}", a.handleUser)
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}/exp", a.handleUserEXP)
 	read.HandleFunc("GET "+PathPrefix+"leaderboard", a.handleLeaderboard)
+	read.HandleFunc("GET "+PathPrefix+"leaderboard/criteria/{criteria}", a.handleCriteriaLeaderboard)
+	read.HandleFunc("GET "+PathPrefix+"achievements", a.handleAchievements)
 	a.optOutRoutes(read)
 
 	a.mux.Handle(PathPrefix, a.protect(read))
+	a.mux.HandleFunc("GET "+PathPrefix+"achievements/{criteria}/icon", a.handleAchievementIcon)
 
 	if a.oauth != nil {
 		a.oauth.routes(a.mux)
@@ -172,14 +187,50 @@ func (a *API) handleUserEXP(resp http.ResponseWriter, req *http.Request) {
 
 // handleLeaderboard serves the top users by EXP.
 func (a *API) handleLeaderboard(resp http.ResponseWriter, req *http.Request) {
-	limit, err := leaderboardLimit(req.URL.Query().Get("limit"))
+	slice, err := parsePage(req)
 	if err != nil {
 		writeError(resp, http.StatusBadRequest, err.Error())
 
 		return
 	}
 
-	board, err := a.store.Leaderboard(req.Context(), limit)
+	span, err := parseWindow(req, time.Now())
+	if err != nil {
+		writeError(resp, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	board, err := a.store.Leaderboard(req.Context(), slice, span)
+	if err != nil {
+		a.fail(resp, req, err)
+
+		return
+	}
+
+	a.writeJSON(resp, board)
+}
+
+// handleCriteriaLeaderboard serves the ranking for one criteria's counter.
+//
+// It has no period: counters hold running totals, not a history, so there
+// is nothing to tell how much of a count was earned inside a window.
+func (a *API) handleCriteriaLeaderboard(resp http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+	if query.Has("since") || (query.Has("period") && query.Get("period") != PeriodAll) {
+		writeError(resp, http.StatusBadRequest, "per-criteria rankings cover all time only: counters keep totals, not history")
+
+		return
+	}
+
+	slice, err := parsePage(req)
+	if err != nil {
+		writeError(resp, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	board, err := a.store.criteriaLeaderboard(req.Context(), req.PathValue("criteria"), slice)
 	if err != nil {
 		a.fail(resp, req, err)
 
@@ -222,6 +273,12 @@ func leaderboardLimit(raw string) (int, error) {
 func (a *API) fail(resp http.ResponseWriter, req *http.Request, err error) {
 	if errors.Is(err, ErrUserUnknown) {
 		writeError(resp, http.StatusNotFound, "no activity recorded for this user")
+
+		return
+	}
+
+	if errors.Is(err, ErrCriteriaUnknown) {
+		writeError(resp, http.StatusNotFound, "no such criteria")
 
 		return
 	}

@@ -16,6 +16,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"strings"
 )
 
 //go:embed assets/*.png
@@ -68,6 +69,54 @@ const (
 	CriteriaEarlyBirdDays           = "early_bird_days"
 )
 
+// Categories group related criteria for display, in the order they are
+// meant to be shown.
+const (
+	CategoryGit           = "git"
+	CategoryMergeRequests = "merge_requests"
+	CategoryIssues        = "issues"
+	CategoryCICD          = "ci_cd"
+	CategoryCollaboration = "collaboration"
+	CategoryEngagement    = "engagement"
+)
+
+// Criteria describes one criteria as a whole, apart from its tiers: what to
+// call the stack, which group it belongs to, and the image every tier
+// shares, empty when it has none.
+type Criteria struct {
+	Key        string
+	Category   string
+	Title      string
+	AvatarPath string
+}
+
+// AllCriteria lists every criteria in the catalog, in catalog order.
+func AllCriteria() []Criteria {
+	criteria := make([]Criteria, 0, len(templates))
+
+	for _, template := range templates {
+		criteria = append(criteria, Criteria{
+			Key:        template.CriteriaKey,
+			Category:   template.Category,
+			Title:      strings.TrimSpace(fmt.Sprintf(template.Title, "")),
+			AvatarPath: template.AvatarPath,
+		})
+	}
+
+	return criteria
+}
+
+// OpenAvatar opens an embedded avatar asset by the path a definition
+// records for it.
+func OpenAvatar(path string) (fs.File, error) {
+	f, err := avatarAssets.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open avatar asset %q: %w", path, err)
+	}
+
+	return f, nil
+}
+
 // Entry describes one tier of one achievement criteria: what GitLab shows
 // (Name, Description, avatar) and the local progress threshold (Tier,
 // Threshold) that earns it, keyed by CriteriaKey, the identifier the
@@ -95,9 +144,9 @@ func (e Entry) HasAvatar() bool {
 // Avatar opens entry's avatar image. The caller must close the returned
 // file, and must only call this when HasAvatar reports true.
 func (e Entry) Avatar() (fs.File, error) {
-	f, err := avatarAssets.Open(e.AvatarPath)
+	f, err := OpenAvatar(e.AvatarPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open avatar asset %q for %s tier %d: %w", e.AvatarPath, e.CriteriaKey, e.Tier, err)
+		return nil, fmt.Errorf("%s tier %d: %w", e.CriteriaKey, e.Tier, err)
 	}
 
 	return f, nil

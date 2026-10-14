@@ -179,13 +179,71 @@ func Migrate(conn *gorm.DB) error {
 		return fmt.Errorf("failed to migrate database schema: %w", err)
 	}
 
+	err = normalizeAwardTimes(conn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// utcSuffix is how the SQLite driver ends a UTC time it writes.
+const utcSuffix = "+00:00"
+
+// normalizeAwardTimes rewrites every award time SQLite holds in an offset
+// other than UTC, in UTC.
+//
+// SQLite has no time type: the driver stores a time as text carrying its
+// offset, and comparisons on the column compare that text. Awards used to
+// be dated in whatever zone the event arrived in, so a row written at
+// 20:41+02:00 sorted after 19:00+00:00 although it happened earlier, and
+// the period leaderboards miscounted at the edge of their window. The
+// engine now writes UTC; this brings older rows in line. It only touches
+// rows still off UTC, so after the first start it finds nothing to do.
+//
+// The other DBMSs store an instant and compare instants, so there is
+// nothing to fix on them.
+func normalizeAwardTimes(conn *gorm.DB) error {
+	if conn.Name() != "sqlite" {
+		return nil
+	}
+
+	var awards []Award
+
+	err := conn.Select("id", "awarded_at").Where("awarded_at NOT LIKE ?", "%"+utcSuffix).Find(&awards).Error
+	if err != nil {
+		return fmt.Errorf("failed to load award times to normalize: %w", err)
+	}
+
+	if len(awards) == 0 {
+		return nil
+	}
+
+	err = conn.Transaction(func(txn *gorm.DB) error {
+		for _, award := range awards {
+			// UpdateColumn, not Update: rewriting how a time is spelled is
+			// not a change to the award, so updated_at stays as it was.
+			updateErr := txn.Model(&Award{}).Where("id = ?", award.ID).UpdateColumn("awarded_at", award.AwardedAt.UTC()).Error
+			if updateErr != nil {
+				return fmt.Errorf("failed to normalize award %d's time: %w", award.ID, updateErr)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to normalize award times: %w", err)
+	}
+
 	return nil
 }
 
 // Participating narrows a query on users to those taking part in
 // achievements, leaving out everyone with an ExcludedReason (see the
 // exclusion package). Use it as a scope, conn.Scopes(db.Participating), or
-// call it directly on a query built as a subquery.
+// call it directly on a query built as a subquery. The column is qualified
+// with the table so the scope also works on queries that join users to
+// other tables.
 func Participating(query *gorm.DB) *gorm.DB {
-	return query.Where("excluded_reason = ?", "")
+	return query.Where("users.excluded_reason = ?", "")
 }

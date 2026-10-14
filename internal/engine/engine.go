@@ -412,11 +412,14 @@ func awardReachedTiers(txn *gorm.DB, userID int64, criteriaKey string, count int
 			continue
 		}
 
+		// Stored in UTC: SQLite keeps times as text with their offset and
+		// compares them as text, so the period leaderboards' awarded_at
+		// filter is only right when every row shares one offset.
 		err = txn.Create(&db.Award{
 			UserID:                  userID,
 			AchievementDefinitionID: definition.ID,
 			Status:                  db.AwardStatusPending,
-			AwardedAt:               occurredAt,
+			AwardedAt:               occurredAt.UTC(),
 		}).Error
 		if err != nil {
 			return awarded, fmt.Errorf("failed to record award %d for user %d: %w", definition.ID, userID, err)

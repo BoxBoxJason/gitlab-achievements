@@ -68,21 +68,39 @@ type EarnedTier struct {
 type Detail struct { //nolint:govet // see above: field order is for readers, not padding
 	Summary
 
+	// Rank is the user's position on the all-time leaderboard.
+	Rank     int          `json:"rank"`
 	Counters []Counter    `json:"counters"`
 	Awards   []EarnedTier `json:"awards"`
 }
 
 // Entry is one row of the leaderboard.
-type Entry struct {
+//
+// ExpEarned is present only on a leaderboard ranked over a period, where it
+// is what the ranking is by: the EXP of the tiers earned inside it.
+// ExpTotal stays the all-time figure either way, so a row never means two
+// different things depending on how it was asked for.
+//
+// Field order is for readers of the JSON, as with Detail.
+type Entry struct { //nolint:govet // see above: field order is for readers, not padding
 	Summary
 
-	Rank int `json:"rank"`
+	ExpEarned *int64 `json:"exp_earned,omitempty"`
+	Rank      int    `json:"rank"`
 }
 
-// Leaderboard is the top slice of the instance by EXP.
+// Leaderboard is one page of the instance ranked by EXP.
+//
+// Total is how many users the whole ranking has, so a caller can page
+// through it. Since is the start of the period ranked over, absent for all
+// time.
 type Leaderboard struct {
-	Entries []Entry `json:"entries"`
-	Limit   int     `json:"limit"`
+	Since   *time.Time `json:"since,omitempty"`
+	Period  string     `json:"period"`
+	Entries []Entry    `json:"entries"`
+	Limit   int        `json:"limit"`
+	Offset  int        `json:"offset"`
+	Total   int64      `json:"total"`
 }
 
 // store answers the API's questions from the local database alone.
@@ -102,11 +120,9 @@ func (s *store) Summary(ctx context.Context, ref string) (*Summary, error) {
 		return nil, err
 	}
 
-	return &Summary{
-		Username:     user.Username,
-		GitLabUserID: user.GitLabUserID,
-		ExpTotal:     user.ExpTotal,
-	}, nil
+	summary := summaryOf(user)
+
+	return &summary, nil
 }
 
 // Detail returns ref's whole record.
@@ -128,12 +144,14 @@ func (s *store) Detail(ctx context.Context, ref string) (*Detail, error) {
 		return nil, err
 	}
 
+	rank, err := s.rank(txn, user)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Detail{
-		Summary: Summary{
-			Username:     user.Username,
-			GitLabUserID: user.GitLabUserID,
-			ExpTotal:     user.ExpTotal,
-		},
+		Summary:  summaryOf(user),
+		Rank:     rank,
 		Counters: counters,
 		Awards:   awards,
 	}, nil
@@ -186,44 +204,40 @@ func sortTiers(tiers []EarnedTier) {
 	})
 }
 
-// Leaderboard returns the top limit users by EXP.
+// Leaderboard returns one page of the instance ranked by EXP: by EXP held
+// for all time, or by EXP earned inside the window.
 //
-// It reads users.exp_total directly, with no join and no scan of the awards
-// table, because that column is maintained as the sum of what its holder's
-// tiers are worth: an ORDER BY and a LIMIT over one indexed-ish column stays
-// cheap however large the instance is.
-//
-// Ties are broken by GitLab user ID so that repeated calls return the same
-// order rather than whatever the database happened to produce.
-func (s *store) Leaderboard(ctx context.Context, limit int) (*Leaderboard, error) {
-	var users []db.User
+// The all-time ranking reads users.exp_total directly, with no join and no
+// scan of the awards table, because that column is maintained as the sum
+// of what its holder's tiers are worth. Ties are broken by GitLab user ID
+// so that repeated calls, and consecutive pages, agree on the order.
+func (s *store) Leaderboard(ctx context.Context, slice page, span window) (*Leaderboard, error) {
+	var (
+		entries []Entry
+		total   int64
+		err     error
+		since   *time.Time
+	)
 
-	// git_lab_user_id, not gitlab_user_id: the column name is gorm's
-	// rendering of the GitLabUserID field, and SQLite is the only one of the
-	// four supported DBMSs that would reject the wrong spelling loudly.
-	err := s.conn.WithContext(ctx).
-		Scopes(db.Participating).
-		Order("exp_total DESC, git_lab_user_id ASC").
-		Limit(limit).
-		Find(&users).Error
+	if span.period == PeriodAll {
+		entries, total, err = s.leaderboard(ctx, slice)
+	} else {
+		entries, total, err = s.periodLeaderboard(ctx, slice, span.since)
+		since = &span.since
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to load leaderboard: %w", err)
+		return nil, err
 	}
 
-	entries := make([]Entry, 0, len(users))
-
-	for index, user := range users {
-		entries = append(entries, Entry{
-			Summary: Summary{
-				Username:     user.Username,
-				GitLabUserID: user.GitLabUserID,
-				ExpTotal:     user.ExpTotal,
-			},
-			Rank: index + 1,
-		})
-	}
-
-	return &Leaderboard{Entries: entries, Limit: limit}, nil
+	return &Leaderboard{
+		Entries: entries,
+		Limit:   slice.limit,
+		Offset:  slice.offset,
+		Total:   total,
+		Period:  span.period,
+		Since:   since,
+	}, nil
 }
 
 // lookup resolves the {ref} path segment to a user, trying it as a GitLab

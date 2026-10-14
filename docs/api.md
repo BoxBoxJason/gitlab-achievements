@@ -8,7 +8,10 @@ GitLab shows which achievements somebody holds but has no notion of EXP, so this
 | --- | --- | --- |
 | `GET` | `/api/v1/users/{ref}` | EXP total, criteria counters, and every tier earned |
 | `GET` | `/api/v1/users/{ref}/exp` | The EXP total alone |
-| `GET` | `/api/v1/leaderboard?limit=N` | Top N users by EXP (default 10, max 100) |
+| `GET` | `/api/v1/leaderboard` | Users ranked by EXP, paged, for all time or over a period. See [Rankings](#rankings) |
+| `GET` | `/api/v1/leaderboard/criteria/{criteria}` | Users ranked by one criteria's counter, with the tier each has reached |
+| `GET` | `/api/v1/achievements` | The catalog: every criteria, its category, and every tier with its threshold and EXP |
+| `GET` | `/api/v1/achievements/{criteria}/icon` | The PNG every tier of a criteria shares |
 | `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part](participation.md#opting-out) |
 
 Users who are [left out](participation.md) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
@@ -55,17 +58,88 @@ The full record adds the counters behind the total and the tiers earned off them
 
 Awards are reported whatever their delivery status, which matches how EXP is totalled: a tier is earned the moment the engine says so, and a `superseded` tier still pays even though it is not what GitLab displays. `status` and `shown_on_profile` both appear because they answer different questions. `status` is how far this app got pushing the award; `shown_on_profile` is whether the recipient accepted it, which [only they can do](achievements-api-behavior.md).
 
-The leaderboard is the same summary shape with a rank:
+The full record also carries `rank`, the user's position on the all-time leaderboard.
+
+## Rankings
+
+`/api/v1/leaderboard` is the summary shape with a rank, one page at a time:
 
 ```json
 {
+  "period": "all",
   "limit": 10,
+  "offset": 0,
+  "total": 57,
   "entries": [
     { "rank": 1, "username": "alice", "gitlab_user_id": 42, "exp_total": 1350 },
     { "rank": 2, "username": "bob", "gitlab_user_id": 17, "exp_total": 940 }
   ]
 }
 ```
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `limit` | `10` | Page size, 1 to 100 |
+| `offset` | `0` | How many ranks to skip. `total` says how many there are; past the end is an empty page, not an error |
+| `period` | `all` | `all`, `day`, `week`, `month`, `year`: rank by EXP earned in the last 24 hours, 7, 30 or 365 days |
+| `since` | | An RFC 3339 timestamp to rank from instead of a named period. Give one or the other |
+
+Ties are broken by GitLab user ID, so the order is total and pages of an unchanged ranking never overlap or skip anyone. A ranking that changes between two requests, because somebody earned a tier, can shift people across a page boundary, as any paged list over live data can.
+
+Over a period, each entry gains `exp_earned`, the EXP of the tiers earned inside it, which is what the ranking is by. `exp_total` stays the all-time figure. Only users who earned something in the period are ranked, and the response carries `since`:
+
+```json
+{
+  "period": "week",
+  "since": "2026-10-06T20:41:07Z",
+  "limit": 10, "offset": 0, "total": 3,
+  "entries": [
+    { "rank": 1, "username": "bob", "gitlab_user_id": 17, "exp_total": 940, "exp_earned": 300 }
+  ]
+}
+```
+
+A named period is recomputed from the current time on every request, so the window slides between page 1 and page 2, and an award near its start can fall out in between. To page through one fixed window, take `since` from the first page and pass it, in place of `period`, for the pages after. Those come back labelled `"period": "custom"`.
+
+Periods are rolling rather than calendar weeks or months, which would start on a different day depending on where the reader is. A tier counts toward the period of the activity that earned it, not the moment this app evaluated it. Tiers earned during the historical backfill therefore land back in history, not all in the week the app was installed.
+
+`/api/v1/leaderboard/criteria/{criteria}` ranks by one counter, with `tier` the highest tier the count reaches (`0` for none yet):
+
+```json
+{
+  "criteria_key": "commits",
+  "limit": 10, "offset": 0, "total": 41,
+  "entries": [
+    { "rank": 1, "username": "bob", "gitlab_user_id": 17, "count": 1203, "tier": 8 }
+  ]
+}
+```
+
+It takes `limit` and `offset` but no period: counters keep running totals, not a history, so there is no telling how much of a count was earned in a given week. An unknown criteria is a `404`.
+
+## The catalog
+
+`/api/v1/achievements` lists what there is to earn, in the catalog's order, grouped into `git`, `merge_requests`, `issues`, `ci_cd`, `collaboration` and `engagement`:
+
+```json
+{
+  "criteria": [
+    {
+      "criteria_key": "commits",
+      "category": "git",
+      "title": "Committer",
+      "icon_url": "/api/v1/achievements/commits/icon",
+      "tiers": [
+        { "tier": 1, "name": "Committer I", "description": "Author 1 commits.", "threshold": 1, "exp_reward": 10 }
+      ]
+    }
+  ]
+}
+```
+
+Together with a user's `counters`, that is everything a page needs to show progress toward the next tier. The icon is served from the copy compiled into the binary, so a frontend never has to reach GitLab for it. It is cacheable for a day and carries an `ETag` for revalidation after that.
+
+The icon is the one route under `/api/v1/` served without authentication, even with `API_AUTH=gitlab`. Pages show it with an `<img>` tag, which cannot send a bearer token. The images are the same in every build and already appear on GitLab profiles, so they reveal nothing about your instance.
 
 ## Authentication
 
@@ -82,7 +156,7 @@ Browsers can log in at `/oauth/login` instead, which runs the standard authoriza
 
 Unless `OAUTH_CLIENT_ID` names an application you registered by hand, the app registers a public OAuth application for itself on startup, using the instance-admin write token it already holds, and adopts that same application on every later start rather than creating another. A public client has no secret to store; PKCE is what secures the exchange. Pass `OAUTH_CLIENT_SECRET` alongside a client ID to run as a confidential client.
 
-Any authenticated GitLab identity may read anything the API serves. Achievements are already public on GitLab profiles and are social by nature. What authentication closes is an anonymous caller enumerating who exists on your instance.
+Any authenticated GitLab identity may read anything the API serves. The one route that needs no credential is the achievement icon, see [The catalog](#the-catalog). Achievements are already public on GitLab profiles and are social by nature. What authentication closes is an anonymous caller enumerating who exists on your instance.
 
 > [!NOTE]
 > With `API_AUTH=gitlab`, credentials are verified against GitLab on every request, with no cache. Revoking a token takes effect immediately, but it also means authenticated requests cannot be served while your instance is unreachable. The database-only guarantee above applies to the data; under the default `API_AUTH=none` it applies to the whole request.

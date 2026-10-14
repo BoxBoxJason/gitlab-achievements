@@ -67,7 +67,9 @@ GitLab has no notion of points, so this app is the only place that number exists
 | --- | --- | --- |
 | `GET` | `/api/v1/users/{ref}` | EXP total, criteria counters, and every tier earned |
 | `GET` | `/api/v1/users/{ref}/exp` | Just the number |
-| `GET` | `/api/v1/leaderboard?limit=N` | Top N users by EXP |
+| `GET` | `/api/v1/leaderboard` | Users ranked by EXP, paged, all-time or over a `period` (`day`, `week`, `month`, `year`) |
+| `GET` | `/api/v1/leaderboard/criteria/{criteria}` | Users ranked by one counter, with the tier each reached |
+| `GET` | `/api/v1/achievements` | Every achievement there is to earn, by category, with icons |
 
 ```console
 $ curl -s https://achievements.example.com/api/v1/users/alice/exp
