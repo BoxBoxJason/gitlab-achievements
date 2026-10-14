@@ -508,9 +508,9 @@ func buildAPI(
 	opts.Verifier = verifier
 
 	if cfg.APIAllowedGroup != "" {
-		group := cfg.APIAllowedGroup
-		opts.IsMember = func(ctx context.Context, gitlabUserID int64) (bool, error) {
-			return readClient.IsGroupMember(ctx, group, gitlabUserID)
+		opts.IsMember, err = membershipChecker(ctx, readClient, cfg.APIAllowedGroup)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -539,6 +539,28 @@ func buildAPI(
 	)
 
 	return newAPI(conn, opts)
+}
+
+// membershipChecker restricts the API to group's members.
+//
+// A membership lookup on a group that does not exist (or that the read
+// token cannot see) answers 404 just as one for a non-member does, so a
+// typo in the group would quietly refuse everybody. Checked once here, it
+// fails the start instead. Any other error is GitLab being unreachable,
+// which is not worth refusing to start over.
+func membershipChecker(ctx context.Context, readClient *gitlabclient.ReadClient, group string) (api.MembershipChecker, error) {
+	_, err := readClient.GetGroup(group, nil, gitlab.WithContext(ctx))
+	if gitlabclient.IsNotFound(err) {
+		return nil, fmt.Errorf("api-allowed-group %q does not exist or is not visible to the read token", group)
+	}
+
+	if err != nil {
+		zap.L().Warn("could not check that api-allowed-group exists", zap.String("group", group), zap.Error(err))
+	}
+
+	return func(ctx context.Context, gitlabUserID int64) (bool, error) {
+		return readClient.IsGroupMember(ctx, group, gitlabUserID)
+	}, nil
 }
 
 // newAPI builds the API, wrapping its construction error.

@@ -10,8 +10,9 @@
 // it is on, GitLab is the identity provider: a caller presents a personal
 // access token or an OAuth access token, or arrives with a session cookie
 // from the OAuth flow in oauth.go. Note that verifying a credential does
-// call GitLab, on every request, so with authentication enabled the API's
-// availability is coupled to the instance's; see Verifier.
+// call GitLab, at most once per identity cache TTL for each credential, so
+// with authentication enabled the API's availability is coupled to the
+// instance's; see Verifier.
 package api
 
 import (
@@ -25,6 +26,8 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/config"
 )
 
 // PruneInterval is how often the serving process should call PruneSessions.
@@ -80,7 +83,7 @@ type Options struct {
 	// session would end with the process.
 	SessionSecret string
 	// SessionLifetime is how long a browser stays logged in; zero means
-	// DefaultSessionLifetime.
+	// config.DefaultSessionLifetime.
 	SessionLifetime time.Duration
 	// IdentityCacheTTL is how long a verified credential is trusted without
 	// asking GitLab again; zero or less disables the cache.
@@ -142,7 +145,7 @@ func newSessionStore(conn *gorm.DB, opts Options) (*sessions, error) {
 
 	lifetime := opts.SessionLifetime
 	if lifetime <= 0 {
-		lifetime = DefaultSessionLifetime
+		lifetime = config.DefaultSessionLifetime
 	}
 
 	return &sessions{conn: conn, sealer: tokenSealer, lifetime: lifetime}, nil

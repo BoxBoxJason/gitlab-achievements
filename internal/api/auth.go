@@ -25,9 +25,9 @@ const bearerPrefix = "Bearer "
 // Verifier resolves a GitLab credential to the identity behind it.
 //
 // It is an interface rather than *gitlabclient.TokenVerifier so that the
-// handlers never depend on how verification happens. Verification currently
-// calls GitLab on every request by design, and this is the seam a
-// short-lived identity cache would slot into without any handler changing.
+// handlers never depend on how verification happens: the group restriction
+// (authorizingVerifier) and the short-lived identity cache
+// (cachingVerifier) both wrap it here without any handler changing.
 type Verifier interface {
 	Verify(ctx context.Context, token string) (*gitlabclient.Identity, error)
 }

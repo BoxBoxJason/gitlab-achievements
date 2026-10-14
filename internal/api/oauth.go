@@ -168,6 +168,10 @@ func (f *oauthFlow) handleLogin(resp http.ResponseWriter, req *http.Request) {
 		// Encoded so that whatever characters the URL holds survive being a
 		// cookie value.
 		f.setFlowCookie(resp, returnCookie, base64.RawURLEncoding.EncodeToString([]byte(returnTo)))
+	} else {
+		// A destination stashed by an earlier, abandoned login would
+		// otherwise outlive it and hijack this one's landing.
+		f.clearFlowCookie(resp, returnCookie)
 	}
 
 	http.Redirect(resp, req,
@@ -286,12 +290,31 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 		landing = returnTo
 	}
 
+	f.endPreviousSession(req)
 	f.clearFlowCookies(resp)
 	http.SetCookie(resp, f.cookie(SessionCookie, sessionID, int(time.Until(expiresAt).Seconds())))
 
 	// landing is either this app's own path or a URL returnTo checked
 	// against the allowed origins, so it cannot redirect anywhere else.
 	http.Redirect(resp, req, landing, http.StatusFound) //nolint:gosec // see above
+}
+
+// endPreviousSession ends the session a browser logging in again still
+// holds. Left alone, its row would keep its refresh token, and so a live
+// GitLab credential, for the rest of its lifetime with no cookie pointing
+// at it any more.
+func (f *oauthFlow) endPreviousSession(req *http.Request) {
+	previous, err := req.Cookie(SessionCookie)
+	if err != nil {
+		return
+	}
+
+	f.forgetIdentity(req.Context(), previous.Value)
+
+	err = f.sessions.destroy(req.Context(), previous.Value)
+	if err != nil {
+		zap.L().Warn("failed to delete the session a new login replaced", zap.Error(err))
+	}
 }
 
 // stashedReturnTo reads back the destination handleLogin stashed.
@@ -475,11 +498,16 @@ func (f *oauthFlow) setFlowCookie(resp http.ResponseWriter, name, value string) 
 // cannot be paired with a later code.
 func (f *oauthFlow) clearFlowCookies(resp http.ResponseWriter) {
 	for _, name := range []string{stateCookie, verifierCookie, returnCookie} {
-		cookie := f.cookie(name, "", -1) //nolint:gosec // attributes are set by f.cookie
-		cookie.Path = OAuthPathPrefix
-
-		http.SetCookie(resp, cookie)
+		f.clearFlowCookie(resp, name)
 	}
+}
+
+// clearFlowCookie drops one of the login's temporary cookies.
+func (f *oauthFlow) clearFlowCookie(resp http.ResponseWriter, name string) {
+	cookie := f.cookie(name, "", -1) //nolint:gosec // attributes are set by f.cookie
+	cookie.Path = OAuthPathPrefix
+
+	http.SetCookie(resp, cookie)
 }
 
 // cookie builds one of this flow's cookies.

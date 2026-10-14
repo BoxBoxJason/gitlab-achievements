@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 )
 
 // MePath is where a signed-in caller learns who they are.
@@ -39,7 +38,7 @@ func (a *API) handleMe(resp http.ResponseWriter, req *http.Request) {
 
 	caller := Me{Username: identity.Username, GitLabUserID: identity.ID}
 
-	detail, err := a.store.Detail(req.Context(), strconv.FormatInt(identity.ID, 10))
+	detail, err := a.store.DetailByGitLabID(req.Context(), identity.ID)
 
 	switch {
 	case err == nil:

@@ -132,29 +132,28 @@ func (s *store) Detail(ctx context.Context, ref string) (*Detail, error) {
 		return nil, err
 	}
 
-	txn := s.conn.WithContext(ctx)
+	return s.detailOf(ctx, user)
+}
 
-	counters, err := s.counters(txn, user.ID)
+// DetailByGitLabID returns the whole record of the user with that GitLab
+// ID, and only that user. Unlike Detail it never falls back to reading the
+// number as a username, which would hand one person's record to somebody
+// whose ID happens to spell another's all-digit username.
+func (s *store) DetailByGitLabID(ctx context.Context, gitlabUserID int64) (*Detail, error) {
+	if gitlabUserID <= 0 {
+		return nil, fmt.Errorf("%w: %d", ErrUserUnknown, gitlabUserID)
+	}
+
+	user, err := s.first(s.conn.WithContext(ctx), &db.User{GitLabUserID: gitlabUserID})
 	if err != nil {
 		return nil, err
 	}
 
-	awards, err := s.awards(txn, user.ID)
-	if err != nil {
-		return nil, err
+	if user == nil {
+		return nil, fmt.Errorf("%w: %d", ErrUserUnknown, gitlabUserID)
 	}
 
-	rank, err := s.rank(txn, user)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Detail{
-		Summary:  summaryOf(user),
-		Rank:     rank,
-		Counters: counters,
-		Awards:   awards,
-	}, nil
+	return s.detailOf(ctx, user)
 }
 
 // mergeAwards pairs each award with its definition, dropping any award
@@ -237,6 +236,33 @@ func (s *store) Leaderboard(ctx context.Context, slice page, span window) (*Lead
 		Total:   total,
 		Period:  span.period,
 		Since:   since,
+	}, nil
+}
+
+// detailOf assembles a found user's whole record.
+func (s *store) detailOf(ctx context.Context, user *db.User) (*Detail, error) {
+	txn := s.conn.WithContext(ctx)
+
+	counters, err := s.counters(txn, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	awards, err := s.awards(txn, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	rank, err := s.rank(txn, user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Detail{
+		Summary:  summaryOf(user),
+		Rank:     rank,
+		Counters: counters,
+		Awards:   awards,
 	}, nil
 }
 

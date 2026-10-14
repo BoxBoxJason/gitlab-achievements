@@ -21,11 +21,6 @@ const (
 	// identifier is the whole of what the session cookie holds, so guessing
 	// one is impersonating its owner; 256 bits puts that out of reach.
 	sessionIDBytes = 32
-	// DefaultSessionLifetime is how long a browser stays signed in when no
-	// lifetime is configured. A session renews its GitLab token as it runs
-	// out, so this, not the token's two hours, is what decides how often
-	// somebody has to log in again.
-	DefaultSessionLifetime = 7 * 24 * time.Hour
 	// pruneInterval is how often expired sessions are swept from the table.
 	pruneInterval = time.Hour
 )

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
 
@@ -127,6 +128,48 @@ func TestLogin_ReturnsToTheRequestedPage(t *testing.T) {
 	}
 }
 
+func TestLogin_WithoutReturnToDropsAnAbandonedLoginsDestination(t *testing.T) {
+	api := flowAPI(t, "https://gitlab.example.com", &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
+
+	rec := get(t, api, LoginPath)
+
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == returnCookie && cookie.MaxAge >= 0 {
+			t.Fatalf("expected a login without return_to to expire any stashed destination, got %+v", cookie)
+		}
+	}
+}
+
+func TestLogin_AgainEndsThePreviousSession(t *testing.T) {
+	gitlab := fakeGitLab(t, false)
+	api := flowAPI(t, gitlab.URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}})
+
+	previous, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "old", RefreshToken: "old-refresh"})
+	if err != nil {
+		t.Fatalf("failed to seed a session: %v", err)
+	}
+
+	start := get(t, api, LoginPath)
+	authorize, _ := url.Parse(start.Header().Get("Location"))
+
+	rec := get(t, api, CallbackPath+"?code=the-code&state="+url.QueryEscape(authorize.Query().Get("state")),
+		func(req *http.Request) {
+			for _, cookie := range start.Result().Cookies() {
+				req.AddCookie(cookie)
+			}
+
+			req.AddCookie(&http.Cookie{Name: SessionCookie, Value: previous})
+		})
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected the login to finish, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	_, err = api.sessions.load(t.Context(), previous)
+	if !errors.Is(err, errNoSession) {
+		t.Fatalf("expected the replaced session to be gone, got %v", err)
+	}
+}
+
 func TestLogin_StoresTheRefreshToken(t *testing.T) {
 	gitlab := fakeGitLab(t, false)
 	api := flowAPI(t, gitlab.URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}})
@@ -139,7 +182,7 @@ func TestLogin_StoresTheRefreshToken(t *testing.T) {
 		if cookie.Name == SessionCookie {
 			sessionID = cookie.Value
 
-			if cookie.MaxAge < int(DefaultSessionLifetime.Seconds())-60 {
+			if cookie.MaxAge < int(config.DefaultSessionLifetime.Seconds())-60 {
 				t.Errorf("expected the cookie to last the session's lifetime, got max-age %d", cookie.MaxAge)
 			}
 		}

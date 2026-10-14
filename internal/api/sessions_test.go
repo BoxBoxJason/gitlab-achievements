@@ -13,6 +13,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
@@ -98,7 +99,7 @@ func TestSessions_LifetimeDependsOnRenewability(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if time.Until(renewable) < DefaultSessionLifetime-time.Minute {
+	if time.Until(renewable) < config.DefaultSessionLifetime-time.Minute {
 		t.Errorf("expected a renewable session to last its full lifetime, ends in %v", time.Until(renewable))
 	}
 
@@ -121,7 +122,7 @@ func TestSessions_UnreadableRowsEndTheSession(t *testing.T) {
 	}
 
 	rotated, _ := newSealer("the-operator-rotated-the-session-secret-since")
-	reader := &sessions{conn: store.conn, sealer: rotated, lifetime: DefaultSessionLifetime}
+	reader := &sessions{conn: store.conn, sealer: rotated, lifetime: config.DefaultSessionLifetime}
 
 	if _, err := reader.load(t.Context(), id); !errors.Is(err, errNoSession) {
 		t.Fatalf("expected a session sealed under an old secret to be gone, got %v", err)
@@ -194,7 +195,7 @@ func TestSessions_HoldRenewedTokensTheDatabaseRefused(t *testing.T) {
 	}
 
 	// A store without the held copy reads only what reached the database.
-	fresh := &sessions{conn: store.conn, sealer: store.sealer, lifetime: DefaultSessionLifetime}
+	fresh := &sessions{conn: store.conn, sealer: store.sealer, lifetime: config.DefaultSessionLifetime}
 
 	tokens, err = fresh.load(t.Context(), id)
 	if err != nil || tokens.RefreshToken != "rotated" {

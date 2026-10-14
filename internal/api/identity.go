@@ -80,8 +80,13 @@ type cachingVerifier struct {
 	inner   Verifier
 	entries map[[sha256.Size]byte]cachedIdentity
 	now     func() time.Time
-	ttl     time.Duration
-	mu      sync.Mutex
+	// order lists keys as they were stored. Every entry lives for the same
+	// ttl, so this is also the order they expire in, and the oldest entry
+	// is always at the front. It may still name keys since forgotten or
+	// stored again; evict skips those, so each is looked at once.
+	order []queuedKey
+	ttl   time.Duration
+	mu    sync.Mutex
 }
 
 // identityForgetter is a Verifier that remembers identities and can be told
@@ -93,6 +98,11 @@ type identityForgetter interface {
 type cachedIdentity struct {
 	expires  time.Time
 	identity gitlabclient.Identity
+}
+
+type queuedKey struct {
+	expires time.Time
+	key     [sha256.Size]byte
 }
 
 // newCachingVerifier wraps inner, or returns it unwrapped when ttl is not
@@ -162,32 +172,33 @@ func (v *cachingVerifier) store(key [sha256.Size]byte, identity *gitlabclient.Id
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	if len(v.entries) >= identityCacheEntries {
-		v.evict()
-	}
+	now := v.now()
+	v.evict(now)
 
-	v.entries[key] = cachedIdentity{identity: *identity, expires: v.now().Add(v.ttl)}
+	expires := now.Add(v.ttl)
+	v.entries[key] = cachedIdentity{identity: *identity, expires: expires}
+	v.order = append(v.order, queuedKey{key: key, expires: expires})
 }
 
-// evict makes room: expired entries first, and if none had expired, an
-// arbitrary one. Which live entry goes hardly matters, since all it costs
-// is one extra GitLab call for whoever held it.
-func (v *cachingVerifier) evict() {
-	now := v.now()
-
-	for key, entry := range v.entries {
-		if !now.Before(entry.expires) {
-			delete(v.entries, key)
+// evict drops entries from the front of order: every one that has expired,
+// then, while the cache is still full, the live ones closest to expiring.
+// Which live entry goes hardly matters, since all it costs is one extra
+// GitLab call for whoever held it. Each queued key is popped once, so this
+// stays cheap however full the cache is.
+func (v *cachingVerifier) evict(now time.Time) {
+	for len(v.order) > 0 {
+		oldest := v.order[0]
+		if now.Before(oldest.expires) && len(v.entries) < identityCacheEntries {
+			return
 		}
-	}
 
-	if len(v.entries) < identityCacheEntries {
-		return
-	}
+		v.order[0] = queuedKey{}
+		v.order = v.order[1:]
 
-	for key := range v.entries {
-		delete(v.entries, key)
-
-		return
+		// The key may have been forgotten, or stored again since and queued
+		// further back; only the entry this queued key stands for goes.
+		if entry, ok := v.entries[oldest.key]; ok && entry.expires.Equal(oldest.expires) {
+			delete(v.entries, oldest.key)
+		}
 	}
 }

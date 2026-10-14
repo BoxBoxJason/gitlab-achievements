@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,6 +77,50 @@ func TestCachingVerifier_StaysBounded(t *testing.T) {
 
 	if len(cache.entries) > identityCacheEntries {
 		t.Fatalf("expected at most %d entries, got %d", identityCacheEntries, len(cache.entries))
+	}
+}
+
+func TestCachingVerifier_EvictsTheOldestWhenFull(t *testing.T) {
+	cache, _ := newCachingVerifier(&stubVerifier{identity: &gitlabclient.Identity{ID: 1}}, time.Hour).(*cachingVerifier)
+	now := time.Now()
+	cache.now = func() time.Time { return now }
+
+	token := func(index int) string { return fmt.Sprintf("token-%d", index) }
+	cached := func(index int) bool {
+		_, ok := cache.entries[sha256.Sum256([]byte(token(index)))]
+
+		return ok
+	}
+
+	for index := range identityCacheEntries {
+		_, _ = cache.Verify(t.Context(), token(index))
+
+		now = now.Add(time.Millisecond)
+	}
+
+	// The oldest is forgotten and stored again, so it is now the newest,
+	// and its first place in the queue must not take the fresh entry out.
+	cache.forget(token(0))
+	_, _ = cache.Verify(t.Context(), token(0))
+	_, _ = cache.Verify(t.Context(), token(identityCacheEntries))
+
+	if !cached(0) || !cached(identityCacheEntries) {
+		t.Fatal("expected the newest entries kept")
+	}
+
+	if cached(1) {
+		t.Fatal("expected the oldest live entry evicted to make room")
+	}
+
+	if len(cache.entries) != identityCacheEntries {
+		t.Fatalf("expected the cache full at %d entries, got %d", identityCacheEntries, len(cache.entries))
+	}
+
+	now = now.Add(time.Hour)
+	_, _ = cache.Verify(t.Context(), token(-1))
+
+	if len(cache.entries) != 1 || len(cache.order) != 1 {
+		t.Fatalf("expected everything expired swept, got %d entries and %d queued", len(cache.entries), len(cache.order))
 	}
 }
 
@@ -160,6 +206,22 @@ func TestMe_SignedInWithNothingEarnedIsNotAnError(t *testing.T) {
 
 	if me := decode[Me](t, rec); me.Record != nil || me.Username != "new" {
 		t.Fatalf("expected a null record for a newcomer, got %+v", me)
+	}
+}
+
+func TestMe_NeverShowsSomebodyWhoseUsernameIsTheCallersID(t *testing.T) {
+	conn := testConn(t)
+	seedUser(t, conn, 7, "9", 500)
+
+	api := mustNew(conn, Options{Verifier: &stubVerifier{identity: &gitlabclient.Identity{ID: 9, Username: "new"}}})
+
+	rec := get(t, api, MePath, bearer)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	if me := decode[Me](t, rec); me.Record != nil {
+		t.Fatalf("expected no record for user 9, got user %d's: %+v", me.Record.GitLabUserID, me.Record)
 	}
 }
 
