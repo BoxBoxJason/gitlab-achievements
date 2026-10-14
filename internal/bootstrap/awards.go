@@ -77,8 +77,8 @@ func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB
 	return report, nil
 }
 
-// usersWithAwards lists everyone holding at least one award, which is
-// everyone this pass reconciles.
+// usersWithAwards lists everyone taking part who holds at least one award,
+// which is everyone this pass reconciles.
 //
 // Narrowing this to the users with obviously outstanding work (a pending
 // award, a failed one, a delivered one missing its ID) would be cheaper and
@@ -97,7 +97,13 @@ func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB
 func usersWithAwards(conn *gorm.DB) ([]int64, error) {
 	var userIDs []int64
 
+	// Excluded users are left out: nothing further is pushed to GitLab for
+	// a bot or for somebody who opted out, though what they already hold
+	// stays theirs (see the exclusion package).
+	participating := db.Participating(conn.Model(&db.User{}).Select("id"))
+
 	err := conn.Model(&db.Award{}).
+		Where("user_id IN (?)", participating).
 		Distinct().
 		Pluck("user_id", &userIDs).Error
 	if err != nil {

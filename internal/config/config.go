@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -200,6 +201,12 @@ type Config struct {
 	// as either a calendar date ("2024-01-01") or a Go duration counted
 	// back from now ("720h"). Empty walks the instance's full history.
 	BackfillSince string
+	// ExcludeUsernamePattern is a regular expression (RE2 syntax); users
+	// whose username matches it are left out of achievements.
+	ExcludeUsernamePattern string
+	// ExcludeUsers lists accounts left out of achievements, each a username
+	// or a numeric GitLab user ID.
+	ExcludeUsers []string
 	// BackfillRate caps how many requests per second the backfill issues,
 	// so the heaviest read workload this app runs leaves headroom for
 	// everything else using the instance's API.
@@ -216,6 +223,14 @@ type Config struct {
 	// as a Go duration. It must exceed ReconcileInterval so that
 	// consecutive windows overlap; see DefaultReconcileLookback.
 	ReconcileLookback time.Duration
+	// ExcludeBots leaves out the accounts GitLab flags as bots: project and
+	// group access token users, service accounts, and GitLab's own bots.
+	// On by default, since nobody wants a dependency updater on top of the
+	// leaderboard.
+	ExcludeBots bool
+	// AllowOptOut lets users leave themselves out through the API, which
+	// needs APIAuth set to gitlab so the API knows who is asking.
+	AllowOptOut bool
 }
 
 // Validate checks that the configuration is complete and well-formed. It
@@ -252,6 +267,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, c.validateReconcile()...)
 	errs = append(errs, c.validateAPI()...)
 	errs = append(errs, c.validateMetrics()...)
+	errs = append(errs, c.validateExclusions()...)
 
 	return errors.Join(errs...)
 }
@@ -370,6 +386,21 @@ func bindsEveryInterface(host string) bool {
 	ip := net.ParseIP(host)
 
 	return ip != nil && ip.IsUnspecified()
+}
+
+// validateExclusions checks the username pattern compiles, so a typo in it
+// fails the start instead of silently excluding nobody.
+func (c *Config) validateExclusions() []error {
+	if strings.TrimSpace(c.ExcludeUsernamePattern) == "" {
+		return nil
+	}
+
+	_, err := regexp.Compile(c.ExcludeUsernamePattern)
+	if err != nil {
+		return []error{fmt.Errorf("exclude-username-pattern is not a valid regular expression: %w", err)}
+	}
+
+	return nil
 }
 
 // validateHookScope checks the webhook strategy, so an unknown value is

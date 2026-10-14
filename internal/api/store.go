@@ -202,6 +202,7 @@ func (s *store) Leaderboard(ctx context.Context, limit int) (*Leaderboard, error
 	// rendering of the GitLabUserID field, and SQLite is the only one of the
 	// four supported DBMSs that would reject the wrong spelling loudly.
 	err := s.conn.WithContext(ctx).
+		Scopes(db.Participating).
 		Order("exp_total DESC, git_lab_user_id ASC").
 		Limit(limit).
 		Find(&users).Error
@@ -267,10 +268,14 @@ func (s *store) lookup(ctx context.Context, ref string) (*db.User, error) {
 // first runs one user query, reporting a miss as (nil, nil) so that callers
 // can distinguish "no such user" from "the query failed" without inspecting
 // gorm's sentinel at every call site.
+//
+// An excluded user is a miss too. They asked not to be shown, or are a bot
+// nobody wants ranked, and answering 404 rather than 403 keeps the API from
+// confirming that somebody who opted out exists.
 func (s *store) first(txn *gorm.DB, where *db.User) (*db.User, error) {
 	var user db.User
 
-	err := txn.Where(where).First(&user).Error
+	err := txn.Where(where).Scopes(db.Participating).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil //nolint:nilnil // a miss is not an error here, see the doc comment
 	}

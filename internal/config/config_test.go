@@ -612,3 +612,13 @@ func TestValidate_MetricsAddrMustNotShareTheListenPort(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_RejectsAnInvalidExcludePattern(t *testing.T) {
+	cfg := validConfig()
+	cfg.ExcludeUsernamePattern = "(unclosed"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "exclude-username-pattern") {
+		t.Fatalf("expected the pattern to be rejected, got %v", err)
+	}
+}

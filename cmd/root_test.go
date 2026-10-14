@@ -253,3 +253,55 @@ func TestStartMetricsServer_Disabled(t *testing.T) {
 
 	stop()
 }
+
+func TestBuildRootCmd_ExclusionDefaults(t *testing.T) {
+	cfg := &config.Config{}
+	rootCmd := buildRootCmd(cfg)
+
+	err := rootCmd.ParseFlags(nil)
+	if err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	if !cfg.ExcludeBots || !cfg.AllowOptOut {
+		t.Fatalf("expected bot exclusion and opt-out to be on by default, got %+v", cfg)
+	}
+}
+
+func TestBuildRootCmd_ExclusionsFromEnvironment(t *testing.T) {
+	t.Setenv("EXCLUDE_BOTS", "false")
+	t.Setenv("EXCLUDE_USERS", " renovate, 42 ,,dependabot")
+	t.Setenv("ALLOW_OPT_OUT", "0")
+
+	cfg := &config.Config{}
+	rootCmd := buildRootCmd(cfg)
+
+	err := rootCmd.ParseFlags(nil)
+	if err != nil {
+		t.Fatalf("failed to parse flags: %v", err)
+	}
+
+	if cfg.ExcludeBots || cfg.AllowOptOut {
+		t.Errorf("expected the environment to turn both off, got bots=%v opt-out=%v", cfg.ExcludeBots, cfg.AllowOptOut)
+	}
+
+	if strings.Join(cfg.ExcludeUsers, "|") != "renovate|42|dependabot" {
+		t.Errorf("expected the list to be split and trimmed, got %q", cfg.ExcludeUsers)
+	}
+}
+
+func TestCheckBoolEnv_RejectsNonBoolean(t *testing.T) {
+	t.Setenv("ALLOW_OPT_OUT", "no")
+
+	err := checkBoolEnv()
+	if err == nil || !strings.Contains(err.Error(), "ALLOW_OPT_OUT") {
+		t.Fatalf("expected ALLOW_OPT_OUT=no to be rejected, got %v", err)
+	}
+
+	t.Setenv("ALLOW_OPT_OUT", "false")
+
+	err = checkBoolEnv()
+	if err != nil {
+		t.Fatalf("expected a valid boolean to pass, got %v", err)
+	}
+}

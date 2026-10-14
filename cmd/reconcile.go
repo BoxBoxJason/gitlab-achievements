@@ -104,6 +104,14 @@ func runReconcile(cfg *config.Config) error {
 		return fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
+	// The serving process applies the exclusion settings at its start; a
+	// one-off run has to as well, or the awards it delivers would reach a
+	// user listed since the server last started.
+	_, err = applyExclusions(ctx, cfg, conn, nil)
+	if err != nil {
+		return err
+	}
+
 	return executeReconcile(ctx, cfg, conn, writeClient)
 }
 
@@ -219,7 +227,12 @@ func executeReconcile(ctx context.Context, cfg *config.Config, conn *gorm.DB, wr
 		return fmt.Errorf("failed to build rate-limited gitlab read client: %w", err)
 	}
 
-	achievements := engine.New(conn)
+	filter, err := buildExclusionFilter(cfg, conn, readClient)
+	if err != nil {
+		return err
+	}
+
+	achievements := engine.New(conn, engine.WithFilter(filter))
 
 	report, err := reconcile.Run(ctx, readClient, conn, achievements, reconcile.Options{
 		Lookback: cfg.ReconcileLookback,

@@ -33,7 +33,7 @@ Every metric is prefixed `gitlab_achievements_`. Label values come from fixed se
 | `queue_pending` | gauge | | Activities waiting to be evaluated |
 | `queue_capacity` | gauge | | How many the queue holds before deliveries are refused |
 | `queue_evaluation_duration_seconds` | histogram | | Time to evaluate one activity, retries included |
-| `engine_events_total` | counter | `outcome` | Activities evaluated, from every source (webhooks, backfill, reconciliation): `counted`, `duplicate`, `untracked` |
+| `engine_events_total` | counter | `outcome` | Activities evaluated, from every source (webhooks, backfill, reconciliation): `counted`, `duplicate`, `untracked`, `excluded` (the actor is [left out](participation.md)) |
 | `engine_tiers_awarded_total` | counter | | Achievement tiers newly earned |
 | `awards_deliveries_total` | counter | `result` | Award changes pushed to GitLab: `confirmed`, `adopted`, `superseded`, `failed` |
 | `job_runs_total` | counter | `job`, `result` | Background runs by `success` or `failure`. A run cut short by shutdown is not counted |
@@ -42,7 +42,7 @@ Every metric is prefixed `gitlab_achievements_`. Label values come from fixed se
 | `gitlab_requests_total` | counter | `client`, `method`, `code` | Requests to GitLab by client (`read`, `write`, `verify`). Each retry counts on its own; `code` is `error` when no response came back |
 | `gitlab_request_duration_seconds` | histogram | `client` | Time GitLab took to answer |
 
-The jobs are `webhook_reconcile` and `achievement_reconcile` (hourly), `activity_reconcile` (`RECONCILE_INTERVAL`), `backfill` (once), and `session_prune` (hourly, only with `API_AUTH=gitlab`).
+The jobs are `webhook_reconcile` and `achievement_reconcile` (hourly), `activity_reconcile` (`RECONCILE_INTERVAL`), `backfill` and `bot_sweep` (once per start), and `session_prune` (hourly, only with `API_AUTH=gitlab`).
 
 The standard Go runtime (`go_*`) and process (`process_*`) metrics are exported too.
 

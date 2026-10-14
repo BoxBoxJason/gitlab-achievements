@@ -36,6 +36,7 @@ import (
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
+	"github.com/boxboxjason/gitlab-achievements/internal/exclusion"
 	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
@@ -43,14 +44,38 @@ import (
 // the database by bootstrap. It is safe for concurrent use.
 type Engine struct {
 	conn      *gorm.DB
+	filter    Filter
 	processed atomic.Int64
 	skipped   atomic.Int64
 	awarded   atomic.Int64
 }
 
+// Filter decides whether the user behind an activity takes part. It is
+// satisfied by *exclusion.Filter, and called outside the engine's
+// transaction since it may ask GitLab.
+type Filter interface {
+	Check(ctx context.Context, gitlabUserID int64, username string) (exclusion.Reason, error)
+}
+
+// Option configures an Engine.
+type Option func(*Engine)
+
+// WithFilter has the engine skip activity from users filter excludes.
+func WithFilter(filter Filter) Option {
+	return func(e *Engine) {
+		e.filter = filter
+	}
+}
+
 // New builds an Engine writing to conn.
-func New(conn *gorm.DB) *Engine {
-	return &Engine{conn: conn}
+func New(conn *gorm.DB, opts ...Option) *Engine {
+	engine := &Engine{conn: conn}
+
+	for _, opt := range opts {
+		opt(engine)
+	}
+
+	return engine
 }
 
 // Stats summarizes what an Engine has done since it was built.
@@ -94,6 +119,21 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 		return nil
 	}
 
+	excluded, filterErr := e.excluded(ctx, event)
+	if filterErr != nil {
+		return filterErr
+	}
+
+	if excluded {
+		// Not recorded as processed either, for the same reason as above:
+		// nothing about an excluded user is kept, and one who opts back in
+		// should have whatever reconciliation can still reach counted.
+		e.skipped.Add(1)
+		metrics.EngineEvent("excluded")
+
+		return nil
+	}
+
 	var (
 		counted bool
 		awarded int
@@ -127,6 +167,20 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 	metrics.TiersAwarded(awarded)
 
 	return nil
+}
+
+// excluded reports whether event's actor is left out of achievements.
+func (e *Engine) excluded(ctx context.Context, event activity.Event) (bool, error) {
+	if e.filter == nil {
+		return false, nil
+	}
+
+	reason, err := e.filter.Check(ctx, event.ActorID, event.ActorUsername)
+	if err != nil {
+		return false, fmt.Errorf("failed to check whether user %d is excluded: %w", event.ActorID, err)
+	}
+
+	return reason != exclusion.Included, nil
 }
 
 // evaluate applies event to every criteria it advances, inside txn: the

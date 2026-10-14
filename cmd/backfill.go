@@ -87,6 +87,13 @@ func runBackfill(cfg *config.Config) error {
 		return err
 	}
 
+	// See runReconcile: the awards this run delivers must not reach a user
+	// listed since the server last started.
+	_, err = applyExclusions(ctx, cfg, conn, nil)
+	if err != nil {
+		return err
+	}
+
 	// No ceiling: a one-off walk is not running alongside this process's own
 	// event ingestion, so there is no live path for it to overlap with. If a
 	// serving instance is ingesting at the same time, the activity they both
@@ -148,7 +155,12 @@ func executeBackfill(
 		return fmt.Errorf("failed to build rate-limited gitlab read client: %w", err)
 	}
 
-	achievements := engine.New(conn)
+	filter, err := buildExclusionFilter(cfg, conn, readClient)
+	if err != nil {
+		return err
+	}
+
+	achievements := engine.New(conn, engine.WithFilter(filter))
 
 	zap.L().Info("historical backfill starting",
 		zap.Float64("requests_per_second", cfg.BackfillRate),

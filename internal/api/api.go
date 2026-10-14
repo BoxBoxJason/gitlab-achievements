@@ -49,11 +49,12 @@ const (
 
 // API serves the read endpoints and the OAuth login flow.
 type API struct {
-	store    *store
-	oauth    *oauthFlow
-	auth     *authenticator
-	sessions *sessions
-	mux      *http.ServeMux
+	exclusions Exclusions
+	store      *store
+	oauth      *oauthFlow
+	auth       *authenticator
+	sessions   *sessions
+	mux        *http.ServeMux
 }
 
 // Options configures an API.
@@ -65,6 +66,9 @@ type Options struct {
 	// endpoints without one, which is what a deployment using personal
 	// access tokens (or no authentication at all) wants.
 	OAuth *OAuthOptions
+	// Exclusions backs the opt-out endpoints. Leaving it nil answers them
+	// 404.
+	Exclusions Exclusions
 }
 
 // New builds an API reading from conn.
@@ -72,9 +76,10 @@ func New(conn *gorm.DB, opts Options) *API {
 	sessionStore := &sessions{conn: conn}
 
 	api := &API{
-		store:    &store{conn: conn},
-		sessions: sessionStore,
-		mux:      http.NewServeMux(),
+		store:      &store{conn: conn},
+		sessions:   sessionStore,
+		mux:        http.NewServeMux(),
+		exclusions: opts.Exclusions,
 	}
 
 	if opts.Verifier != nil {
@@ -91,8 +96,15 @@ func New(conn *gorm.DB, opts Options) *API {
 }
 
 // Handler returns the API's routes.
+//
+// Every state-changing request is checked for cross-origin forgery
+// (http.CrossOriginProtection, which reads Sec-Fetch-Site and Origin). The
+// session cookie is SameSite=Lax, which already keeps it off cross-site
+// POSTs, but not off ones from a sibling subdomain, which browsers count as
+// same-site. Requests carrying neither header, as scripts using a bearer
+// token do, are let through: they cannot have been forged by a browser.
 func (a *API) Handler() http.Handler {
-	return a.mux
+	return http.NewCrossOriginProtection().Handler(a.mux)
 }
 
 // PruneSessions deletes sessions that have expired, returning how many went.
@@ -114,6 +126,7 @@ func (a *API) routes() {
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}", a.handleUser)
 	read.HandleFunc("GET "+PathPrefix+"users/{ref}/exp", a.handleUserEXP)
 	read.HandleFunc("GET "+PathPrefix+"leaderboard", a.handleLeaderboard)
+	a.optOutRoutes(read)
 
 	a.mux.Handle(PathPrefix, a.protect(read))
 
@@ -141,7 +154,7 @@ func (a *API) handleUser(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	a.writeJSON(resp, http.StatusOK, detail)
+	a.writeJSON(resp, detail)
 }
 
 // handleUserEXP serves a user's EXP total alone, for the callers that only
@@ -154,7 +167,7 @@ func (a *API) handleUserEXP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	a.writeJSON(resp, http.StatusOK, summary)
+	a.writeJSON(resp, summary)
 }
 
 // handleLeaderboard serves the top users by EXP.
@@ -173,7 +186,7 @@ func (a *API) handleLeaderboard(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	a.writeJSON(resp, http.StatusOK, board)
+	a.writeJSON(resp, board)
 }
 
 // leaderboardLimit resolves the limit query parameter.
@@ -220,15 +233,17 @@ func (a *API) fail(resp http.ResponseWriter, req *http.Request, err error) {
 	writeError(resp, http.StatusInternalServerError, "internal error")
 }
 
-// writeJSON encodes a successful response.
+// writeJSON encodes a successful response, always a 200: every endpoint
+// that succeeds answers with the document it was asked for, and failures
+// go through writeError.
 //
 // The status is written before encoding, so an encoder failure part way
 // through a body cannot also try to change the status; it is logged
 // instead, because by then the client already has a 200 and part of a
 // document, and there is nothing better to do about it.
-func (a *API) writeJSON(resp http.ResponseWriter, status int, payload any) {
+func (a *API) writeJSON(resp http.ResponseWriter, payload any) {
 	resp.Header().Set("Content-Type", "application/json; charset=utf-8")
-	resp.WriteHeader(status)
+	resp.WriteHeader(http.StatusOK)
 
 	err := json.NewEncoder(resp).Encode(payload)
 	if err != nil {

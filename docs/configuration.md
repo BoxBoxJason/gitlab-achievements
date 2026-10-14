@@ -40,6 +40,10 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | `--api-auth` | `API_AUTH` | `none` | `none`, or `gitlab` to verify a GitLab token on every API request |
 | `--oauth-client-id` | `OAUTH_CLIENT_ID` | *(unset)* | Client ID of an OAuth application you registered by hand. Unset lets the app register a public one for itself |
 | `--oauth-client-secret` | `OAUTH_CLIENT_SECRET` | *(unset)* | Secret for that client ID, making it a confidential client. Requires `--oauth-client-id` |
+| `--exclude-bots` | `EXCLUDE_BOTS` | `true` | Leave out accounts GitLab flags as bots. See [Who takes part](participation.md) |
+| `--exclude-users` | `EXCLUDE_USERS` | *(unset)* | Usernames or GitLab user IDs to leave out, comma-separated |
+| `--exclude-username-pattern` | `EXCLUDE_USERNAME_PATTERN` | *(unset)* | Regular expression; matching usernames are left out |
+| `--allow-opt-out` | `ALLOW_OPT_OUT` | `true` | Let users leave themselves out through the API. Needs `--api-auth gitlab` |
 
 ## Subcommands
 

@@ -124,6 +124,14 @@ separately, through envFrom, so they never appear in a pod spec.
   value: {{ .Values.config.api.auth | quote }}
 - name: OAUTH_CLIENT_ID
   value: {{ .Values.config.api.oauthClientId | quote }}
+- name: EXCLUDE_BOTS
+  value: {{ .Values.config.exclusions.bots | quote }}
+- name: EXCLUDE_USERS
+  value: {{ include "gitlab-achievements.excludeUsers" . | quote }}
+- name: EXCLUDE_USERNAME_PATTERN
+  value: {{ .Values.config.exclusions.usernamePattern | quote }}
+- name: ALLOW_OPT_OUT
+  value: {{ .Values.config.exclusions.allowOptOut | quote }}
 {{- end }}
 
 {{/*
@@ -175,4 +183,22 @@ secrets.databaseDsn points at a database managed elsewhere.
 - name: data
   mountPath: {{ .Values.persistence.mountPath }}
 {{- end }}
+{{- end }}
+
+{{/*
+config.exclusions.users, comma-joined. An unquoted user ID reaches the
+template as a float64, which join would render as 1.234567e+06 from a
+million up, silently matching nobody, so whole numbers are printed as
+integers first.
+*/}}
+{{- define "gitlab-achievements.excludeUsers" -}}
+{{- $users := list -}}
+{{- range .Values.config.exclusions.users -}}
+{{- if kindIs "float64" . -}}
+{{- $users = append $users (int64 . | toString) -}}
+{{- else -}}
+{{- $users = append $users (toString .) -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $users -}}
 {{- end }}

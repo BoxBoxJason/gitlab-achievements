@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/engine"
+	"github.com/boxboxjason/gitlab-achievements/internal/exclusion"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
@@ -117,6 +119,10 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 		// Execute prints the error itself, with the same treatment for
 		// every subcommand; letting cobra print it too only duplicates it.
 		SilenceErrors: true,
+		// Inherited by every subcommand, none of which defines its own.
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return checkBoolEnv()
+		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return run(cfg)
 		},
@@ -157,6 +163,10 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.DurationVar(&cfg.ReconcileLookback, "reconcile-lookback", envDurationOrDefault("RECONCILE_LOOKBACK", config.DefaultReconcileLookback), "How far back each reconciliation pass reaches; must exceed --reconcile-interval so passes overlap")
 	flags.StringVar(&cfg.APIAuth, "api-auth", envOrDefault("API_AUTH", string(config.DefaultAPIAuth)), "What the read API requires of callers (none, gitlab); gitlab verifies a GitLab token on every request")
 	flags.StringVar(&cfg.OAuthClientID, "oauth-client-id", os.Getenv("OAUTH_CLIENT_ID"), "Client ID of a hand-registered GitLab OAuth application; empty lets the app register a public one for itself")
+	flags.BoolVar(&cfg.ExcludeBots, "exclude-bots", envBoolOrDefault(envExcludeBots, true), "Leave out accounts GitLab flags as bots: access token users, service accounts, GitLab's own bots")
+	flags.StringSliceVar(&cfg.ExcludeUsers, "exclude-users", envListOrDefault("EXCLUDE_USERS"), "Usernames or GitLab user IDs to leave out of achievements, comma-separated")
+	flags.StringVar(&cfg.ExcludeUsernamePattern, "exclude-username-pattern", os.Getenv("EXCLUDE_USERNAME_PATTERN"), "Regular expression (RE2); users whose username matches are left out of achievements")
+	flags.BoolVar(&cfg.AllowOptOut, "allow-opt-out", envBoolOrDefault(envAllowOptOut, true), "Let users leave themselves out through the API (needs --api-auth gitlab)")
 	secretFlag(flags, &cfg.OAuthClientSecret, "oauth-client-secret", "OAUTH_CLIENT_SECRET", "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
 }
 
@@ -199,6 +209,64 @@ func envFloatOrDefault(key string, fallback float64) float64 {
 	}
 
 	return parsed
+}
+
+// The boolean environment variables, named once so that checkBoolEnv
+// covers every one envBoolOrDefault reads.
+const (
+	envExcludeBots = "EXCLUDE_BOTS"
+	envAllowOptOut = "ALLOW_OPT_OUT"
+)
+
+// envBoolOrDefault returns the environment variable key parsed as a
+// boolean, or fallback when it is unset or unparsable. An unparsable value
+// is reported by checkBoolEnv before anything runs.
+func envBoolOrDefault(key string, fallback bool) bool {
+	parsed, err := strconv.ParseBool(os.Getenv(key))
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+// checkBoolEnv rejects a boolean environment variable that is set but not a
+// boolean strconv.ParseBool accepts.
+//
+// Unlike a bad number or duration, a bad boolean has no invalid value for
+// Validate to catch: envBoolOrDefault falls back to the default, so
+// ALLOW_OPT_OUT=no would quietly leave opting out on.
+func checkBoolEnv() error {
+	var errs []error
+
+	for _, key := range []string{envExcludeBots, envAllowOptOut} {
+		value := os.Getenv(key)
+		if value == "" {
+			continue
+		}
+
+		_, err := strconv.ParseBool(value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q is not a boolean, use true or false", key, value))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// envListOrDefault returns the environment variable key split on commas,
+// with blank entries dropped, or nil when it is unset.
+func envListOrDefault(key string) []string {
+	var entries []string
+
+	for entry := range strings.SplitSeq(os.Getenv(key), ",") {
+		entry = strings.TrimSpace(entry)
+		if entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries
 }
 
 // envDurationOrDefault reads a Go duration from an environment variable,
@@ -404,8 +472,8 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 // then adopts on every later start. Resolving it here, before the listener
 // opens, means a misconfigured or unregisterable application fails startup
 // rather than surfacing at somebody's first login attempt.
-func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient) (*api.API, error) {
-	opts := api.Options{}
+func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, filter *exclusion.Filter) (*api.API, error) {
+	opts := api.Options{Exclusions: filter}
 
 	if cfg.AuthMode() != config.APIAuthGitLab {
 		zap.L().Info("read api is unauthenticated", zap.String("api_auth", cfg.APIAuth))
@@ -458,8 +526,9 @@ func buildServer(
 	readClient *gitlabclient.ReadClient,
 	writeClient *gitlabclient.WriteClient,
 	queue *webhook.Queue,
+	filter *exclusion.Filter,
 ) (*http.Server, error) {
-	readAPI, err := buildAPI(ctx, cfg, conn, writeClient)
+	readAPI, err := buildAPI(ctx, cfg, conn, writeClient, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -530,10 +599,12 @@ func serve(
 	// The queue and the engine behind it are what live deliveries are
 	// evaluated by; the backfill builds its own engine, since the two count
 	// different windows of the same instance's activity.
-	queue := webhook.NewQueue(engine.New(conn), webhook.Options{})
-	queue.Start(ctx)
+	queue, filter, err := startQueue(ctx, cfg, conn, readClient)
+	if err != nil {
+		return err
+	}
 
-	httpSrv, err := buildServer(ctx, cfg, conn, sqlDB, readClient, writeClient, queue)
+	httpSrv, err := buildServer(ctx, cfg, conn, sqlDB, readClient, writeClient, queue, filter)
 	if err != nil {
 		return err
 	}
@@ -589,6 +660,24 @@ func serve(
 	}
 
 	return nil
+}
+
+// startQueue starts the queue live deliveries are evaluated through, behind
+// an engine that skips excluded users, and returns the exclusion filter
+// alongside it for the API's opt-out endpoints to share. The background
+// sweep classifying users not yet checked for being bots starts with it.
+func startQueue(ctx context.Context, cfg *config.Config, conn *gorm.DB, readClient *gitlabclient.ReadClient) (*webhook.Queue, *exclusion.Filter, error) {
+	filter, err := applyExclusions(ctx, cfg, conn, readClient)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	startBotSweep(ctx, cfg, conn)
+
+	queue := webhook.NewQueue(engine.New(conn, engine.WithFilter(filter)), webhook.Options{})
+	queue.Start(ctx)
+
+	return queue, filter, nil
 }
 
 // drainQueue gives activity already accepted from GitLab a chance to be
