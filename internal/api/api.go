@@ -10,20 +10,24 @@
 // it is on, GitLab is the identity provider: a caller presents a personal
 // access token or an OAuth access token, or arrives with a session cookie
 // from the OAuth flow in oauth.go. Note that verifying a credential does
-// call GitLab, on every request, so with authentication enabled the API's
-// availability is coupled to the instance's; see Verifier.
+// call GitLab, at most once per identity cache TTL for each credential, so
+// with authentication enabled the API's availability is coupled to the
+// instance's; see Verifier.
 package api
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/config"
 )
 
 // PruneInterval is how often the serving process should call PruneSessions.
@@ -71,11 +75,27 @@ type Options struct {
 	// Exclusions backs the opt-out endpoints. Leaving it nil answers them
 	// 404.
 	Exclusions Exclusions
+	// IsMember restricts the API to members of one GitLab group (and
+	// instance administrators). Leaving it nil admits any GitLab user.
+	IsMember MembershipChecker
+	// SessionSecret keys the encryption of the GitLab tokens sessions hold.
+	// Left empty, a random key is used, which is only fit for tests: every
+	// session would end with the process.
+	SessionSecret string
+	// SessionLifetime is how long a browser stays logged in; zero means
+	// config.DefaultSessionLifetime.
+	SessionLifetime time.Duration
+	// IdentityCacheTTL is how long a verified credential is trusted without
+	// asking GitLab again; zero or less disables the cache.
+	IdentityCacheTTL time.Duration
 }
 
 // New builds an API reading from conn.
-func New(conn *gorm.DB, opts Options) *API {
-	sessionStore := &sessions{conn: conn}
+func New(conn *gorm.DB, opts Options) (*API, error) {
+	sessionStore, err := newSessionStore(conn, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	api := &API{
 		store:      &store{conn: conn},
@@ -86,16 +106,49 @@ func New(conn *gorm.DB, opts Options) *API {
 	}
 
 	if opts.Verifier != nil {
-		api.auth = &authenticator{verifier: opts.Verifier, sessions: sessionStore}
-	}
+		verifier := opts.Verifier
+		if opts.IsMember != nil {
+			verifier = &authorizingVerifier{inner: verifier, isMember: opts.IsMember}
+		}
 
-	if opts.OAuth != nil && opts.Verifier != nil {
-		api.oauth = newOAuthFlow(*opts.OAuth, sessionStore, opts.Verifier)
+		verifier = newCachingVerifier(verifier, opts.IdentityCacheTTL)
+
+		api.auth = &authenticator{verifier: verifier, sessions: sessionStore}
+
+		if opts.OAuth != nil {
+			api.oauth = newOAuthFlow(*opts.OAuth, sessionStore, verifier)
+			api.auth.refresher = api.oauth
+		}
 	}
 
 	api.routes()
 
-	return api
+	return api, nil
+}
+
+// newSessionStore builds the session store with its token encryption.
+func newSessionStore(conn *gorm.DB, opts Options) (*sessions, error) {
+	secret := opts.SessionSecret
+	if secret == "" {
+		random, err := randomToken()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate a session key: %w", err)
+		}
+
+		secret = random
+	}
+
+	tokenSealer, err := newSealer(secret)
+	if err != nil {
+		return nil, err
+	}
+
+	lifetime := opts.SessionLifetime
+	if lifetime <= 0 {
+		lifetime = config.DefaultSessionLifetime
+	}
+
+	return &sessions{conn: conn, sealer: tokenSealer, lifetime: lifetime}, nil
 }
 
 // Handler returns the API's routes.
@@ -140,6 +193,7 @@ func (a *API) routes() {
 	read.HandleFunc("GET "+PathPrefix+"leaderboard", a.handleLeaderboard)
 	read.HandleFunc("GET "+PathPrefix+"leaderboard/criteria/{criteria}", a.handleCriteriaLeaderboard)
 	read.HandleFunc("GET "+PathPrefix+"achievements", a.handleAchievements)
+	read.HandleFunc("GET "+MePath, a.handleMe)
 	a.optOutRoutes(read)
 
 	a.mux.Handle(PathPrefix, a.protect(read))

@@ -26,6 +26,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/engine"
 	"github.com/boxboxjason/gitlab-achievements/internal/exclusion"
+	"github.com/boxboxjason/gitlab-achievements/internal/frontend"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
@@ -168,6 +169,12 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.ExcludeUsernamePattern, "exclude-username-pattern", os.Getenv("EXCLUDE_USERNAME_PATTERN"), "Regular expression (RE2); users whose username matches are left out of achievements")
 	flags.BoolVar(&cfg.AllowOptOut, "allow-opt-out", envBoolOrDefault(envAllowOptOut, true), "Let users leave themselves out through the API (needs --api-auth gitlab)")
 	secretFlag(flags, &cfg.OAuthClientSecret, "oauth-client-secret", "OAUTH_CLIENT_SECRET", "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
+	secretFlag(flags, &cfg.SessionSecret, "session-secret", "SESSION_SECRET", "Key for encrypting the GitLab tokens browser sessions hold, at least 32 characters; required when --api-auth is gitlab")
+	flags.DurationVar(&cfg.SessionLifetime, "session-lifetime", envDurationOrDefault("SESSION_LIFETIME", config.DefaultSessionLifetime), "How long a browser stays logged in; sessions renew their GitLab token as it runs out")
+	flags.DurationVar(&cfg.APIAuthCacheTTL, "api-auth-cache-ttl", envDurationOrDefault("API_AUTH_CACHE_TTL", config.DefaultAPIAuthCacheTTL), "How long a verified GitLab credential is trusted before asking GitLab again (also how long a revoked token keeps working); 0 disables")
+	flags.StringVar(&cfg.APIAllowedGroup, "api-allowed-group", os.Getenv("API_ALLOWED_GROUP"), "Full path of a GitLab group; only its members (and instance admins) may use the API")
+	flags.StringSliceVar(&cfg.OAuthReturnOrigins, "oauth-return-origins", envListOrDefault("OAUTH_RETURN_ORIGINS"), "Origins besides --public-url's that a login may return to, comma-separated, e.g. https://rankings.example.com")
+	flags.StringVar(&cfg.FrontendDir, "frontend-dir", os.Getenv("FRONTEND_DIR"), "Directory of a built static frontend to serve at /, on the same origin as the API")
 }
 
 // secretFlag registers a flag whose value is a credential, taking its
@@ -472,13 +479,25 @@ func bootstrapApp(ctx context.Context, cfg *config.Config, conn *gorm.DB, webhoo
 // then adopts on every later start. Resolving it here, before the listener
 // opens, means a misconfigured or unregisterable application fails startup
 // rather than surfacing at somebody's first login attempt.
-func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClient *gitlabclient.WriteClient, filter *exclusion.Filter) (*api.API, error) {
-	opts := api.Options{Exclusions: filter}
+func buildAPI(
+	ctx context.Context,
+	cfg *config.Config,
+	conn *gorm.DB,
+	readClient *gitlabclient.ReadClient,
+	writeClient *gitlabclient.WriteClient,
+	filter *exclusion.Filter,
+) (*api.API, error) {
+	opts := api.Options{
+		Exclusions:       filter,
+		SessionSecret:    cfg.SessionSecret,
+		SessionLifetime:  cfg.SessionLifetime,
+		IdentityCacheTTL: cfg.APIAuthCacheTTL,
+	}
 
 	if cfg.AuthMode() != config.APIAuthGitLab {
 		zap.L().Info("read api is unauthenticated", zap.String("api_auth", cfg.APIAuth))
 
-		return api.New(conn, opts), nil
+		return newAPI(conn, opts)
 	}
 
 	verifier, err := gitlabclient.NewTokenVerifier(cfg.GitLabURL)
@@ -487,6 +506,13 @@ func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClien
 	}
 
 	opts.Verifier = verifier
+
+	if cfg.APIAllowedGroup != "" {
+		opts.IsMember, err = membershipChecker(ctx, readClient, cfg.APIAllowedGroup)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	clientID := cfg.OAuthClientID
 	if clientID == "" {
@@ -497,18 +523,54 @@ func buildAPI(ctx context.Context, cfg *config.Config, conn *gorm.DB, writeClien
 	}
 
 	opts.OAuth = &api.OAuthOptions{
-		GitLabURL:    cfg.GitLabURL,
-		PublicURL:    cfg.PublicURL,
-		ClientID:     clientID,
-		ClientSecret: cfg.OAuthClientSecret,
+		GitLabURL:     cfg.GitLabURL,
+		PublicURL:     cfg.PublicURL,
+		ClientID:      clientID,
+		ClientSecret:  cfg.OAuthClientSecret,
+		ReturnOrigins: cfg.OAuthReturnOrigins,
 	}
 
 	zap.L().Info("read api requires a gitlab credential",
 		zap.String("oauth_client_id", clientID),
 		zap.Bool("confidential_client", cfg.OAuthClientSecret != ""),
+		zap.String("allowed_group", cfg.APIAllowedGroup),
+		zap.Duration("identity_cache_ttl", cfg.APIAuthCacheTTL),
+		zap.Duration("session_lifetime", cfg.SessionLifetime),
 	)
 
-	return api.New(conn, opts), nil
+	return newAPI(conn, opts)
+}
+
+// membershipChecker restricts the API to group's members.
+//
+// A membership lookup on a group that does not exist (or that the read
+// token cannot see) answers 404 just as one for a non-member does, so a
+// typo in the group would quietly refuse everybody. Checked once here, it
+// fails the start instead. Any other error is GitLab being unreachable,
+// which is not worth refusing to start over.
+func membershipChecker(ctx context.Context, readClient *gitlabclient.ReadClient, group string) (api.MembershipChecker, error) {
+	_, err := readClient.GetGroup(group, nil, gitlab.WithContext(ctx))
+	if gitlabclient.IsNotFound(err) {
+		return nil, fmt.Errorf("api-allowed-group %q does not exist or is not visible to the read token", group)
+	}
+
+	if err != nil {
+		zap.L().Warn("could not check that api-allowed-group exists", zap.String("group", group), zap.Error(err))
+	}
+
+	return func(ctx context.Context, gitlabUserID int64) (bool, error) {
+		return readClient.IsGroupMember(ctx, group, gitlabUserID)
+	}, nil
+}
+
+// newAPI builds the API, wrapping its construction error.
+func newAPI(conn *gorm.DB, opts api.Options) (*api.API, error) {
+	readAPI, err := api.New(conn, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build the read api: %w", err)
+	}
+
+	return readAPI, nil
 }
 
 // buildServer assembles everything the listener serves: webhook ingestion,
@@ -528,7 +590,12 @@ func buildServer(
 	queue *webhook.Queue,
 	filter *exclusion.Filter,
 ) (*http.Server, error) {
-	readAPI, err := buildAPI(ctx, cfg, conn, writeClient, filter)
+	readAPI, err := buildAPI(ctx, cfg, conn, readClient, writeClient, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	site, err := buildFrontend(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -537,13 +604,31 @@ func buildServer(
 
 	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue)
 
-	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI), nil
+	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, site), nil
+}
+
+// buildFrontend builds the handler for the configured frontend, or nil when
+// none is configured. A directory that is not a built frontend fails the
+// start rather than serving 404s at "/".
+func buildFrontend(cfg *config.Config) (http.Handler, error) {
+	if cfg.FrontendDir == "" {
+		return nil, nil //nolint:nilnil // no frontend is a valid configuration, not an error
+	}
+
+	site, err := frontend.Handler(cfg.FrontendDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serve the frontend: %w", err)
+	}
+
+	zap.L().Info("serving frontend", zap.String("dir", cfg.FrontendDir))
+
+	return site, nil
 }
 
 // newHTTPServer builds the *http.Server exposing /healthz, /readyz, the
 // webhook ingestion endpoint, and the read API, wired to check the database
 // connection and GitLab reachability on every /readyz request.
-func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API) *http.Server {
+func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API, site http.Handler) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
@@ -568,6 +653,15 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 	// acquires a credential in the first place.
 	srv.Mount(api.PathPrefix, readAPI.Handler())
 	srv.Mount(api.OAuthPathPrefix, readAPI.Handler())
+
+	// The frontend claims everything no other route does, so it can never
+	// shadow the API, the login flow, the webhook, or the probes. It is
+	// mounted without a method: "GET /" would conflict with the method-less
+	// API subtrees, being neither more nor less specific than them, and
+	// the frontend refuses other methods itself.
+	if site != nil {
+		srv.Mount("/", site)
+	}
 
 	srv.SetReady(true)
 

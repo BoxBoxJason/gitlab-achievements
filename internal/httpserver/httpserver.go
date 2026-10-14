@@ -73,8 +73,16 @@ func (s *Server) SetReady(ready bool) {
 // reaching this path is a misconfiguration or a probe, and answering it 405
 // is more informative than handing it to a handler that would reject it on
 // the missing token instead.
+//
+// The 405 is answered explicitly rather than left to net/http, which only
+// produces one when no pattern at all matches the path: a frontend mounted
+// at "/" matches every path, and would otherwise answer GET with its page.
 func (s *Server) MountWebhook(handler http.Handler) {
 	s.mux.Handle("POST "+WebhookPath, handler)
+	s.mux.HandleFunc(WebhookPath, func(resp http.ResponseWriter, _ *http.Request) {
+		resp.Header().Set("Allow", http.MethodPost)
+		http.Error(resp, "method not allowed", http.StatusMethodNotAllowed)
+	})
 }
 
 // Mount attaches handler at pattern, which follows net/http's routing

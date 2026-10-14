@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/origin"
 )
 
 const (
@@ -19,6 +21,19 @@ const (
 	// on ListenAddr, because ListenAddr is what an ingress exposes to
 	// GitLab and to browsers, and metrics are for the cluster only.
 	DefaultMetricsAddr = ":9464"
+	// DefaultSessionLifetime is how long a browser stays logged in when no
+	// lifetime is configured. Sessions renew their GitLab token as it runs
+	// out, so this is what decides how often somebody logs in again.
+	DefaultSessionLifetime = 7 * 24 * time.Hour
+	// DefaultAPIAuthCacheTTL is how long a verified credential is trusted
+	// without asking GitLab again, when nothing is configured. It is also
+	// how long a token revoked on GitLab keeps working here.
+	DefaultAPIAuthCacheTTL = time.Minute
+	// maxAPIAuthCacheTTL caps that window, so a typo cannot leave revoked
+	// tokens honored for days.
+	maxAPIAuthCacheTTL = time.Hour
+	// minSessionSecretLength is the shortest session secret accepted.
+	minSessionSecretLength = 32
 	// MetricsDisabled is the metrics-addr value that serves no metrics.
 	MetricsDisabled = "off"
 	// DefaultLogLevel is used when no log level is configured.
@@ -191,6 +206,19 @@ type Config struct {
 	// self-registered case; PKCE protects the code exchange either way.
 	OAuthClientID     string
 	OAuthClientSecret string
+	// SessionSecret keys the encryption of the GitLab tokens browser
+	// sessions hold. Required with GitLab authentication, which is the only
+	// mode that has sessions. It is a secret of its own rather than one
+	// borrowed from elsewhere (the webhook secret, say), so that its
+	// strength is checked here and nothing else that knows it can decrypt a
+	// copy of the session table. Changing it ends every session.
+	SessionSecret string
+	// APIAllowedGroup restricts the API to members of one GitLab group (its
+	// full path), inherited membership included, plus instance admins.
+	APIAllowedGroup string
+	// FrontendDir is a directory of built static files served at "/", so a
+	// frontend shares the API's origin.
+	FrontendDir string
 	// BackfillMode selects whether the serving process walks the
 	// instance's history itself; see BackfillMode's constants.
 	BackfillMode string
@@ -204,6 +232,9 @@ type Config struct {
 	// ExcludeUsernamePattern is a regular expression (RE2 syntax); users
 	// whose username matches it are left out of achievements.
 	ExcludeUsernamePattern string
+	// OAuthReturnOrigins are origins besides PublicURL's that the login flow
+	// may send a browser back to.
+	OAuthReturnOrigins []string
 	// ExcludeUsers lists accounts left out of achievements, each a username
 	// or a numeric GitLab user ID.
 	ExcludeUsers []string
@@ -216,6 +247,11 @@ type Config struct {
 	// sweep is proportional to the size of the instance and repeats for as
 	// long as the app runs.
 	HookRate float64
+	// SessionLifetime is how long a browser stays logged in.
+	SessionLifetime time.Duration
+	// APIAuthCacheTTL is how long a verified credential is trusted without
+	// asking GitLab again; 0 disables the cache.
+	APIAuthCacheTTL time.Duration
 	// ReconcileInterval is how often the reconciliation sync re-reads
 	// recent activity, as a Go duration.
 	ReconcileInterval time.Duration
@@ -339,6 +375,40 @@ func (c *Config) validateAPI() []error {
 	if strings.TrimSpace(c.OAuthClientID) != "" && c.AuthMode() != APIAuthGitLab {
 		errs = append(errs, fmt.Errorf("oauth-client-id has no effect unless api-auth is %q, got %q",
 			APIAuthGitLab, c.APIAuth))
+	}
+
+	if c.APIAllowedGroup != "" && c.AuthMode() != APIAuthGitLab {
+		errs = append(errs, fmt.Errorf("api-allowed-group has no effect unless api-auth is %q, got %q",
+			APIAuthGitLab, c.APIAuth))
+	}
+
+	return append(errs, c.validateSessions()...)
+}
+
+// validateSessions checks the browser session knobs.
+func (c *Config) validateSessions() []error {
+	var errs []error
+
+	switch {
+	case c.SessionSecret == "" && c.AuthMode() == APIAuthGitLab:
+		errs = append(errs, fmt.Errorf("session-secret is required when api-auth is %q: it encrypts the GitLab tokens "+
+			"browser sessions hold; generate one with `openssl rand -base64 48`", APIAuthGitLab))
+	case c.SessionSecret != "" && len(c.SessionSecret) < minSessionSecretLength:
+		errs = append(errs, fmt.Errorf("session-secret must be at least %d characters", minSessionSecretLength))
+	}
+
+	if c.SessionLifetime <= 0 {
+		errs = append(errs, fmt.Errorf("session-lifetime must be greater than 0, got %v", c.SessionLifetime))
+	}
+
+	if c.APIAuthCacheTTL < 0 || c.APIAuthCacheTTL > maxAPIAuthCacheTTL {
+		errs = append(errs, fmt.Errorf("api-auth-cache-ttl must be between 0 and %v, got %v", maxAPIAuthCacheTTL, c.APIAuthCacheTTL))
+	}
+
+	for _, configured := range c.OAuthReturnOrigins {
+		if _, ok := origin.Parse(configured); !ok {
+			errs = append(errs, fmt.Errorf("oauth-return-origins entries must be origins like https://rankings.example.com, got %q", configured))
+		}
 	}
 
 	return errs
@@ -503,10 +573,6 @@ func (c *Config) applyDefaults() {
 		c.HookScope = string(DefaultHookScope)
 	}
 
-	if strings.TrimSpace(c.APIAuth) == "" {
-		c.APIAuth = string(DefaultAPIAuth)
-	}
-
 	if strings.TrimSpace(c.DatabaseDSN) == "" {
 		c.DatabaseDSN = DefaultDatabaseDSN
 	}
@@ -520,6 +586,7 @@ func (c *Config) applyDefaults() {
 	}
 
 	c.applyReconcileDefaults()
+	c.applyAPIDefaults()
 
 	// Trailing slashes are stripped so callers can safely build URLs by
 	// concatenating PublicURL with a leading-slash path (e.g. the webhook
@@ -543,6 +610,23 @@ func (c *Config) applyReconcileDefaults() {
 	if c.ReconcileLookback == 0 {
 		c.ReconcileLookback = DefaultReconcileLookback
 	}
+}
+
+// applyAPIDefaults fills in the read API's knobs.
+func (c *Config) applyAPIDefaults() {
+	if strings.TrimSpace(c.APIAuth) == "" {
+		c.APIAuth = string(DefaultAPIAuth)
+	}
+
+	// Trimmed so that a blank value means no restriction everywhere, not
+	// only in validation: an untrimmed "  " would otherwise be looked up as
+	// a group and refuse everybody.
+	c.APIAllowedGroup = strings.TrimSpace(c.APIAllowedGroup)
+
+	// SessionLifetime is deliberately not defaulted here: the flag already
+	// defaults it, so zero can only be an explicit SESSION_LIFETIME=0, and
+	// quietly turning that into a week of sign-in is the opposite of what
+	// whoever wrote it likely meant. Validation refuses it instead.
 }
 
 type requiredField struct {

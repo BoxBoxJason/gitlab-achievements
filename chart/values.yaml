@@ -69,6 +69,19 @@ config:
     # Client ID of a hand-registered OAuth application. Empty lets the app
     # register a public one for itself when auth is gitlab.
     oauthClientId: ""
+    # Full path of a GitLab group; only its members (and instance admins)
+    # may use the API. Empty admits any GitLab user.
+    allowedGroup: ""
+    # How long a verified GitLab credential is trusted before asking GitLab
+    # again. Also how long a revoked token keeps working. 0s disables.
+    authCacheTTL: 1m
+    # How long a browser stays signed in. Sessions renew their GitLab token
+    # as it runs out, so this is how often people log in again.
+    sessionLifetime: 168h
+    # Origins besides publicUrl's a login may send the browser back to,
+    # e.g. a frontend served from its own host.
+    returnOrigins: []
+    #  - https://rankings.example.com
   # Who takes part. See docs/participation.md.
   exclusions:
     # Leave out the accounts GitLab flags as bots: project and group access
@@ -93,8 +106,9 @@ secrets:
   # Name of a Secret you manage yourself (External Secrets, SOPS, sealed
   # secrets...). It is loaded with envFrom, so its keys must be named
   # GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN, WEBHOOK_SECRET, DATABASE_DSN and,
-  # where applicable, OAUTH_CLIENT_SECRET. Set it and leave the values below
-  # empty, or leave it empty and let the chart create the Secret from them.
+  # where applicable, OAUTH_CLIENT_SECRET and SESSION_SECRET (required with
+  # config.api.auth: gitlab). Set it and leave the values below empty, or
+  # leave it empty and let the chart create the Secret from them.
   existingSecret: ""
   # GitLab token with read_api scope, used for all data fetching.
   gitlabReadToken: ""
@@ -112,6 +126,10 @@ secrets:
   databaseDsn: ""
   # Only needed alongside config.api.oauthClientId for a confidential client.
   oauthClientSecret: ""
+  # Key for encrypting the GitLab tokens browser sessions hold, at least 32
+  # characters. Required when config.api.auth is gitlab; generate one with
+  # `openssl rand -base64 48`. Changing it signs everybody out.
+  sessionSecret: ""
 
 # Backs the default SQLite database with a PersistentVolumeClaim, mounted at
 # persistence.mountPath. Ignored if secrets.databaseDsn points at a database
@@ -129,6 +147,21 @@ persistence:
   accessMode: ReadWriteOnce
   # Directory the volume is mounted at. The default SQLite DSN points inside it.
   mountPath: /data
+
+# A static frontend (a rankings page) served at "/" on the same origin as the
+# API, so it can use the login session without any CORS. Its built files are
+# copied out of an image of your own by an init container, which needs a
+# shell and cp. See docs/frontend.md, which also covers serving the frontend
+# separately behind the same Ingress host instead.
+frontend:
+  enabled: false
+  image:
+    repository: ""
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Directory inside that image holding index.html and the built assets.
+  sourcePath: /usr/share/nginx/html
+  resources: {}
 
 service:
   type: ClusterIP

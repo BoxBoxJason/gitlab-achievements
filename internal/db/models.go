@@ -207,28 +207,29 @@ type RegisteredHook struct {
 }
 
 // Session is a browser's authenticated session with the read API, created
-// by the OAuth callback once GitLab has issued an access token for the
-// person behind the browser.
+// by the OAuth callback once GitLab has issued tokens for the person behind
+// the browser.
 //
-// ID is an opaque random value and is what the session cookie carries, so
-// possession of it is possession of the session; it is a primary key rather
-// than a sequential one for exactly that reason.
+// ID is the SHA-256 of the random value the session cookie carries, not the
+// value itself, so the table alone does not let anyone present a session:
+// a copy of the database holds no cookie that would work.
 //
-// AccessToken is the GitLab token the session stands for, and is stored so
-// that every request can be re-verified against GitLab. That is a
-// deliberate consequence of verifying per request rather than caching an
-// identity: the token is the only thing GitLab will answer questions about.
-// It lives at rest here at the same trust level as the two GitLab tokens
-// this app is already configured with.
+// AccessToken and RefreshToken are the GitLab tokens the session stands
+// for, encrypted (see the api package's sealer) and bound to the row they
+// are on. The access token is what every request is verified with; the
+// refresh token renews it when it runs out, which for GitLab is every two
+// hours. TokenExpiresAt is the access token's own expiry, when GitLab gave
+// one.
 //
-// Sessions expire on ExpiresAt, which tracks the token's own expiry where
-// GitLab supplies one. Expired rows are pruned rather than left to
-// accumulate; see the api package's session store.
+// ExpiresAt is the session's own end, fixed when it is created. Expired rows
+// are pruned rather than left to accumulate.
 type Session struct {
-	CreatedAt   time.Time
-	ExpiresAt   time.Time `gorm:"not null;index"`
-	ID          string    `gorm:"primarykey;size:64"`
-	AccessToken string    `gorm:"not null"`
+	CreatedAt      time.Time
+	ExpiresAt      time.Time `gorm:"not null;index"`
+	TokenExpiresAt *time.Time
+	ID             string `gorm:"primarykey;size:64"`
+	AccessToken    string `gorm:"not null"`
+	RefreshToken   string `gorm:"not null;default:''"`
 }
 
 // SyncState stores backfill cursors and reconciliation watermarks, keyed by

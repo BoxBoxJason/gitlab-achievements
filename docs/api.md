@@ -12,6 +12,7 @@ GitLab shows which achievements somebody holds but has no notion of EXP, so this
 | `GET` | `/api/v1/leaderboard/criteria/{criteria}` | Users ranked by one criteria's counter, with the tier each has reached |
 | `GET` | `/api/v1/achievements` | The catalog: every criteria, its category, and every tier with its threshold and EXP |
 | `GET` | `/api/v1/achievements/{criteria}/icon` | The PNG every tier of a criteria shares |
+| `GET` | `/api/v1/me` | Who is signed in, and their record. See [Who is signed in](#who-is-signed-in) |
 | `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part](participation.md#opting-out) |
 
 Users who are [left out](participation.md) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
@@ -152,14 +153,53 @@ $ curl -s -H "Authorization: Bearer $GITLAB_TOKEN" \
     https://achievements.example.com/api/v1/leaderboard
 ```
 
-Browsers can log in at `/oauth/login` instead, which runs the standard authorization-code flow with PKCE against your instance and leaves an `HttpOnly` session cookie. `POST /oauth/logout` ends it.
+Browsers can log in at `/oauth/login` instead. That runs the standard authorization-code flow with PKCE against your instance and leaves an `HttpOnly`, `SameSite=Lax` session cookie. `POST /oauth/logout` ends it.
 
-Unless `OAUTH_CLIENT_ID` names an application you registered by hand, the app registers a public OAuth application for itself on startup, using the instance-admin write token it already holds, and adopts that same application on every later start rather than creating another. A public client has no secret to store; PKCE is what secures the exchange. Pass `OAUTH_CLIENT_SECRET` alongside a client ID to run as a confidential client.
+Unless `OAUTH_CLIENT_ID` names an application you registered by hand, the app registers a public OAuth application for itself on startup, using the instance-admin write token it already holds. On every later start it adopts that same application rather than creating another. A public client has no secret to store; PKCE is what secures the exchange. Pass `OAUTH_CLIENT_SECRET` alongside a client ID to run as a confidential client.
 
-Any authenticated GitLab identity may read anything the API serves. The one route that needs no credential is the achievement icon, see [The catalog](#the-catalog). Achievements are already public on GitLab profiles and are social by nature. What authentication closes is an anonymous caller enumerating who exists on your instance.
+### Sessions
+
+GitLab access tokens last two hours. A session keeps the refresh token GitLab issues with the access token and renews it shortly before it runs out, so nobody is sent back to GitLab mid-visit. Requests that arrive together on an expiring session share one renewal; GitLab refresh tokens work only once. A session lasts `SESSION_LIFETIME` (seven days by default), after which the browser logs in again. If GitLab refuses a renewal (the user revoked the application, or the token was used elsewhere), the session ends with a `401`. If GitLab instead rejects this app's own OAuth client (a client secret rotated on GitLab but not here), sessions are kept: requests keep working on their current token until it expires and then get `503`, the log reports the misconfiguration, and the sessions resume once the credentials are fixed.
+
+The session table holds neither the cookie nor a usable token. Rows are keyed by the SHA-256 of the cookie's value, and both tokens are encrypted with AES-256-GCM under a key derived from `SESSION_SECRET`, which the app refuses to start without when `API_AUTH=gitlab`. A database dump or backup therefore hands out no working credentials. Changing the secret signs everybody out.
+
+### Coming back to your page
+
+`/oauth/login?return_to=<destination>` sends the browser to `destination` once it is logged in. Without it, the browser lands on the user's own record. Two kinds of destination are accepted:
+
+- a path on this app, such as `/rankings?period=week`;
+- an absolute URL on `PUBLIC_URL`'s origin, or on one listed in `OAUTH_RETURN_ORIGINS`.
+
+Anything else is refused with a `400` before the browser goes to GitLab, so the login cannot be used as an open redirect. That includes other hosts, `//host`, `/\host`, and `javascript:` URLs.
+
+### Who is signed in
+
+`GET /api/v1/me` is what a frontend calls on load:
+
+| Answer | Meaning |
+| --- | --- |
+| `200` | Signed in. The body has `username`, `gitlab_user_id`, `record` (the same document as `/users/{ref}`, or `null` for somebody with nothing recorded yet or who is [left out](participation.md)), and `participation` |
+| `401` | Not signed in: show a login link to `/oauth/login` |
+| `404` | This deployment has no sign-in (`API_AUTH=none`) |
+
+### Restricting who may sign in
+
+Any authenticated GitLab identity may read anything the API serves by default. The one route that needs no credential is the achievement icon, see [The catalog](#the-catalog). Achievements are already public on GitLab profiles and are social by nature. What authentication closes is an anonymous caller enumerating who exists on your instance.
+
+Set `API_ALLOWED_GROUP` to a group's full path to admit only its members, including members inherited from parent groups. Instance administrators are always admitted. Anyone else gets a `403`, at login and on every API call. Membership is checked with the read token, so that token must be able to see the group.
+
+### Caching
+
+A verified credential is trusted for `API_AUTH_CACHE_TTL` (one minute by default) before GitLab is asked again, so a page making several calls costs one GitLab round-trip, not several. Only successes are cached; a rejected token is checked again every time. The cost is that a token revoked on GitLab, or a user removed from the allowed group, keeps working here for up to that long. Logging out drops the session's entry at once. Set `API_AUTH_CACHE_TTL=0s` to verify every request.
 
 > [!NOTE]
-> With `API_AUTH=gitlab`, credentials are verified against GitLab on every request, with no cache. Revoking a token takes effect immediately, but it also means authenticated requests cannot be served while your instance is unreachable. The database-only guarantee above applies to the data; under the default `API_AUTH=none` it applies to the whole request.
+> With `API_AUTH=gitlab`, a request can only be served if GitLab could be asked about its credential within the cache window. The database-only guarantee above applies to the data; under the default `API_AUTH=none` it applies to the whole request.
+
+### Cross-site requests
+
+State-changing requests (`POST`, `DELETE`) are checked for cross-site request forgery: a browser request from another origin is refused with `403`. Scripts using a bearer token send no such headers and are unaffected.
+
+A frontend that uses the session cookie should be served from the same origin as the API. See [Serving a frontend](frontend.md).
 
 ## The other endpoints
 
@@ -172,6 +212,7 @@ Everything is served on one port, `LISTEN_ADDR`.
 | `/webhooks/gitlab` | Where GitLab's deliveries arrive. `POST` only, authenticated with the webhook secret |
 | `/api/v1/...` | The read API |
 | `/oauth/...` | Browser login flow, when `API_AUTH=gitlab` |
+| `/` | A static frontend, when `FRONTEND_DIR` is set. See [Serving a frontend](frontend.md) |
 
 `/healthz` and `/readyz` are unauthenticated by design.
 

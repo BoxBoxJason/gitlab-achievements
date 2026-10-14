@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
@@ -23,9 +25,9 @@ const bearerPrefix = "Bearer "
 // Verifier resolves a GitLab credential to the identity behind it.
 //
 // It is an interface rather than *gitlabclient.TokenVerifier so that the
-// handlers never depend on how verification happens. Verification currently
-// calls GitLab on every request by design, and this is the seam a
-// short-lived identity cache would slot into without any handler changing.
+// handlers never depend on how verification happens: the group restriction
+// (authorizingVerifier) and the short-lived identity cache
+// (cachingVerifier) both wrap it here without any handler changing.
 type Verifier interface {
 	Verify(ctx context.Context, token string) (*gitlabclient.Identity, error)
 }
@@ -33,6 +35,27 @@ type Verifier interface {
 // errNoCredential reports that the request carried nothing to authenticate
 // with, as distinct from carrying something that turned out not to work.
 var errNoCredential = errors.New("no credential presented")
+
+const (
+	// refreshMargin is how close to its expiry a session's access token is
+	// renewed. Renewing a little early means a token never runs out between
+	// being read here and being checked by GitLab.
+	refreshMargin = time.Minute
+	// refreshTimeout bounds one renewal, which runs detached from the
+	// request that started it (see refresh).
+	refreshTimeout = 15 * time.Second
+)
+
+// Refresher renews a session's GitLab tokens from its refresh token. It
+// returns errRefreshRejected when GitLab will not renew them at all.
+type Refresher interface {
+	refresh(ctx context.Context, refreshToken string) (sessionTokens, error)
+}
+
+// errRefreshRejected reports GitLab refusing a refresh token: it was
+// revoked, already used, or the application was deleted. The session it
+// belongs to is over.
+var errRefreshRejected = errors.New("gitlab refused to renew the session")
 
 // identityKey types the request-context key holding the caller's identity,
 // so it cannot collide with a key set anywhere else.
@@ -54,8 +77,10 @@ func IdentityFrom(ctx context.Context) (*gitlabclient.Identity, bool) {
 // enumerating who exists on the instance, which authentication alone
 // settles. There is consequently no per-endpoint authorization below.
 type authenticator struct {
-	verifier Verifier
-	sessions *sessions
+	verifier  Verifier
+	sessions  *sessions
+	refresher Refresher
+	renewals  singleflight.Group
 }
 
 // middleware wraps next so that it is only reached by requests carrying a
@@ -92,6 +117,12 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 func (a *authenticator) reject(resp http.ResponseWriter, err error) {
 	if errors.Is(err, gitlabclient.ErrInvalidToken) {
 		writeError(resp, http.StatusUnauthorized, "invalid credential")
+
+		return
+	}
+
+	if errors.Is(err, ErrForbidden) {
+		writeError(resp, http.StatusForbidden, "this GitLab account is not allowed to use this api")
 
 		return
 	}
@@ -140,10 +171,88 @@ func (a *authenticator) credential(req *http.Request) (string, error) {
 		return "", errNoCredential
 	}
 
-	token, err := a.sessions.token(req.Context(), cookie.Value)
+	return a.sessionToken(req.Context(), cookie.Value)
+}
+
+// sessionToken returns the access token the session behind a cookie holds,
+// renewing it first if it is about to run out.
+func (a *authenticator) sessionToken(ctx context.Context, sessionID string) (string, error) {
+	tokens, err := a.sessions.load(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}
 
-	return token, nil
+	if a.refresher != nil && tokens.RefreshToken != "" && tokens.expiresWithin(refreshMargin) {
+		renewed, refreshErr := a.refresh(ctx, sessionID)
+
+		switch {
+		case refreshErr == nil:
+			tokens = renewed
+		case errors.Is(refreshErr, errNoSession) || !time.Now().Before(tokens.Expiry):
+			return "", refreshErr
+		default:
+			// Renewal starts a little early, so a token GitLab could not
+			// renew just now usually still works: use it rather than
+			// answering 503 for a credential that is fine, and try again
+			// on the next request.
+			zap.L().Warn("failed to renew a session, using its current token meanwhile", zap.Error(refreshErr))
+		}
+	}
+
+	return tokens.AccessToken, nil
+}
+
+// refresh renews a session's tokens, once however many requests ask at
+// the same moment.
+//
+// GitLab rotates refresh tokens: each one works once. A page firing several
+// requests just as its token runs out would otherwise race to renew it,
+// and every request but the first would present a refresh token that had
+// just been spent, and lose the session. The renewal is shared instead,
+// and runs on a context of its own so the first request being abandoned
+// does not fail it for the others waiting on it.
+//
+// The session is read again inside, because a renewal that finished just
+// before this one started has already done the work.
+func (a *authenticator) refresh(ctx context.Context, sessionID string) (sessionTokens, error) {
+	renewed, err, _ := a.renewals.Do(sessionKey(sessionID), func() (any, error) {
+		renewCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+		defer cancel()
+
+		current, err := a.sessions.load(renewCtx, sessionID)
+		if err != nil || !current.expiresWithin(refreshMargin) {
+			return current, err
+		}
+
+		tokens, err := a.refresher.refresh(renewCtx, current.RefreshToken)
+		if errors.Is(err, errRefreshRejected) {
+			zap.L().Info("gitlab refused to renew a session, ending it", zap.Error(err))
+
+			_ = a.sessions.destroy(renewCtx, sessionID)
+
+			return sessionTokens{}, errNoSession
+		}
+
+		if err != nil {
+			return sessionTokens{}, fmt.Errorf("failed to renew session: %w", err)
+		}
+
+		// The renewal worked even if recording it did not: the session
+		// store holds the new tokens until it can write them (see
+		// sessions.update), so the request goes ahead on them.
+		err = a.sessions.update(renewCtx, sessionID, tokens)
+		if err != nil {
+			zap.L().Warn("renewed a session but failed to save its tokens, holding them until it can", zap.Error(err))
+		}
+
+		return tokens, nil
+	})
+	if err != nil {
+		return sessionTokens{}, err //nolint:wrapcheck // wrapped inside the shared call
+	}
+
+	// The shared call only ever returns sessionTokens.
+	tokens, _ := renewed.(sessionTokens)
+
+	return tokens, nil
 }
