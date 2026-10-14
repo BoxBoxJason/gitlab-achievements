@@ -19,7 +19,9 @@ CHART_TEST_VALUES ?= --set config.gitlabUrl=https://gitlab.example.com \
 # renovate: datasource=go depName=gotest.tools/gotestsum
 gotestsum_version := v1.13.0
 # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
-golangci_lint_version := v2.13.2
+golangci_lint_version := v2.14.0
+# renovate: datasource=go depName=golang.org/x/vuln
+govulncheck_version := v1.9.0
 
 # Default target
 .DEFAULT_GOAL := build
@@ -39,6 +41,11 @@ lint: deps
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "Installing golangci-lint..."; go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(golangci_lint_version); }
 	@echo "Running golangci-lint..."
 	golangci-lint run ./...
+
+# Vulnerability check: known vulnerabilities reachable from this module's code
+vulncheck: deps
+	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@$(govulncheck_version); }
+	govulncheck ./...
 
 dependency-check:
 	@echo "Running dependency-check..."
@@ -74,4 +81,4 @@ helm/template:
 	helm template gitlab-achievements --debug $(CHART_DIR)
 
 # Phony targets
-.PHONY: deps build lint dependency-check test package helm/lint helm/package
+.PHONY: deps build lint vulncheck dependency-check test package helm/lint helm/package
