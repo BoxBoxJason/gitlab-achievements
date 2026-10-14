@@ -78,8 +78,28 @@ func (l *gormLogger) Trace(_ context.Context, begin time.Time, statement func() 
 
 	elapsed := time.Since(begin)
 
+	failed := err != nil && !errors.Is(err, gorm.ErrRecordNotFound)
+
 	switch {
-	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && l.level >= logger.Error:
+	case elapsed > slowQueryThreshold && l.level >= logger.Warn:
+		// Checked before failure: a statement that waited out busy_timeout
+		// and then failed is exactly what contention looks like, and the
+		// slow warning is what makes it visible at the default level.
+		sql, rows := statement()
+		fields := []zap.Field{
+			zap.String("component", "gorm"),
+			zap.String("sql", sql),
+			zap.Int64("rows", rows),
+			zap.Duration("elapsed", elapsed),
+			zap.Duration("threshold", slowQueryThreshold),
+		}
+
+		if failed {
+			fields = append(fields, zap.Error(err))
+		}
+
+		zap.L().Warn("slow database statement", fields...)
+	case failed && l.level >= logger.Error:
 		sql, rows := statement()
 		zap.L().Debug("database statement failed",
 			zap.String("component", "gorm"),
@@ -87,15 +107,6 @@ func (l *gormLogger) Trace(_ context.Context, begin time.Time, statement func() 
 			zap.Int64("rows", rows),
 			zap.Duration("elapsed", elapsed),
 			zap.Error(err),
-		)
-	case elapsed > slowQueryThreshold && l.level >= logger.Warn:
-		sql, rows := statement()
-		zap.L().Warn("slow database statement",
-			zap.String("component", "gorm"),
-			zap.String("sql", sql),
-			zap.Int64("rows", rows),
-			zap.Duration("elapsed", elapsed),
-			zap.Duration("threshold", slowQueryThreshold),
 		)
 	case l.level >= logger.Info:
 		sql, rows := statement()

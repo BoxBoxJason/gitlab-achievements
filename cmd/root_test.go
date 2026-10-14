@@ -175,6 +175,13 @@ func TestNewHTTPServer_BoundsEveryPhaseOfAConnection(t *testing.T) {
 		t.Fatalf("failed to open database: %v", err)
 	}
 
+	sqlDB, err := conn.DB()
+	if err != nil {
+		t.Fatalf("failed to access the underlying connection: %v", err)
+	}
+
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
 	cfg := &config.Config{ListenAddr: ":0"}
 	srv := newHTTPServer(cfg, nil, nil, http.NotFoundHandler(), api.New(conn, api.Options{}))
 

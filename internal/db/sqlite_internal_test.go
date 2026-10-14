@@ -41,3 +41,11 @@ func TestSQLiteDSN_InMemory(t *testing.T) {
 		t.Fatalf("expected the in-memory path to be kept, got %q", got)
 	}
 }
+
+func TestSQLiteDSN_SchemaQualifiedPragma(t *testing.T) {
+	got := sqliteDSN("/data/x.db?_pragma=main.journal_mode=DELETE")
+
+	if strings.Contains(got, "journal_mode(WAL)") {
+		t.Errorf("expected the operator's schema-qualified journal_mode to win, got %q", got)
+	}
+}

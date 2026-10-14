@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -36,6 +37,11 @@ const (
 	flowTTL = 10 * time.Minute
 	// stateBytes is the entropy in the CSRF nonce.
 	stateBytes = 32
+	// exchangeTimeout bounds the authorization-code exchange. oauth2 uses
+	// http.DefaultClient, which has no timeout of its own, and the server's
+	// WriteTimeout does not cancel a handler's context, so without this a
+	// slow token endpoint would outlive the response it is meant to feed.
+	exchangeTimeout = 10 * time.Second
 )
 
 // OAuthOptions configures the login flow.
@@ -153,7 +159,11 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	token, err := f.config.Exchange(req.Context(), code, oauth2.VerifierOption(verifier.Value))
+	exchangeCtx, cancel := context.WithTimeout(req.Context(), exchangeTimeout)
+	token, err := f.config.Exchange(exchangeCtx, code, oauth2.VerifierOption(verifier.Value))
+
+	cancel()
+
 	if err != nil {
 		f.clearFlowCookies(resp)
 		zap.L().Warn("failed to exchange an oauth authorization code", zap.Error(err))

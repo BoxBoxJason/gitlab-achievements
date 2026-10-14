@@ -73,8 +73,8 @@ func dialectorFor(dsn string) (gorm.Dialector, error) {
 // webhook queue's workers, the backfill, the reconciliation sweeps. Without
 // these, contention surfaces as SQLITE_BUSY rather than as a wait.
 //
-//   - busy_timeout makes a connection wait for the write lock instead of
-//     failing the moment it is held.
+//   - busy_timeout makes a connection wait longer for the write lock than
+//     the driver's own 5 second default before failing.
 //   - _txlock=immediate takes the write lock when a transaction begins. A
 //     deferred transaction that reads and then writes has to upgrade its
 //     lock part way through, and SQLite answers a contended upgrade with an
@@ -82,6 +82,10 @@ func dialectorFor(dsn string) (gorm.Dialector, error) {
 //     the timeout alone barely helps.
 //   - WAL lets readers proceed while a writer holds the lock, which keeps
 //     the read API answering during a backfill.
+//
+// The driver stops reading the query at _time_format, so a DSN that sets
+// _time_format silently loses _txlock. Such a DSN has to set _txlock itself
+// and live with the driver ignoring it, or drop _time_format.
 //
 // pragmaParam is the DSN parameter the SQLite driver runs as a PRAGMA.
 const pragmaParam = "_pragma"
@@ -139,8 +143,15 @@ func sqliteSettingPresent(query url.Values, param, name string) bool {
 	for _, pragma := range query[pragmaParam] {
 		pragmaName, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(pragma)), "(")
 		pragmaName, _, _ = strings.Cut(pragmaName, "=")
+		pragmaName = strings.TrimSpace(pragmaName)
 
-		if strings.TrimSpace(pragmaName) == name {
+		// A schema-qualified pragma, e.g. main.journal_mode=DELETE, sets
+		// the same thing as the bare name.
+		if dot := strings.LastIndexByte(pragmaName, '.'); dot >= 0 {
+			pragmaName = pragmaName[dot+1:]
+		}
+
+		if pragmaName == name {
 			return true
 		}
 	}

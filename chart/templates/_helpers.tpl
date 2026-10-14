@@ -28,7 +28,7 @@ Fully qualified app name.
 {{- define "gitlab-achievements.labels" -}}
 helm.sh/chart: {{ include "gitlab-achievements.chart" . }}
 {{ include "gitlab-achievements.selectorLabels" . }}
-{{- with .Values.image.tag | default .Chart.AppVersion }}
+{{- with include "gitlab-achievements.imageTag" . }}
 app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
@@ -53,15 +53,28 @@ same build. The digest, when set, is appended rather than substituted for the
 tag: repository:tag@digest is valid and keeps the version readable.
 */}}
 {{- define "gitlab-achievements.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
-{{- if hasPrefix "@" $tag -}}
-{{- fail "image.tag must be a tag, not a digest: put sha256:... in image.digest instead" -}}
-{{- end -}}
-{{- $ref := printf "%s:%s" .Values.image.repository $tag -}}
+{{- $ref := printf "%s:%s" .Values.image.repository (include "gitlab-achievements.imageTag" .) -}}
 {{- with .Values.image.digest -}}
-{{- $ref = printf "%s@%s" $ref (trimPrefix "@" .) -}}
+{{- $digest := trimPrefix "@" . -}}
+{{- if not (regexMatch "^[a-z0-9]+([+._-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$" $digest) -}}
+{{- fail (printf "image.digest must be algorithm:hex, e.g. sha256:47c8..., got %q" .) -}}
+{{- end -}}
+{{- $ref = printf "%s@%s" $ref $digest -}}
 {{- end -}}
 {{- $ref -}}
+{{- end }}
+
+{{/*
+Image tag, also used as the app.kubernetes.io/version label. A digest, or a
+tag with one appended, renders both an invalid image reference and an
+invalid label, so either is refused in favour of image.digest.
+*/}}
+{{- define "gitlab-achievements.imageTag" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- if or (contains "@" $tag) (contains ":" $tag) -}}
+{{- fail "image.tag must be a tag, not a digest: put sha256:... in image.digest instead" -}}
+{{- end -}}
+{{- $tag -}}
 {{- end }}
 
 {{/*
