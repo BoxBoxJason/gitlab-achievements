@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"sync/atomic"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // WebhookPath is the path GitLab's webhooks deliver events to. Bootstrap
@@ -56,10 +58,12 @@ func New(dbCheck, gitlabCheck Checker, logError ErrorLogger) *Server {
 	return srv
 }
 
-// SetReady marks whether bootstrap has completed successfully. It is safe
-// to call concurrently with requests being served.
+// SetReady marks whether bootstrap has completed successfully, on /readyz
+// and on the ready metric alike. It is safe to call concurrently with
+// requests being served.
 func (s *Server) SetReady(ready bool) {
 	s.ready.Store(ready)
+	metrics.SetReady(ready)
 }
 
 // MountWebhook attaches the handler receiving GitLab's deliveries at

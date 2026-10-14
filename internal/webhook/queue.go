@@ -206,7 +206,7 @@ func (q *Queue) Enqueue(ctx context.Context, events []activity.Event) error {
 		select {
 		case q.events <- event:
 			q.accepted.Add(1)
-			metrics.QueueActivities("accepted", 1)
+			metrics.QueueActivities(metrics.QueueAccepted, 1)
 		case <-q.done:
 			q.reject(len(events) - index)
 
@@ -271,7 +271,7 @@ func (q *Queue) Stats() QueueStats {
 // reject counts n activities refused.
 func (q *Queue) reject(n int) {
 	q.rejected.Add(int64(n))
-	metrics.QueueActivities("rejected", n)
+	metrics.QueueActivities(metrics.QueueRejected, n)
 }
 
 // stopWorkers ends the workers' context, tolerating a Queue that was never
@@ -336,7 +336,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 		err = q.processor.Process(ctx, event)
 		if err == nil {
 			q.processed.Add(1)
-			metrics.QueueActivities("processed", 1)
+			metrics.QueueActivities(metrics.QueueProcessed, 1)
 
 			return
 		}
@@ -363,7 +363,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 	}
 
 	q.failed.Add(1)
-	metrics.QueueActivities("failed", 1)
+	metrics.QueueActivities(metrics.QueueFailed, 1)
 	zap.L().Error("dropping activity after repeated evaluation failures, it can be replayed by its dedup key",
 		zap.String("dedup_key", event.DedupKey),
 		zap.String("kind", string(event.Kind)),

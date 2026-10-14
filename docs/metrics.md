@@ -1,6 +1,6 @@
 # Metrics
 
-The server exports Prometheus metrics at `/metrics` on a listener of its own, `METRICS_ADDR` (`:9090` by default). It is kept off `LISTEN_ADDR` on purpose: that port is what an ingress exposes to GitLab and to browsers, and metrics are for the cluster only. Set `METRICS_ADDR=off` to serve none.
+The server exports Prometheus metrics at `/metrics` on a listener of its own, `METRICS_ADDR` (`:9464` by default). It is kept off `LISTEN_ADDR` on purpose: that port is what an ingress exposes to GitLab and to browsers, and metrics are for the cluster only. Set `METRICS_ADDR=off` to serve none.
 
 The listener starts before bootstrap, so a first start that spends minutes registering webhooks is visible from the beginning: `gitlab_achievements_ready` reads `0` until it finishes.
 
@@ -11,7 +11,7 @@ On Kubernetes the chart exposes the port as `metrics` on the Service and can cre
 ```yaml
 metrics:
   enabled: true
-  port: 9090
+  port: 9464
   serviceMonitor:
     enabled: true
     labels:
@@ -36,9 +36,9 @@ Every metric is prefixed `gitlab_achievements_`. Label values come from fixed se
 | `engine_events_total` | counter | `outcome` | Activities evaluated, from every source (webhooks, backfill, reconciliation): `counted`, `duplicate`, `untracked` |
 | `engine_tiers_awarded_total` | counter | | Achievement tiers newly earned |
 | `awards_deliveries_total` | counter | `result` | Award changes pushed to GitLab: `confirmed`, `adopted`, `superseded`, `failed` |
-| `job_runs_total` | counter | `job`, `result` | Background runs by `success` or `failure` |
+| `job_runs_total` | counter | `job`, `result` | Background runs by `success` or `failure`. A run cut short by shutdown is not counted |
 | `job_duration_seconds` | histogram | `job` | How long a run took |
-| `job_last_success_timestamp_seconds` | gauge | `job` | When the job last succeeded |
+| `job_last_success_timestamp_seconds` | gauge | `job` | When the job last succeeded, or when it was scheduled if it has not succeeded since the process started, so a job that never succeeds after a restart still goes stale |
 | `gitlab_requests_total` | counter | `client`, `method`, `code` | Requests to GitLab by client (`read`, `write`, `verify`). Each retry counts on its own; `code` is `error` when no response came back |
 | `gitlab_request_duration_seconds` | histogram | `client` | Time GitLab took to answer |
 

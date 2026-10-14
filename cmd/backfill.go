@@ -19,6 +19,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // readRequestBurst is how many requests the rate limiter in front of an
@@ -109,7 +110,7 @@ func startBackfill(ctx context.Context, cfg *config.Config, conn *gorm.DB, write
 	}
 
 	go func() {
-		err := tracked("backfill", func(ctx context.Context) error {
+		err := metrics.Job("backfill", func(ctx context.Context) error {
 			return executeBackfill(ctx, cfg, conn, writeClient, liveFrom, forceBackfill(cfg))
 		})(ctx)
 		if err != nil && ctx.Err() == nil {

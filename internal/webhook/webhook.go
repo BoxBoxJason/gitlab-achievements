@@ -24,6 +24,7 @@ package webhook
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -116,6 +117,15 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			zap.Error(err),
 		)
 		metrics.WebhookDelivery(label, metrics.DeliveryUnparsable)
+
+		// MaxBytesReader closes the connection after an oversized body only
+		// when resp is net/http's own writer, which the metrics middleware
+		// wraps. Asking for it explicitly keeps the server from reading on
+		// through the rest of the body to reuse the connection.
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			resp.Header().Set("Connection", "close")
+		}
+
 		resp.WriteHeader(http.StatusOK)
 
 		return

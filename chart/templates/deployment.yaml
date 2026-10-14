@@ -53,6 +53,9 @@ spec:
               containerPort: {{ include "gitlab-achievements.containerPort" . }}
               protocol: TCP
             {{- if .Values.metrics.enabled }}
+            {{- if eq (toString .Values.metrics.port) (include "gitlab-achievements.containerPort" .) }}
+            {{- fail (printf "metrics.port must differ from the app's own port %s" (include "gitlab-achievements.containerPort" .)) }}
+            {{- end }}
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
               protocol: TCP

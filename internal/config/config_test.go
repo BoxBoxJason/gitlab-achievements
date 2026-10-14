@@ -586,7 +586,29 @@ func TestValidate_MetricsAddrMustDifferFromListenAddr(t *testing.T) {
 	cfg.MetricsAddr = ":8080"
 
 	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "metrics-addr must differ") {
+	if err == nil || !strings.Contains(err.Error(), "must not share a port") {
 		t.Fatalf("expected a collision error, got %v", err)
+	}
+}
+
+func TestValidate_MetricsAddrMustNotShareTheListenPort(t *testing.T) {
+	for _, tc := range []struct {
+		listen, metrics string
+		collide         bool
+	}{
+		{":8080", "0.0.0.0:8080", true},
+		{"[::]:8080", "127.0.0.1:8080", true},
+		{"127.0.0.1:8080", "127.0.0.1:8080", true},
+		{"127.0.0.1:8080", "10.0.0.1:8080", false},
+		{":8080", ":9464", false},
+	} {
+		cfg := validConfig()
+		cfg.ListenAddr = tc.listen
+		cfg.MetricsAddr = tc.metrics
+
+		err := cfg.Validate()
+		if got := err != nil && strings.Contains(err.Error(), "must not share a port"); got != tc.collide {
+			t.Errorf("listen %q, metrics %q: collision reported %v, want %v (err: %v)", tc.listen, tc.metrics, got, tc.collide, err)
+		}
 	}
 }

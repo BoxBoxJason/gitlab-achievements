@@ -21,6 +21,7 @@
 package metrics
 
 import (
+	"context"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -49,6 +50,19 @@ const (
 	// DeliveryRejected is a delivery refused with a 503 because the queue
 	// was full or shutting down, which GitLab will count against the hook.
 	DeliveryRejected = "rejected"
+)
+
+// Queue outcomes, as reported on queueActivities.
+const (
+	// QueueAccepted is an activity taken into the queue.
+	QueueAccepted = "accepted"
+	// QueueRejected is an activity refused because the queue was full or
+	// shutting down.
+	QueueRejected = "rejected"
+	// QueueProcessed is an activity the engine evaluated.
+	QueueProcessed = "processed"
+	// QueueFailed is an activity dropped after every retry failed.
+	QueueFailed = "failed"
 )
 
 // Subsystems and labels shared by several metrics.
@@ -187,7 +201,7 @@ var (
 		Namespace: namespace,
 		Subsystem: jobSubsystem,
 		Name:      "last_success_timestamp_seconds",
-		Help:      "Unix time the job last finished successfully. Alert on time() minus this.",
+		Help:      "Unix time the job last finished successfully, or was scheduled if it has not yet. Alert on time() minus this.",
 	}, []string{jobSubsystem})
 
 	gitlabRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -278,8 +292,8 @@ type queueGauges struct {
 	capacity int
 }
 
-// QueueActivities counts n activities reaching outcome in the webhook
-// queue: "accepted", "rejected", "processed", or "failed".
+// QueueActivities counts n activities reaching outcome, one of the Queue
+// constants, in the webhook queue.
 func QueueActivities(outcome string, n int) {
 	queueActivities.WithLabelValues(outcome).Add(float64(n))
 }
@@ -290,7 +304,7 @@ func QueueEvaluation(elapsed time.Duration) {
 }
 
 // EngineEvent counts one activity evaluated by the engine, by outcome:
-// "counted", "duplicate", "untracked", or "excluded".
+// "counted", "duplicate", or "untracked".
 func EngineEvent(outcome string) {
 	engineEvents.WithLabelValues(outcome).Inc()
 }
@@ -308,24 +322,42 @@ func AwardDeliveries(confirmed, adopted, superseded, failed int) {
 	awardDeliveries.WithLabelValues("failed").Add(float64(failed))
 }
 
-// Job wraps a background task so every run is counted and timed under
-// name, and its last success recorded.
-func Job(name string, task func() error) error {
-	start := time.Now()
-	err := task()
-
-	jobDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
-
-	if err != nil {
-		jobRuns.WithLabelValues(name, jobFailure).Inc()
-
-		return err
-	}
-
-	jobRuns.WithLabelValues(name, jobSuccess).Inc()
+// Job wraps task so every run is counted and timed under name, and its last
+// success recorded.
+//
+// The last-success gauge is seeded with the time the job is wrapped, which
+// is when it is scheduled. Without that, a job whose first in-process run is
+// a full interval away (the hourly sweeps, whose initial pass bootstrap
+// makes) has no series at all until it first succeeds, so a staleness alert
+// on it could never fire for a process that restarted into a failing state.
+//
+// A run that fails because ctx was cancelled is the process shutting down,
+// not the job failing, and is not counted: otherwise every rolling restart
+// that interrupts a long backfill would read as a failure.
+func Job(name string, task func(context.Context) error) func(context.Context) error {
 	jobLastSuccess.WithLabelValues(name).SetToCurrentTime()
 
-	return nil
+	return func(ctx context.Context) error {
+		start := time.Now()
+
+		err := task(ctx)
+		if err != nil && ctx.Err() != nil {
+			return err
+		}
+
+		jobDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
+
+		if err != nil {
+			jobRuns.WithLabelValues(name, jobFailure).Inc()
+
+			return err
+		}
+
+		jobRuns.WithLabelValues(name, jobSuccess).Inc()
+		jobLastSuccess.WithLabelValues(name).SetToCurrentTime()
+
+		return nil
+	}
 }
 
 // statusCode renders an HTTP status as a label value.

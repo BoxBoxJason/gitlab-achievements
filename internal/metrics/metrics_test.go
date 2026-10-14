@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -106,14 +107,16 @@ func TestTransport_CountsStatusesAndTransportErrors(t *testing.T) {
 }
 
 func TestJob_RecordsResultAndLastSuccess(t *testing.T) {
-	err := Job("test_job", func() error { return nil })
+	failure := errors.New("sweep failed")
+	succeed := Job("test_job", func(context.Context) error { return nil })
+	fail := Job("test_job", func(context.Context) error { return failure })
+
+	err := succeed(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	failure := errors.New("sweep failed")
-
-	err = Job("test_job", func() error { return failure })
+	err = fail(t.Context())
 	if !errors.Is(err, failure) {
 		t.Fatalf("expected the task's error to be returned, got %v", err)
 	}
@@ -128,6 +131,28 @@ func TestJob_RecordsResultAndLastSuccess(t *testing.T) {
 
 	if testutil.ToFloat64(jobLastSuccess.WithLabelValues("test_job")) == 0 {
 		t.Error("expected the last success timestamp to be set")
+	}
+}
+
+func TestJob_SeedsLastSuccessWhenScheduled(t *testing.T) {
+	Job("test_job_seeded", func(context.Context) error { return nil })
+
+	if testutil.ToFloat64(jobLastSuccess.WithLabelValues("test_job_seeded")) == 0 {
+		t.Error("expected a scheduled job to have a last-success series before its first run")
+	}
+}
+
+func TestJob_ShutdownIsNotAFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := Job("test_job_cancelled", func(ctx context.Context) error { return ctx.Err() })(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected the cancellation to be returned, got %v", err)
+	}
+
+	if got := testutil.ToFloat64(jobRuns.WithLabelValues("test_job_cancelled", jobFailure)); got != 0 {
+		t.Errorf("expected a run cut short by shutdown not to count as a failure, got %v", got)
 	}
 }
 

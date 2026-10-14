@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ const (
 	// address is configured. It is a listener of its own rather than a path
 	// on ListenAddr, because ListenAddr is what an ingress exposes to
 	// GitLab and to browsers, and metrics are for the cluster only.
-	DefaultMetricsAddr = ":9090"
+	DefaultMetricsAddr = ":9464"
 	// MetricsDisabled is the metrics-addr value that serves no metrics.
 	MetricsDisabled = "off"
 	// DefaultLogLevel is used when no log level is configured.
@@ -328,15 +329,47 @@ func (c *Config) validateAPI() []error {
 }
 
 // validateMetrics checks the metrics listener does not collide with the
-// main one: binding the same address twice fails at startup with an error
-// about the port rather than about the configuration.
+// main one. The metrics listener binds first, so a collision would otherwise
+// surface only once bootstrap has finished and the main listener fails to
+// bind, minutes into the start, with an error about the port rather than
+// about the configuration.
 func (c *Config) validateMetrics() []error {
-	if c.MetricsEnabled() && c.MetricsAddr == c.ListenAddr {
-		return []error{fmt.Errorf("metrics-addr must differ from listen-addr (both %q); use %q to disable metrics",
-			c.MetricsAddr, MetricsDisabled)}
+	if c.MetricsEnabled() && addrsCollide(c.MetricsAddr, c.ListenAddr) {
+		return []error{fmt.Errorf("metrics-addr %q must not share a port with listen-addr %q; use %q to disable metrics",
+			c.MetricsAddr, c.ListenAddr, MetricsDisabled)}
 	}
 
 	return nil
+}
+
+// addrsCollide reports whether binding both listen addresses would claim
+// the same port: the same port on the same host, or on any host when either
+// side binds every interface (":8080", "0.0.0.0:8080", "[::]:8080").
+// Addresses that don't parse are left for the bind itself to reject.
+func addrsCollide(first, second string) bool {
+	firstHost, firstPort, err := net.SplitHostPort(first)
+	if err != nil {
+		return first == second
+	}
+
+	secondHost, secondPort, err := net.SplitHostPort(second)
+	if err != nil || firstPort != secondPort {
+		return false
+	}
+
+	return firstHost == secondHost || bindsEveryInterface(firstHost) || bindsEveryInterface(secondHost)
+}
+
+// bindsEveryInterface reports whether host, from a listen address, means
+// every interface rather than one.
+func bindsEveryInterface(host string) bool {
+	if host == "" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsUnspecified()
 }
 
 // validateHookScope checks the webhook strategy, so an unknown value is

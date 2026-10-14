@@ -27,7 +27,7 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | --- | --- | --- | --- |
 | `--database-dsn` | `DATABASE_DSN` | `sqlite:///var/lib/gitlab-achievements/data.db` | Where state is kept, see [Databases](#databases) |
 | `--listen-addr` | `LISTEN_ADDR` | `:8080` | Address the HTTP server binds to |
-| `--metrics-addr` | `METRICS_ADDR` | `:9090` | Address Prometheus metrics are served on, apart from `--listen-addr`. `off` serves none. See [Metrics](metrics.md) |
+| `--metrics-addr` | `METRICS_ADDR` | `:9464` | Address Prometheus metrics are served on, apart from `--listen-addr`. `off` serves none. See [Metrics](metrics.md) |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--hook-scope` | `HOOK_SCOPE` | `auto` | `auto`, `group`, `project`, see [Webhooks](webhooks.md#which-kind-and-why) |
 | `--hook-rate` | `HOOK_RATE` | `20` | Groups or projects per second the hourly registration sweep works through |

@@ -501,7 +501,6 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 	srv.Mount(api.OAuthPathPrefix, readAPI.Handler())
 
 	srv.SetReady(true)
-	metrics.SetReady(true)
 
 	return &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -629,16 +628,6 @@ func drainQueue(queue *webhook.Queue) {
 	)
 }
 
-// tracked wraps a background task so each run is counted, timed, and its
-// last success recorded under name in the job metrics.
-func tracked(name string, task func(context.Context) error) func(context.Context) error {
-	return func(ctx context.Context) error {
-		return metrics.Job(name, func() error {
-			return task(ctx)
-		})
-	}
-}
-
 // startSessionPruning launches the sweep that clears expired browser
 // sessions from the database, stopping when ctx is cancelled.
 //
@@ -651,7 +640,7 @@ func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.A
 		return
 	}
 
-	go scheduler.Every(ctx, api.PruneInterval, tracked("session_prune", func(ctx context.Context) error {
+	go scheduler.Every(ctx, api.PruneInterval, metrics.Job("session_prune", func(ctx context.Context) error {
 		pruned, err := readAPI.PruneSessions(ctx)
 		if err != nil {
 			return fmt.Errorf("session pruning failed: %w", err)
@@ -682,7 +671,7 @@ func startReconciliationLoops(
 	namespaceID int64,
 	webhookURL string,
 ) {
-	go scheduler.Every(ctx, webhookReconcileInterval, tracked("webhook_reconcile", func(ctx context.Context) error {
+	go scheduler.Every(ctx, webhookReconcileInterval, metrics.Job("webhook_reconcile", func(ctx context.Context) error {
 		hooks, err := bootstrap.ReconcileWebhooks(ctx, readClient, writeClient, conn, cfg, webhookURL)
 		if err != nil {
 			return fmt.Errorf("webhook reconciliation failed: %w", err)
@@ -700,7 +689,7 @@ func startReconciliationLoops(
 		zap.L().Error("webhook reconciliation failed", zap.Error(err))
 	})
 
-	go scheduler.Every(ctx, achievementReconcileInterval, tracked("achievement_reconcile", func(ctx context.Context) error {
+	go scheduler.Every(ctx, achievementReconcileInterval, metrics.Job("achievement_reconcile", func(ctx context.Context) error {
 		hourly, err := bootstrap.RunHourlyReconciliation(ctx, writeClient, conn, namespaceID, cfg.AchievementsNamespace)
 		if err != nil {
 			return fmt.Errorf("achievement reconciliation failed: %w", err)
