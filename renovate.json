@@ -40,5 +40,20 @@
   ],
   "postUpdateOptions": [
     "gomodTidy"
+  ],
+  "packageRules": [
+    {
+      "description": "The chart's image is this repository's own build, versioned through Chart.yaml's appVersion. Renovate's digest pinning wrote '@sha256:...' into image.tag (#28), which renders an invalid image reference and an invalid version label.",
+      "matchManagers": [
+        "helm-values"
+      ],
+      "matchFileNames": [
+        "chart/values.yaml"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/boxboxjason/gitlab-achievements"
+      ],
+      "enabled": false
+    }
   ]
 }

@@ -26,7 +26,8 @@ A minimal `values.yaml`:
 
 ```yaml
 image:
-  tag: "0.2.0"          # pin a release rather than tracking latest
+  tag: "0.3.0"          # pin a release rather than tracking latest
+  # digest: sha256:...  # optional; renders repository:tag@digest
 
 config:
   gitlabUrl: https://gitlab.example.com

@@ -44,7 +44,7 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       containers:
         - name: gitlab-achievements
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "gitlab-achievements.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

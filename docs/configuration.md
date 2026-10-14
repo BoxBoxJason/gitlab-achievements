@@ -64,6 +64,8 @@ The DBMS is picked from the DSN's scheme:
 
 SQLite is the default: nothing to stand up alongside the app, at the cost of being a single file rather than a service, so it belongs on backed-up storage rather than in a container that will be replaced (see the [Helm chart](deployment/kubernetes.md#the-database)'s PVC for the Kubernetes case). PostgreSQL, MySQL, and SQL Server are the scale-up path once one process and one file stop being enough, or where operational convention already points at a managed database.
 
+SQLite is opened with `busy_timeout(10000)`, `journal_mode(WAL)` and `_txlock=immediate` unless the DSN sets them itself. The app always has several writers at once (the webhook workers, the backfill, the sweeps), and without these SQLite answers contention with `SQLITE_BUSY` rather than a wait. Override any of them in the DSN's query string, e.g. `sqlite:///data/data.db?_pragma=journal_mode(DELETE)` on a filesystem that cannot hold WAL's shared-memory file (some network filesystems). The SQLite driver stops reading the query string at `_time_format`, so a DSN that sets it loses `_txlock` whether the app added it or you did.
+
 Migrations run at startup against whichever you pick. The schema is created on first start, so an empty database is all that has to exist.
 
 ## Tuning notes

@@ -5,8 +5,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/boxboxjason/gitlab-achievements/internal/api"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
+	"github.com/boxboxjason/gitlab-achievements/internal/db"
 )
 
 func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
@@ -163,5 +166,33 @@ func TestVersionInfo(t *testing.T) {
 
 	if !strings.Contains(info, "go:") {
 		t.Errorf("expected version info to mention the go runtime version, got: %q", info)
+	}
+}
+
+func TestNewHTTPServer_BoundsEveryPhaseOfAConnection(t *testing.T) {
+	conn, err := db.Open("sqlite://:memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+
+	sqlDB, err := conn.DB()
+	if err != nil {
+		t.Fatalf("failed to access the underlying connection: %v", err)
+	}
+
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	cfg := &config.Config{ListenAddr: ":0"}
+	srv := newHTTPServer(cfg, nil, nil, http.NotFoundHandler(), api.New(conn, api.Options{}))
+
+	for name, timeout := range map[string]time.Duration{
+		"ReadHeaderTimeout": srv.ReadHeaderTimeout,
+		"ReadTimeout":       srv.ReadTimeout,
+		"WriteTimeout":      srv.WriteTimeout,
+		"IdleTimeout":       srv.IdleTimeout,
+	} {
+		if timeout <= 0 {
+			t.Errorf("expected %s to be set, got %v", name, timeout)
+		}
 	}
 }

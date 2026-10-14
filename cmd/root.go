@@ -41,6 +41,22 @@ const (
 	// readHeaderTimeout bounds how long the server waits to read request
 	// headers, mitigating slow-loris style connections.
 	readHeaderTimeout = 5 * time.Second
+	// readTimeout bounds how long the server waits for a whole request,
+	// body included. ReadHeaderTimeout alone leaves the body unbounded, and
+	// a webhook body may be up to 10 MiB, so a client dripping one a byte
+	// at a time would otherwise hold its goroutine for as long as it liked.
+	// It is generous for anything legitimate: GitLab sends a full delivery
+	// in well under a second.
+	readTimeout = 30 * time.Second
+	// writeTimeout bounds how long a response may take to write, measured
+	// from the end of the request headers. The slowest handler is the OAuth
+	// callback, which makes two GitLab calls bounded at 10 seconds each, so
+	// this leaves it room while still cutting off a client that stops
+	// reading.
+	writeTimeout = 30 * time.Second
+	// idleTimeout bounds how long a keep-alive connection may sit unused
+	// before the server closes it.
+	idleTimeout = 2 * time.Minute
 	// webhookReconcileInterval sets how often the event ingestion hooks are
 	// re-checked, repaired if they were altered or deleted, and registered
 	// on groups and projects created since the last sweep.
@@ -424,6 +440,9 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 		Addr:              cfg.ListenAddr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 }
 
