@@ -202,7 +202,7 @@ func (s *store) Leaderboard(ctx context.Context, limit int) (*Leaderboard, error
 	// rendering of the GitLabUserID field, and SQLite is the only one of the
 	// four supported DBMSs that would reject the wrong spelling loudly.
 	err := s.conn.WithContext(ctx).
-		Where("excluded_reason = ?", "").
+		Scopes(db.Participating).
 		Order("exp_total DESC, git_lab_user_id ASC").
 		Limit(limit).
 		Find(&users).Error
@@ -275,7 +275,7 @@ func (s *store) lookup(ctx context.Context, ref string) (*db.User, error) {
 func (s *store) first(txn *gorm.DB, where *db.User) (*db.User, error) {
 	var user db.User
 
-	err := txn.Where(where).Where("excluded_reason = ?", "").First(&user).Error
+	err := txn.Where(where).Scopes(db.Participating).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil //nolint:nilnil // a miss is not an error here, see the doc comment
 	}

@@ -104,6 +104,14 @@ func runReconcile(cfg *config.Config) error {
 		return fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
+	// The serving process applies the exclusion settings at its start; a
+	// one-off run has to as well, or the awards it delivers would reach a
+	// user listed since the server last started.
+	_, err = applyExclusions(ctx, cfg, conn, nil)
+	if err != nil {
+		return err
+	}
+
 	return executeReconcile(ctx, cfg, conn, writeClient)
 }
 

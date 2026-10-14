@@ -119,6 +119,10 @@ func buildRootCmd(cfg *config.Config) *cobra.Command {
 		// Execute prints the error itself, with the same treatment for
 		// every subcommand; letting cobra print it too only duplicates it.
 		SilenceErrors: true,
+		// Inherited by every subcommand, none of which defines its own.
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return checkBoolEnv()
+		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return run(cfg)
 		},
@@ -159,10 +163,10 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.DurationVar(&cfg.ReconcileLookback, "reconcile-lookback", envDurationOrDefault("RECONCILE_LOOKBACK", config.DefaultReconcileLookback), "How far back each reconciliation pass reaches; must exceed --reconcile-interval so passes overlap")
 	flags.StringVar(&cfg.APIAuth, "api-auth", envOrDefault("API_AUTH", string(config.DefaultAPIAuth)), "What the read API requires of callers (none, gitlab); gitlab verifies a GitLab token on every request")
 	flags.StringVar(&cfg.OAuthClientID, "oauth-client-id", os.Getenv("OAUTH_CLIENT_ID"), "Client ID of a hand-registered GitLab OAuth application; empty lets the app register a public one for itself")
-	flags.BoolVar(&cfg.ExcludeBots, "exclude-bots", envBoolOrDefault("EXCLUDE_BOTS", true), "Leave out accounts GitLab flags as bots: access token users, service accounts, GitLab's own bots")
+	flags.BoolVar(&cfg.ExcludeBots, "exclude-bots", envBoolOrDefault(envExcludeBots, true), "Leave out accounts GitLab flags as bots: access token users, service accounts, GitLab's own bots")
 	flags.StringSliceVar(&cfg.ExcludeUsers, "exclude-users", envListOrDefault("EXCLUDE_USERS"), "Usernames or GitLab user IDs to leave out of achievements, comma-separated")
 	flags.StringVar(&cfg.ExcludeUsernamePattern, "exclude-username-pattern", os.Getenv("EXCLUDE_USERNAME_PATTERN"), "Regular expression (RE2); users whose username matches are left out of achievements")
-	flags.BoolVar(&cfg.AllowOptOut, "allow-opt-out", envBoolOrDefault("ALLOW_OPT_OUT", true), "Let users leave themselves out through the API (needs --api-auth gitlab)")
+	flags.BoolVar(&cfg.AllowOptOut, "allow-opt-out", envBoolOrDefault(envAllowOptOut, true), "Let users leave themselves out through the API (needs --api-auth gitlab)")
 	secretFlag(flags, &cfg.OAuthClientSecret, "oauth-client-secret", "OAUTH_CLIENT_SECRET", "Client secret for --oauth-client-id, making it a confidential client; empty means PKCE alone")
 }
 
@@ -207,8 +211,16 @@ func envFloatOrDefault(key string, fallback float64) float64 {
 	return parsed
 }
 
+// The boolean environment variables, named once so that checkBoolEnv
+// covers every one envBoolOrDefault reads.
+const (
+	envExcludeBots = "EXCLUDE_BOTS"
+	envAllowOptOut = "ALLOW_OPT_OUT"
+)
+
 // envBoolOrDefault returns the environment variable key parsed as a
-// boolean, or fallback when it is unset or unparsable.
+// boolean, or fallback when it is unset or unparsable. An unparsable value
+// is reported by checkBoolEnv before anything runs.
 func envBoolOrDefault(key string, fallback bool) bool {
 	parsed, err := strconv.ParseBool(os.Getenv(key))
 	if err != nil {
@@ -216,6 +228,30 @@ func envBoolOrDefault(key string, fallback bool) bool {
 	}
 
 	return parsed
+}
+
+// checkBoolEnv rejects a boolean environment variable that is set but not a
+// boolean strconv.ParseBool accepts.
+//
+// Unlike a bad number or duration, a bad boolean has no invalid value for
+// Validate to catch: envBoolOrDefault falls back to the default, so
+// ALLOW_OPT_OUT=no would quietly leave opting out on.
+func checkBoolEnv() error {
+	var errs []error
+
+	for _, key := range []string{envExcludeBots, envAllowOptOut} {
+		value := os.Getenv(key)
+		if value == "" {
+			continue
+		}
+
+		_, err := strconv.ParseBool(value)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q is not a boolean, use true or false", key, value))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // envListOrDefault returns the environment variable key split on commas,

@@ -289,3 +289,19 @@ func TestBuildRootCmd_ExclusionsFromEnvironment(t *testing.T) {
 		t.Errorf("expected the list to be split and trimmed, got %q", cfg.ExcludeUsers)
 	}
 }
+
+func TestCheckBoolEnv_RejectsNonBoolean(t *testing.T) {
+	t.Setenv("ALLOW_OPT_OUT", "no")
+
+	err := checkBoolEnv()
+	if err == nil || !strings.Contains(err.Error(), "ALLOW_OPT_OUT") {
+		t.Fatalf("expected ALLOW_OPT_OUT=no to be rejected, got %v", err)
+	}
+
+	t.Setenv("ALLOW_OPT_OUT", "false")
+
+	err = checkBoolEnv()
+	if err != nil {
+		t.Fatalf("expected a valid boolean to pass, got %v", err)
+	}
+}

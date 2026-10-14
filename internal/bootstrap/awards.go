@@ -100,7 +100,7 @@ func usersWithAwards(conn *gorm.DB) ([]int64, error) {
 	// Excluded users are left out: nothing further is pushed to GitLab for
 	// a bot or for somebody who opted out, though what they already hold
 	// stays theirs (see the exclusion package).
-	participating := conn.Model(&db.User{}).Select("id").Where("excluded_reason = ?", "")
+	participating := db.Participating(conn.Model(&db.User{}).Select("id"))
 
 	err := conn.Model(&db.Award{}).
 		Where("user_id IN (?)", participating).

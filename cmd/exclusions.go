@@ -30,12 +30,13 @@ func buildExclusionFilter(cfg *config.Config, conn *gorm.DB, lookup exclusion.Bo
 	return exclusion.NewFilter(conn, policy, lookup, allowOptOut), nil
 }
 
-// applyExclusions builds the serving process's filter and re-decides every
-// tracked user against it before anything is served, so a user the
-// operator just excluded is already off the leaderboard by the time it
-// answers.
-func applyExclusions(ctx context.Context, cfg *config.Config, conn *gorm.DB, readClient *gitlabclient.ReadClient) (*exclusion.Filter, error) {
-	filter, err := buildExclusionFilter(cfg, conn, readClient)
+// applyExclusions builds a filter and re-decides every tracked user against
+// it, so a user the operator just excluded is already off the leaderboard
+// by the time the server answers, and has nothing pushed to GitLab by a
+// one-off backfill or reconcile run's award delivery. lookup may be nil:
+// re-deciding asks GitLab nothing.
+func applyExclusions(ctx context.Context, cfg *config.Config, conn *gorm.DB, lookup exclusion.BotLookup) (*exclusion.Filter, error) {
+	filter, err := buildExclusionFilter(cfg, conn, lookup)
 	if err != nil {
 		return nil, err
 	}

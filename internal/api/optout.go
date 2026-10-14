@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/exclusion"
+	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
 
 // OptOutPath is where a user reads and changes their own opt-out.
@@ -20,7 +21,7 @@ type Exclusions interface {
 	AllowsOptOut() bool
 	OptOut(ctx context.Context, gitlabUserID int64, username string) error
 	OptIn(ctx context.Context, gitlabUserID int64, username string) error
-	Status(ctx context.Context, gitlabUserID int64) (exclusion.Reason, *time.Time, error)
+	Status(ctx context.Context, gitlabUserID int64, username string) (exclusion.Reason, *time.Time, error)
 }
 
 // OptOutStatus is the caller's own participation, as the opt-out endpoints
@@ -55,7 +56,7 @@ func (a *API) handleOptOutStatus(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	a.writeOptOutStatus(resp, req, identity.ID)
+	a.writeOptOutStatus(resp, req, identity)
 }
 
 func (a *API) handleOptOut(resp http.ResponseWriter, req *http.Request) {
@@ -78,7 +79,7 @@ func (a *API) handleOptOut(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	zap.L().Info("user opted out of achievements", zap.Int64("gitlab_user_id", identity.ID))
-	a.writeOptOutStatus(resp, req, identity.ID)
+	a.writeOptOutStatus(resp, req, identity)
 }
 
 func (a *API) handleOptIn(resp http.ResponseWriter, req *http.Request) {
@@ -95,7 +96,7 @@ func (a *API) handleOptIn(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	zap.L().Info("user opted back in to achievements", zap.Int64("gitlab_user_id", identity.ID))
-	a.writeOptOutStatus(resp, req, identity.ID)
+	a.writeOptOutStatus(resp, req, identity)
 }
 
 // optOutCaller resolves who is asking, answering the request itself when
@@ -105,7 +106,7 @@ func (a *API) handleOptIn(resp http.ResponseWriter, req *http.Request) {
 // report themselves unavailable rather than pretend: an operator wanting
 // opt-out on an unauthenticated deployment lists the user in
 // EXCLUDE_USERS instead.
-func (a *API) optOutCaller(resp http.ResponseWriter, req *http.Request) (*callerIdentity, bool) {
+func (a *API) optOutCaller(resp http.ResponseWriter, req *http.Request) (*gitlabclient.Identity, bool) {
 	if a.exclusions == nil {
 		writeError(resp, http.StatusNotFound, "opting out is not available on this instance")
 
@@ -119,18 +120,12 @@ func (a *API) optOutCaller(resp http.ResponseWriter, req *http.Request) (*caller
 		return nil, false
 	}
 
-	return &callerIdentity{ID: identity.ID, Username: identity.Username}, true
-}
-
-// callerIdentity is the part of a GitLab identity the opt-out acts on.
-type callerIdentity struct {
-	Username string
-	ID       int64
+	return identity, true
 }
 
 // writeOptOutStatus answers with the caller's current participation.
-func (a *API) writeOptOutStatus(resp http.ResponseWriter, req *http.Request, gitlabUserID int64) {
-	reason, optedOutAt, err := a.exclusions.Status(req.Context(), gitlabUserID)
+func (a *API) writeOptOutStatus(resp http.ResponseWriter, req *http.Request, identity *gitlabclient.Identity) {
+	reason, optedOutAt, err := a.exclusions.Status(req.Context(), identity.ID, identity.Username)
 	if err != nil {
 		a.fail(resp, req, err)
 

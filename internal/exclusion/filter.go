@@ -78,7 +78,7 @@ func (f *Filter) Check(ctx context.Context, gitlabUserID int64, username string)
 		}
 	}
 
-	if f.needsLookup(user) {
+	if f.needsLookup(user, subject) {
 		isBot, lookupErr := f.lookup.IsBot(ctx, gitlabUserID)
 		if lookupErr != nil {
 			zap.L().Debug("could not ask gitlab whether a user is a bot, deciding by username for now",
@@ -171,23 +171,40 @@ func (f *Filter) OptIn(ctx context.Context, gitlabUserID int64, username string)
 }
 
 // Status reports the recorded decision for gitlabUserID, and whether they
-// have opted out. A user this app has never seen is Included.
-func (f *Filter) Status(ctx context.Context, gitlabUserID int64) (Reason, *time.Time, error) {
+// have opted out. A user this app has never seen is judged by the policy on
+// what is known of them, so an account the operator listed is reported
+// excluded before its first activity, as it will be once that arrives.
+func (f *Filter) Status(ctx context.Context, gitlabUserID int64, username string) (Reason, *time.Time, error) {
 	user, err := f.load(ctx, gitlabUserID)
-	if err != nil || user == nil {
+	if err != nil {
 		return Included, nil, err
+	}
+
+	if user == nil {
+		return f.policy.Decide(Subject{ID: gitlabUserID, Username: username}), nil, nil
 	}
 
 	return Reason(user.ExcludedReason), user.OptedOutAt, nil
 }
 
 // needsLookup reports whether GitLab should be asked about user.
-func (f *Filter) needsLookup(user *db.User) bool {
+//
+// A user already left out for a reason that outranks being a bot (their
+// own opt-out, the operator's list) is not asked about: GitLab's answer
+// could not change the decision, and the lookup is made again should that
+// reason ever lift.
+func (f *Filter) needsLookup(user *db.User, subject Subject) bool {
 	if !f.policy.ExcludeBots || f.lookup == nil {
 		return false
 	}
 
-	return user == nil || user.BotCheckedAt == nil
+	if user != nil && user.BotCheckedAt != nil {
+		return false
+	}
+
+	reason := f.policy.Decide(subject)
+
+	return reason != OptedOut && reason != Configured
 }
 
 // setOptOut writes optedOutAt and the decision that follows from it.
@@ -195,9 +212,21 @@ func (f *Filter) setOptOut(ctx context.Context, gitlabUserID int64, username str
 	err := f.conn.WithContext(ctx).Transaction(func(txn *gorm.DB) error {
 		user := db.User{GitLabUserID: gitlabUserID, Username: username}
 
-		err := txn.Where(&db.User{GitLabUserID: gitlabUserID}).
-			Attrs(&db.User{Username: username}).
-			FirstOrCreate(&user).Error
+		// Opting back in creates nobody: a user this app has never seen is
+		// already taking part, and a row made here would put them on the
+		// leaderboard and in the API before they had done anything.
+		query := txn.Where(&db.User{GitLabUserID: gitlabUserID})
+
+		var err error
+		if optedOutAt == nil {
+			err = query.First(&user).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+		} else {
+			err = query.Attrs(&db.User{Username: username}).FirstOrCreate(&user).Error
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to resolve user %d: %w", gitlabUserID, err)
 		}
@@ -234,6 +263,8 @@ func (f *Filter) record(ctx context.Context, user *db.User, subject Subject, rea
 			return nil
 		}
 
+		var row db.User
+
 		err := f.conn.WithContext(ctx).
 			Where(&db.User{GitLabUserID: subject.ID}).
 			Attrs(&db.User{
@@ -242,25 +273,19 @@ func (f *Filter) record(ctx context.Context, user *db.User, subject Subject, rea
 				IsBot:          subject.IsBot,
 				BotCheckedAt:   checkedAt,
 			}).
-			FirstOrCreate(&db.User{}).Error
+			FirstOrCreate(&row).Error
 		if err != nil {
 			return fmt.Errorf("failed to record exclusion for user %d: %w", subject.ID, err)
 		}
 
-		return nil
+		// Another worker may have created the row since it was loaded (the
+		// engine, on a concurrent activity from the same account), in which
+		// case Attrs was not applied and the decision still has to be
+		// written over what that worker stored.
+		user = &row
 	}
 
-	updates := map[string]any{}
-
-	if Reason(user.ExcludedReason) != reason {
-		updates["excluded_reason"] = string(reason)
-	}
-
-	if checkedAt != nil {
-		updates["is_bot"] = subject.IsBot
-		updates["bot_checked_at"] = checkedAt
-	}
-
+	updates := pendingUpdates(user, subject, reason, checkedAt)
 	if len(updates) == 0 {
 		return nil
 	}
@@ -271,6 +296,23 @@ func (f *Filter) record(ctx context.Context, user *db.User, subject Subject, rea
 	}
 
 	return nil
+}
+
+// pendingUpdates lists the columns of user's row a decision by Check
+// changes.
+func pendingUpdates(user *db.User, subject Subject, reason Reason, checkedAt *time.Time) map[string]any {
+	updates := map[string]any{}
+
+	if Reason(user.ExcludedReason) != reason {
+		updates["excluded_reason"] = string(reason)
+	}
+
+	if checkedAt != nil && (user.BotCheckedAt == nil || user.IsBot != subject.IsBot) {
+		updates["is_bot"] = subject.IsBot
+		updates["bot_checked_at"] = checkedAt
+	}
+
+	return updates
 }
 
 // setReason writes one user's decision.

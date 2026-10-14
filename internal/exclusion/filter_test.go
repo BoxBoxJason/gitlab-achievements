@@ -202,7 +202,7 @@ func TestFilter_OptOutAndBackIn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	reason, optedOutAt, err := filter.Status(t.Context(), 21)
+	reason, optedOutAt, err := filter.Status(t.Context(), 21, "dana")
 	if err != nil || reason != exclusion.OptedOut || optedOutAt == nil {
 		t.Fatalf("expected dana to be opted out, got %q at %v (%v)", reason, optedOutAt, err)
 	}
@@ -217,7 +217,7 @@ func TestFilter_OptOutAndBackIn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	reason, optedOutAt, err = filter.Status(t.Context(), 21)
+	reason, optedOutAt, err = filter.Status(t.Context(), 21, "dana")
 	if err != nil || reason != exclusion.Included || optedOutAt != nil {
 		t.Fatalf("expected dana to take part again, got %q at %v (%v)", reason, optedOutAt, err)
 	}
@@ -235,5 +235,43 @@ func TestFilter_OptOutDisabled(t *testing.T) {
 	err = filter.OptIn(t.Context(), 21, "dana")
 	if err != nil {
 		t.Fatalf("expected opting back in to stay available, got %v", err)
+	}
+}
+
+func TestFilter_OptInCreatesNobody(t *testing.T) {
+	conn := openDB(t)
+	filter := exclusion.NewFilter(conn, mustPolicy(t, true, nil, ""), nil, true)
+
+	err := filter.OptIn(t.Context(), 21, "dana")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var count int64
+
+	err = conn.Model(&db.User{}).Count(&count).Error
+	if err != nil || count != 0 {
+		t.Fatalf("expected opting in an unseen user to record nothing, got %d rows (%v)", count, err)
+	}
+}
+
+func TestFilter_StatusOfUnseenListedUser(t *testing.T) {
+	conn := openDB(t)
+	filter := exclusion.NewFilter(conn, mustPolicy(t, true, []string{"renovate"}, ""), nil, true)
+
+	reason, optedOutAt, err := filter.Status(t.Context(), 21, "renovate")
+	if err != nil || reason != exclusion.Configured || optedOutAt != nil {
+		t.Fatalf("expected an unseen listed user to be reported excluded, got %q at %v (%v)", reason, optedOutAt, err)
+	}
+}
+
+func TestFilter_CheckSkipsLookupForListedUser(t *testing.T) {
+	conn := openDB(t)
+	lookup := &fakeLookup{}
+	filter := exclusion.NewFilter(conn, mustPolicy(t, true, []string{"renovate"}, ""), lookup, true)
+
+	reason, err := filter.Check(t.Context(), 21, "renovate")
+	if err != nil || reason != exclusion.Configured || lookup.calls != 0 {
+		t.Fatalf("expected a listed user to be excluded without asking gitlab, got %q after %d lookups (%v)", reason, lookup.calls, err)
 	}
 }

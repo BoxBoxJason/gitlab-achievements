@@ -181,3 +181,11 @@ func Migrate(conn *gorm.DB) error {
 
 	return nil
 }
+
+// Participating narrows a query on users to those taking part in
+// achievements, leaving out everyone with an ExcludedReason (see the
+// exclusion package). Use it as a scope, conn.Scopes(db.Participating), or
+// call it directly on a query built as a subquery.
+func Participating(query *gorm.DB) *gorm.DB {
+	return query.Where("excluded_reason = ?", "")
+}
