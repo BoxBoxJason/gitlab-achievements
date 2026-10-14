@@ -19,6 +19,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/engine"
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 	"github.com/boxboxjason/gitlab-achievements/internal/reconcile"
 	"github.com/boxboxjason/gitlab-achievements/internal/scheduler"
 )
@@ -135,9 +136,9 @@ func startReconcileLoop(ctx context.Context, cfg *config.Config, conn *gorm.DB, 
 		zap.Duration("first_pass_in", delay),
 	)
 
-	pass := func(ctx context.Context) error {
+	pass := metrics.Job("activity_reconcile", func(ctx context.Context) error {
 		return executeReconcile(ctx, cfg, conn, writeClient)
-	}
+	})
 
 	onError := func(err error) {
 		zap.L().Error("activity reconciliation failed, the next pass covers the same window", zap.Error(err))

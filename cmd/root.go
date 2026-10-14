@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,6 +27,7 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 	"github.com/boxboxjason/gitlab-achievements/internal/scheduler"
 	"github.com/boxboxjason/gitlab-achievements/internal/webhook"
 
@@ -143,6 +145,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	secretFlag(flags, &cfg.WebhookSecret, "webhook-secret", "WEBHOOK_SECRET", "Secret token used to validate incoming GitLab webhook deliveries")
 	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register its GitLab webhooks")
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
+	flags.StringVar(&cfg.MetricsAddr, "metrics-addr", envOrDefault("METRICS_ADDR", config.DefaultMetricsAddr), "Address Prometheus metrics are served on, apart from --listen-addr; \"off\" serves none")
 	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
 	flags.StringVar(&cfg.HookScope, "hook-scope", envOrDefault("HOOK_SCOPE", string(config.DefaultHookScope)), "Which webhooks to register for event ingestion (auto, group, project); auto picks group hooks where the license allows them")
 	flags.Float64Var(&cfg.HookRate, "hook-rate", envFloatOrDefault("HOOK_RATE", config.DefaultHookRate), "Groups or projects per second the webhook registration sweep works through")
@@ -233,6 +236,18 @@ func run(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	metrics.SetBuildInfo(resolveVersion())
+
+	// Started before bootstrap rather than alongside the main server, so a
+	// first start that spends minutes registering hooks is already
+	// observable, reporting itself not ready, instead of silent.
+	stopMetrics, err := startMetricsServer(cfg)
+	if err != nil {
+		return err
+	}
+
+	defer stopMetrics()
+
 	conn, sqlDB, err := openDatabase(cfg)
 	if err != nil {
 		return err
@@ -268,6 +283,57 @@ func run(cfg *config.Config) error {
 	)
 
 	return serve(ctx, cfg, conn, sqlDB, readClient, writeClient, report, webhookURL, liveFrom)
+}
+
+// startMetricsServer serves Prometheus metrics on cfg.MetricsAddr, returning
+// a function that stops it.
+//
+// The address is bound here, synchronously, so a port already in use fails
+// the start with an error naming it instead of leaving the app running
+// without the metrics it was configured to serve. Once bound, a later
+// failure only loses the metrics and is logged rather than taking the
+// awarder down with it.
+func startMetricsServer(cfg *config.Config) (func(), error) {
+	if !cfg.MetricsEnabled() {
+		zap.L().Info("metrics disabled")
+
+		return func() {}, nil
+	}
+
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", cfg.MetricsAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen for metrics on %q: %w", cfg.MetricsAddr, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
+
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
+	go func() {
+		zap.L().Info("serving metrics", zap.String("addr", listener.Addr().String()))
+
+		serveErr := srv.Serve(listener)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			zap.L().Error("metrics server stopped", zap.Error(serveErr))
+		}
+	}()
+
+	return func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		shutdownErr := srv.Shutdown(shutdownCtx)
+		if shutdownErr != nil {
+			zap.L().Warn("failed to shut down metrics server gracefully", zap.Error(shutdownErr))
+		}
+	}, nil
 }
 
 // openDatabase connects to the database, verifies the connection, and
@@ -438,7 +504,7 @@ func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.R
 
 	return &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           srv.Handler(),
+		Handler:           metrics.Middleware(srv.Handler()),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -574,7 +640,7 @@ func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.A
 		return
 	}
 
-	go scheduler.Every(ctx, api.PruneInterval, func(ctx context.Context) error {
+	go scheduler.Every(ctx, api.PruneInterval, metrics.Job("session_prune", func(ctx context.Context) error {
 		pruned, err := readAPI.PruneSessions(ctx)
 		if err != nil {
 			return fmt.Errorf("session pruning failed: %w", err)
@@ -585,7 +651,7 @@ func startSessionPruning(ctx context.Context, cfg *config.Config, readAPI *api.A
 		}
 
 		return nil
-	}, func(err error) {
+	}), func(err error) {
 		zap.L().Error("session pruning failed", zap.Error(err))
 	})
 }
@@ -605,7 +671,7 @@ func startReconciliationLoops(
 	namespaceID int64,
 	webhookURL string,
 ) {
-	go scheduler.Every(ctx, webhookReconcileInterval, func(ctx context.Context) error {
+	go scheduler.Every(ctx, webhookReconcileInterval, metrics.Job("webhook_reconcile", func(ctx context.Context) error {
 		hooks, err := bootstrap.ReconcileWebhooks(ctx, readClient, writeClient, conn, cfg, webhookURL)
 		if err != nil {
 			return fmt.Errorf("webhook reconciliation failed: %w", err)
@@ -619,11 +685,11 @@ func startReconciliationLoops(
 		)
 
 		return nil
-	}, func(err error) {
+	}), func(err error) {
 		zap.L().Error("webhook reconciliation failed", zap.Error(err))
 	})
 
-	go scheduler.Every(ctx, achievementReconcileInterval, func(ctx context.Context) error {
+	go scheduler.Every(ctx, achievementReconcileInterval, metrics.Job("achievement_reconcile", func(ctx context.Context) error {
 		hourly, err := bootstrap.RunHourlyReconciliation(ctx, writeClient, conn, namespaceID, cfg.AchievementsNamespace)
 		if err != nil {
 			return fmt.Errorf("achievement reconciliation failed: %w", err)
@@ -642,7 +708,7 @@ func startReconciliationLoops(
 		)
 
 		return nil
-	}, func(err error) {
+	}), func(err error) {
 		zap.L().Error("achievement reconciliation failed", zap.Error(err))
 	})
 }

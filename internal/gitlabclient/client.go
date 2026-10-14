@@ -25,8 +25,12 @@ package gitlabclient
 
 import (
 	"fmt"
+	"net/http"
 
+	"github.com/hashicorp/go-cleanhttp"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // ReadClient talks to GitLab using a read_api-scoped token.
@@ -42,7 +46,7 @@ type WriteClient struct {
 // NewReadClient builds a ReadClient for the GitLab instance at baseURL,
 // authenticating with token.
 func NewReadClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*ReadClient, error) {
-	raw, err := newRawClient(baseURL, token, opts...)
+	raw, err := newRawClient(baseURL, token, "read", opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build gitlab read client: %w", err)
 	}
@@ -53,7 +57,7 @@ func NewReadClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*Rea
 // NewWriteClient builds a WriteClient for the GitLab instance at baseURL,
 // authenticating with token.
 func NewWriteClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*WriteClient, error) {
-	raw, err := newRawClient(baseURL, token, opts...)
+	raw, err := newRawClient(baseURL, token, "write", opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
@@ -61,9 +65,20 @@ func NewWriteClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*Wr
 	return &WriteClient{raw: raw}, nil
 }
 
-func newRawClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*gitlab.Client, error) {
-	allOpts := make([]gitlab.ClientOptionFunc, 0, len(opts)+1)
-	allOpts = append(allOpts, gitlab.WithBaseURL(baseURL))
+// newRawClient builds the underlying client, its requests counted under
+// name in the GitLab request metrics.
+//
+// The instrumented HTTP client goes first, so a caller passing its own with
+// gitlab.WithHTTPClient (tests do) still replaces it. It is the same pooled
+// client the library would otherwise build for itself, wrapped.
+func newRawClient(baseURL, token, name string, opts ...gitlab.ClientOptionFunc) (*gitlab.Client, error) {
+	defaults := []gitlab.ClientOptionFunc{
+		gitlab.WithHTTPClient(&http.Client{Transport: metrics.Transport(name, cleanhttp.DefaultPooledTransport())}),
+		gitlab.WithBaseURL(baseURL),
+	}
+
+	allOpts := make([]gitlab.ClientOptionFunc, 0, len(defaults)+len(opts))
+	allOpts = append(allOpts, defaults...)
 	allOpts = append(allOpts, opts...)
 
 	raw, err := gitlab.NewClient(token, allOpts...)

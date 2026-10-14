@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 // AwardsReport summarizes what ReconcileAwards did.
@@ -54,6 +55,12 @@ type AwardsReport struct {
 // under the next is delivered again rather than left behind.
 func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB) (AwardsReport, error) {
 	var report AwardsReport
+
+	// Recorded however the pass ends: a run cut short still delivered, and
+	// failed, whatever it got through before stopping.
+	defer func() {
+		metrics.AwardDeliveries(report.Confirmed, report.Adopted, report.Superseded, report.Failed)
+	}()
 
 	userIDs, err := usersWithAwards(conn)
 	if err != nil {

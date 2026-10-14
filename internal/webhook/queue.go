@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
+	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
 
 const (
@@ -114,12 +115,16 @@ type QueueStats struct {
 func NewQueue(processor activity.Processor, opts Options) *Queue {
 	opts.applyDefaults()
 
-	return &Queue{
+	queue := &Queue{
 		processor: processor,
 		events:    make(chan activity.Event, opts.Size),
 		done:      make(chan struct{}),
 		opts:      opts,
 	}
+
+	metrics.TrackQueue(func() int { return len(queue.events) }, opts.Size)
+
+	return queue
 }
 
 func (o *Options) applyDefaults() {
@@ -192,7 +197,7 @@ func (q *Queue) Enqueue(ctx context.Context, events []activity.Event) error {
 		// wrong coin to flip here.
 		select {
 		case <-q.done:
-			q.rejected.Add(int64(len(events) - index))
+			q.reject(len(events) - index)
 
 			return ErrShuttingDown
 		default:
@@ -201,16 +206,17 @@ func (q *Queue) Enqueue(ctx context.Context, events []activity.Event) error {
 		select {
 		case q.events <- event:
 			q.accepted.Add(1)
+			metrics.QueueActivities(metrics.QueueAccepted, 1)
 		case <-q.done:
-			q.rejected.Add(int64(len(events) - index))
+			q.reject(len(events) - index)
 
 			return ErrShuttingDown
 		case <-ctx.Done():
-			q.rejected.Add(int64(len(events) - index))
+			q.reject(len(events) - index)
 
 			return fmt.Errorf("delivery abandoned before it could be queued: %w", ctx.Err())
 		case <-timer.C:
-			q.rejected.Add(int64(len(events) - index))
+			q.reject(len(events) - index)
 
 			return ErrQueueFull
 		}
@@ -260,6 +266,12 @@ func (q *Queue) Stats() QueueStats {
 		Rejected:  q.rejected.Load(),
 		Pending:   len(q.events),
 	}
+}
+
+// reject counts n activities refused.
+func (q *Queue) reject(n int) {
+	q.rejected.Add(int64(n))
+	metrics.QueueActivities(metrics.QueueRejected, n)
 }
 
 // stopWorkers ends the workers' context, tolerating a Queue that was never
@@ -312,6 +324,11 @@ func (q *Queue) drain(ctx context.Context) {
 // can be replayed from, rather than dropped silently.
 func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 	backoff := q.opts.RetryBackoff
+	start := time.Now()
+
+	defer func() {
+		metrics.QueueEvaluation(time.Since(start))
+	}()
 
 	var err error
 
@@ -319,6 +336,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 		err = q.processor.Process(ctx, event)
 		if err == nil {
 			q.processed.Add(1)
+			metrics.QueueActivities(metrics.QueueProcessed, 1)
 
 			return
 		}
@@ -345,6 +363,7 @@ func (q *Queue) evaluate(ctx context.Context, event activity.Event) {
 	}
 
 	q.failed.Add(1)
+	metrics.QueueActivities(metrics.QueueFailed, 1)
 	zap.L().Error("dropping activity after repeated evaluation failures, it can be replayed by its dedup key",
 		zap.String("dedup_key", event.DedupKey),
 		zap.String("kind", string(event.Kind)),

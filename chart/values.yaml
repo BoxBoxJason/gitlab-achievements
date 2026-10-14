@@ -121,6 +121,19 @@ service:
   port: 8080
   annotations: {}
 
+# Prometheus metrics, served on a port of their own so the Ingress (which
+# routes to the http port only) never exposes them. See docs/metrics.md.
+metrics:
+  enabled: true
+  port: 9464
+  serviceMonitor:
+    # Requires the Prometheus Operator's CRDs.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels, e.g. the release label your Prometheus selects on.
+    labels: {}
+
 ingress:
   enabled: false
   className: ""
