@@ -79,7 +79,7 @@ config:
     # as it runs out, so this is how often people log in again.
     sessionLifetime: 168h
     # Origins besides publicUrl's a login may send the browser back to,
-    # e.g. a frontend served from its own host.
+    # e.g. a page of your own on another host.
     returnOrigins: []
     #  - https://rankings.example.com
   # Who takes part. See docs/participation.md.
@@ -147,21 +147,6 @@ persistence:
   accessMode: ReadWriteOnce
   # Directory the volume is mounted at. The default SQLite DSN points inside it.
   mountPath: /data
-
-# A static frontend (a rankings page) served at "/" on the same origin as the
-# API, so it can use the login session without any CORS. Its built files are
-# copied out of an image of your own by an init container, which needs a
-# shell and cp. See docs/frontend.md, which also covers serving the frontend
-# separately behind the same Ingress host instead.
-frontend:
-  enabled: false
-  image:
-    repository: ""
-    tag: ""
-    pullPolicy: IfNotPresent
-  # Directory inside that image holding index.html and the built assets.
-  sourcePath: /usr/share/nginx/html
-  resources: {}
 
 service:
   type: ClusterIP

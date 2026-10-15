@@ -1,0 +1,306 @@
+@import 'tailwindcss';
+
+/*
+ * GitLab's own type: GitLab Sans for the interface, GitLab Mono for every
+ * number a person compares (EXP, counts, ranks).
+ */
+@font-face {
+  font-family: 'GitLab Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../../node_modules/@gitlab/fonts/gitlab-sans/GitLabSans.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'GitLab Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../../node_modules/@gitlab/fonts/gitlab-mono/GitLabMono.woff2') format('woff2');
+}
+
+/*
+ * Colors follow GitLab's Pajamas tokens, in light and dark. Components use
+ * the semantic names only, so the two modes stay one stylesheet.
+ */
+:root {
+  --c-bg: #ffffff;
+  --c-bg-subtle: #fbfafd;
+  --c-bg-strong: #ececef;
+  --c-bg-hover: #f6f6f8;
+  --c-sidebar: #f8f8fa;
+  --c-border: #dcdcde;
+  --c-border-subtle: #ececef;
+  --c-border-strong: #bfbfc3;
+  --c-text: #3a383f;
+  --c-text-strong: #28272d;
+  --c-text-subtle: #626168;
+  --c-text-muted: #89888d;
+  --c-link: #1068bf;
+  --c-primary: #1f75cb;
+  --c-primary-hover: #1068bf;
+  --c-focus: #428fdc;
+  --c-success: #217645;
+  --c-success-bg: #ecf4ee;
+  --c-success-strong: #108548;
+  --c-warning: #8f4700;
+  --c-warning-bg: #fdf1dd;
+  --c-danger: #c91c00;
+  --c-danger-bg: #fcf1ef;
+  --c-info: #0b5cad;
+  --c-info-bg: #e9f3fc;
+  --c-tier-off: #dcdcde;
+  --c-skeleton: #ececef;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --c-bg: #18171d;
+    --c-bg-subtle: #1f1e24;
+    --c-bg-strong: #333238;
+    --c-bg-hover: #232228;
+    --c-sidebar: #1f1e24;
+    --c-border: #3a383f;
+    --c-border-subtle: #2b2a30;
+    --c-border-strong: #4c4b51;
+    --c-text: #dcdcde;
+    --c-text-strong: #fbfafd;
+    --c-text-subtle: #bfbfc3;
+    --c-text-muted: #89888d;
+    --c-link: #63a6e9;
+    --c-primary: #1f75cb;
+    --c-primary-hover: #428fdc;
+    --c-focus: #63a6e9;
+    --c-success: #52b87a;
+    --c-success-bg: #0d532a66;
+    --c-success-strong: #2da160;
+    --c-warning: #e9be74;
+    --c-warning-bg: #70380066;
+    --c-danger: #f57f6c;
+    --c-danger-bg: #8d130066;
+    --c-info: #9dc7f1;
+    --c-info-bg: #06478766;
+    --c-tier-off: #3a383f;
+    --c-skeleton: #28272d;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --c-bg: #18171d;
+  --c-bg-subtle: #1f1e24;
+  --c-bg-strong: #333238;
+  --c-bg-hover: #232228;
+  --c-sidebar: #1f1e24;
+  --c-border: #3a383f;
+  --c-border-subtle: #2b2a30;
+  --c-border-strong: #4c4b51;
+  --c-text: #dcdcde;
+  --c-text-strong: #fbfafd;
+  --c-text-subtle: #bfbfc3;
+  --c-text-muted: #89888d;
+  --c-link: #63a6e9;
+  --c-primary: #1f75cb;
+  --c-primary-hover: #428fdc;
+  --c-focus: #63a6e9;
+  --c-success: #52b87a;
+  --c-success-bg: #0d532a66;
+  --c-success-strong: #2da160;
+  --c-warning: #e9be74;
+  --c-warning-bg: #70380066;
+  --c-danger: #f57f6c;
+  --c-danger-bg: #8d130066;
+  --c-info: #9dc7f1;
+  --c-info-bg: #06478766;
+  --c-tier-off: #3a383f;
+  --c-skeleton: #28272d;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+@theme inline {
+  --font-sans: 'GitLab Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'GitLab Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --color-bg: var(--c-bg);
+  --color-bg-subtle: var(--c-bg-subtle);
+  --color-bg-strong: var(--c-bg-strong);
+  --color-bg-hover: var(--c-bg-hover);
+  --color-sidebar: var(--c-sidebar);
+  --color-line: var(--c-border);
+  --color-line-subtle: var(--c-border-subtle);
+  --color-line-strong: var(--c-border-strong);
+  --color-fg: var(--c-text);
+  --color-fg-strong: var(--c-text-strong);
+  --color-fg-subtle: var(--c-text-subtle);
+  --color-fg-muted: var(--c-text-muted);
+  --color-link: var(--c-link);
+  --color-primary: var(--c-primary);
+  --color-primary-hover: var(--c-primary-hover);
+  --color-focus: var(--c-focus);
+  --color-success: var(--c-success);
+  --color-success-bg: var(--c-success-bg);
+  --color-success-strong: var(--c-success-strong);
+  --color-warning: var(--c-warning);
+  --color-warning-bg: var(--c-warning-bg);
+  --color-danger: var(--c-danger);
+  --color-danger-bg: var(--c-danger-bg);
+  --color-info: var(--c-info);
+  --color-info-bg: var(--c-info-bg);
+  --color-tier-off: var(--c-tier-off);
+  --color-skeleton: var(--c-skeleton);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--c-bg);
+    color: var(--c-text);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  a {
+    color: var(--c-link);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  /* GitLab's focus ring: a gap in the page color, then the focus blue. */
+  :focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 1px var(--c-bg),
+      0 0 0 3px var(--c-focus);
+    border-radius: 0.25rem;
+  }
+
+  h1,
+  h2,
+  h3 {
+    color: var(--c-text-strong);
+    font-weight: 600;
+  }
+}
+
+@layer components {
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Pajamas button: 32px tall, a hairline inset border, a quiet hover. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    line-height: 1rem;
+    white-space: nowrap;
+    color: var(--c-text-strong);
+    background: var(--c-bg);
+    box-shadow: inset 0 0 0 1px var(--c-border-strong);
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .btn:hover {
+    background: var(--c-bg-hover);
+    text-decoration: none;
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--c-bg);
+  }
+
+  .btn-confirm {
+    color: #fff;
+    background: var(--c-primary);
+    box-shadow: inset 0 0 0 1px var(--c-primary);
+  }
+
+  .btn-confirm:hover {
+    background: var(--c-primary-hover);
+  }
+
+  .btn-danger {
+    color: var(--c-danger);
+    box-shadow: inset 0 0 0 1px var(--c-danger);
+  }
+
+  .btn-danger:hover {
+    background: var(--c-danger-bg);
+  }
+
+  .btn-sm {
+    height: 1.5rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.25rem;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1;
+    font-weight: 500;
+    background: var(--c-bg-strong);
+    color: var(--c-text-subtle);
+    white-space: nowrap;
+  }
+
+  .badge-success {
+    background: var(--c-success-bg);
+    color: var(--c-success);
+  }
+
+  .badge-info {
+    background: var(--c-info-bg);
+    color: var(--c-info);
+  }
+
+  .badge-warning {
+    background: var(--c-warning-bg);
+    color: var(--c-warning);
+  }
+
+  /* Achievement art is 96px pixel art; it is only ever shown at whole
+     fractions or multiples of that, and never smoothed. */
+  .pixelated {
+    image-rendering: pixelated;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

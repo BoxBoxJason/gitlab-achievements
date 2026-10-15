@@ -49,7 +49,7 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | `--api-auth-cache-ttl` | `API_AUTH_CACHE_TTL` | `1m` | How long a verified credential is trusted before GitLab is asked again, and so how long a revoked token keeps working. `0s` disables, at most `1h` |
 | `--api-allowed-group` | `API_ALLOWED_GROUP` | *(unset)* | Full path of a group; only its members and instance admins may use the API. Needs `--api-auth gitlab` |
 | `--oauth-return-origins` | `OAUTH_RETURN_ORIGINS` | *(unset)* | Origins besides `--public-url`'s that a login may return to, comma-separated, e.g. `https://rankings.example.com` |
-| `--frontend-dir` | `FRONTEND_DIR` | *(unset)* | Directory of a built static frontend served at `/`. See [Serving a frontend](frontend.md) |
+| `--frontend-dir` | `FRONTEND_DIR` | *(unset)* | Directory of a built static frontend served at `/` in place of the built-in one. See [The frontend](frontend.md#serving-a-different-frontend) |
 
 ## Subcommands
 

@@ -22,12 +22,17 @@ import "time"
 // portably, and part on a GitLab lookup the read path must never make.
 // IsBot and BotCheckedAt cache that lookup, which never changes for a given
 // account; OptedOutAt records a user's own request to be left out.
+//
+// AvatarURL is the last avatar GitLab reported for the user on any of
+// their activity, kept so the API can serve it without a GitLab call. It is
+// empty until a payload carrying one arrives.
 type User struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	BotCheckedAt   *time.Time
 	OptedOutAt     *time.Time
 	Username       string `gorm:"not null"`
+	AvatarURL      string `gorm:"not null;default:''"`
 	ExcludedReason string `gorm:"not null;default:'';index"`
 	ID             int64  `gorm:"primarykey"`
 	GitLabUserID   int64  `gorm:"uniqueIndex;not null"`

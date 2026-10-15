@@ -324,3 +324,32 @@ func TestLeaderboard_PeriodSinceRoundTrips(t *testing.T) {
 		t.Errorf("expected the same window back as custom, got %+v against %s", next, first.Since)
 	}
 }
+
+func TestRankings_CarryTheStoredAvatar(t *testing.T) {
+	conn := testConn(t)
+	const avatar = "https://gitlab.example.com/uploads/alice.png"
+
+	alice := seedUser(t, conn, 42, "alice", 50)
+	if err := conn.Model(&appdb.User{}).Where("id = ?", alice).Update("avatar_url", avatar).Error; err != nil {
+		t.Fatalf("failed to set avatar: %v", err)
+	}
+
+	seedAwardAt(t, conn, alice, seedDefinition(t, conn, "commits", 1, 1, 50, ""), time.Now().UTC())
+	seedCounter(t, conn, alice, "commits", 3)
+
+	allTime := decode[Leaderboard](t, get(t, openAPI(conn), "/api/v1/leaderboard"))
+	week := decode[Leaderboard](t, get(t, openAPI(conn), "/api/v1/leaderboard?period=week"))
+	criteria := decode[CriteriaLeaderboard](t, get(t, openAPI(conn), "/api/v1/leaderboard/criteria/commits"))
+	user := decode[Detail](t, get(t, openAPI(conn), "/api/v1/users/alice"))
+
+	for name, got := range map[string]string{
+		"all time": allTime.Entries[0].AvatarURL,
+		"week":     week.Entries[0].AvatarURL,
+		"criteria": criteria.Entries[0].AvatarURL,
+		"user":     user.AvatarURL,
+	} {
+		if got != avatar {
+			t.Errorf("expected the %s ranking to carry the avatar, got %q", name, got)
+		}
+	}
+}

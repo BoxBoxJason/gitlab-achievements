@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/frontend"
 )
@@ -120,5 +121,45 @@ func TestHandler_OnlyAnswersReads(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 for a POST, got %d", rec.Code)
+	}
+}
+
+func TestHandlerFS_CachesHashedAssetsForGoodAndSendsThePolicy(t *testing.T) {
+	root := fstest.MapFS{
+		"index.html":       {Data: []byte("<!doctype html><title>Rankings</title>")},
+		"assets/app.3f.js": {Data: []byte("console.log('app')")},
+		"logo.svg":         {Data: []byte("<svg/>")},
+	}
+
+	handler, err := frontend.HandlerFS(root, frontend.Options{ContentSecurityPolicy: "default-src 'self'", ImmutableDir: "assets"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	asset := fetch(handler, "/assets/app.3f.js")
+	if got := asset.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Errorf("expected a hashed asset to be cached for good, got %q", got)
+	}
+
+	if got := fetch(handler, "/logo.svg").Header().Get("Cache-Control"); got != "" {
+		t.Errorf("expected a file outside the hashed directory to be left to revalidation, got %q", got)
+	}
+
+	if got := fetch(handler, "/").Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("expected the index never to be cached, got %q", got)
+	}
+
+	if got := fetch(handler, "/users/alice").Header().Get("Content-Security-Policy"); got != "default-src 'self'" {
+		t.Errorf("expected the policy on every response, got %q", got)
+	}
+}
+
+func TestHasIndex(t *testing.T) {
+	if frontend.HasIndex(fstest.MapFS{".gitkeep": {}}) {
+		t.Error("expected a tree with no index.html not to count as a frontend")
+	}
+
+	if !frontend.HasIndex(fstest.MapFS{"index.html": {}}) {
+		t.Error("expected a tree with an index.html to count as a frontend")
 	}
 }

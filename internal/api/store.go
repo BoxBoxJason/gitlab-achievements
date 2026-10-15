@@ -25,8 +25,13 @@ var ErrUserUnknown = errors.New("no activity recorded for this user")
 // the user up by username learns their GitLab ID (and vice versa) without a
 // second request, and so a response is self-describing once it has been
 // piped somewhere else.
+//
+// AvatarURL is the avatar GitLab last reported for the user, empty when no
+// payload has carried one yet. It is GitLab's URL, served as GitLab gave it,
+// so a page loads the image from the instance.
 type Summary struct {
 	Username     string `json:"username"`
+	AvatarURL    string `json:"avatar_url"`
 	GitLabUserID int64  `json:"gitlab_user_id"`
 	ExpTotal     int64  `json:"exp_total"`
 }

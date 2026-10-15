@@ -173,7 +173,7 @@ func TestMe_DescribesTheCaller(t *testing.T) {
 
 	policy, _ := exclusion.NewPolicy(true, nil, "")
 	api := mustNew(conn, Options{
-		Verifier:   &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}},
+		Verifier:   &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice", AvatarURL: "https://gitlab.example.com/a.png"}},
 		Exclusions: exclusion.NewFilter(conn, policy, nil, true),
 	})
 
@@ -187,7 +187,7 @@ func TestMe_DescribesTheCaller(t *testing.T) {
 	}
 
 	me := decode[Me](t, rec)
-	if me.Username != "alice" || me.GitLabUserID != 42 || me.Record == nil || me.Record.ExpTotal != 1350 || me.Record.Rank != 1 {
+	if me.Username != "alice" || me.AvatarURL != "https://gitlab.example.com/a.png" || me.GitLabUserID != 42 || me.Record == nil || me.Record.ExpTotal != 1350 || me.Record.Rank != 1 {
 		t.Fatalf("unexpected identity: %+v", me)
 	}
 

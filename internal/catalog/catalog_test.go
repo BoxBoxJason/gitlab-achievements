@@ -177,6 +177,11 @@ func TestV1_NamesAreUniqueAndTiered(t *testing.T) {
 		if entry.Description == "" {
 			t.Errorf("achievement %q has no description", entry.Name)
 		}
+
+		// The plural wording reads "Author 1 commits." at a threshold of 1.
+		if strings.Contains(entry.Description, " 1 ") {
+			t.Errorf("achievement %q reads %q; its template needs a First", entry.Name, entry.Description)
+		}
 	}
 }
 

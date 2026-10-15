@@ -22,7 +22,7 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 
 ## What people earn
 
-![GitLab Achievements](docs/profile.png)
+![A GitLab profile showing the achievements this app awarded](docs/screenshots/gitlab-profile.png)
 
 | Category | Criteria |
 | --- | --- |
@@ -36,6 +36,17 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 Every criteria stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Thresholds run from 1 to 100,000, so the first tier lands on someone's first day and the last one is a running joke.
 
 Each tier is worth EXP, and a user's total is the sum of what they hold. Only the top tier of a criteria is pushed to GitLab, so a profile shows one *Committer* badge rather than eleven near-identical ones.
+
+## See where everyone stands
+
+GitLab shows each badge on its own; this app shows the game around them. Open its URL in a browser for the instance leaderboard, all time or over the last day, week, month or year, each person's progress toward their next tier, and the full catalog with a ranking for every achievement. It looks like GitLab, in light and dark, and is compiled into the binary, so there is nothing extra to deploy. [More on the frontend](docs/frontend.md).
+
+![The leaderboard, ranked by EXP](docs/screenshots/leaderboard.png)
+
+<p>
+  <img src="docs/screenshots/achievements.png" alt="The achievements catalog, with the EXP each tier pays and your progress in each" width="49%">
+  <img src="docs/screenshots/profile.png" alt="A user's page: rank, EXP, recently reached tiers and progress toward the next ones" width="49%">
+</p>
 
 ## Quick start
 
@@ -57,7 +68,7 @@ The first start creates 275 achievements and registers webhooks before it serves
 curl -sf http://127.0.0.1:8080/readyz && echo ready
 ```
 
-Awards start going out as people work, and history gets walked in the background so past activity counts too. One thing to warn your team about: GitLab keeps an award hidden until its recipient accepts it from the email it sends, and [nobody but the recipient can do that](docs/achievements-api-behavior.md).
+Awards start going out as people work, and history gets walked in the background so past activity counts too. Open the same URL in a browser for the [leaderboard and everyone's progress](docs/frontend.md). One thing to warn your team about: GitLab keeps an award hidden until its recipient accepts it from the email it sends, and [nobody but the recipient can do that](docs/achievements-api-behavior.md).
 
 ## The EXP API
 
@@ -100,6 +111,7 @@ Everything lives in [docs/](docs/).
 | [Configuration](docs/configuration.md) | Every flag and environment variable |
 | [How it works](docs/how-it-works.md) | The lifecycle, from bootstrap to steady state |
 | [Achievements & EXP](docs/achievements.md) | The catalog, the tiers, and what reaches GitLab |
+| [The frontend](docs/frontend.md) | The leaderboard and progress pages the binary serves |
 | [Who takes part](docs/participation.md) | Bots left out by default, excluding accounts, opting out |
 | [The API](docs/api.md) | Endpoints, responses, authentication |
 | [Webhooks](docs/webhooks.md) | Which hooks get registered, and why |

@@ -58,6 +58,10 @@ var errReturnTo = errors.New("return_to must be a path on this app or a URL on a
 
 // OAuthOptions configures the login flow.
 type OAuthOptions struct {
+	// Landing is where a login with no return_to lands, given the username
+	// that just logged in: a page of the frontend, typically. Nil lands on
+	// the user's own record in this API, for a deployment with no frontend.
+	Landing func(username string) string
 	// GitLabURL is the instance that authorizes logins.
 	GitLabURL string
 	// PublicURL is this app's externally reachable base URL, which the
@@ -85,6 +89,7 @@ type oauthFlow struct {
 	verifier      Verifier
 	httpClient    *http.Client
 	returnOrigins map[string]bool
+	landing       func(username string) string
 	secure        bool
 }
 
@@ -123,6 +128,7 @@ func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) 
 			Transport: metrics.Transport("oauth", http.DefaultTransport),
 		},
 		returnOrigins: origins,
+		landing:       opts.Landing,
 		secure:        strings.HasPrefix(strings.ToLower(opts.PublicURL), "https://"),
 	}
 }
@@ -256,7 +262,7 @@ func (f *oauthFlow) validateCallback(req *http.Request) (string, error) {
 // outside the allowed group, fails at the login rather than on the next
 // request. It also yields the username, for the default landing page: with
 // no return_to, the most useful place to land somebody who just logged in
-// is their own record.
+// is their own record, on the frontend when there is one.
 func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token *oauth2.Token) {
 	identity, err := f.verifier.Verify(req.Context(), token.AccessToken)
 	if errors.Is(err, ErrForbidden) {
@@ -285,6 +291,9 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 	}
 
 	landing := PathPrefix + "users/" + url.PathEscape(identity.Username)
+	if f.landing != nil {
+		landing = f.landing(identity.Username)
+	}
 
 	if returnTo := f.stashedReturnTo(req); returnTo != "" {
 		landing = returnTo

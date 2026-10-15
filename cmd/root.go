@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -31,8 +32,10 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
 	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
+	"github.com/boxboxjason/gitlab-achievements/internal/origin"
 	"github.com/boxboxjason/gitlab-achievements/internal/scheduler"
 	"github.com/boxboxjason/gitlab-achievements/internal/webhook"
+	"github.com/boxboxjason/gitlab-achievements/web"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -492,6 +495,7 @@ func buildAPI(
 		SessionSecret:    cfg.SessionSecret,
 		SessionLifetime:  cfg.SessionLifetime,
 		IdentityCacheTTL: cfg.APIAuthCacheTTL,
+		Instance:         api.Instance{GitLabURL: cfg.GitLabURL, Version: resolveVersion()},
 	}
 
 	if cfg.AuthMode() != config.APIAuthGitLab {
@@ -522,13 +526,7 @@ func buildAPI(
 		}
 	}
 
-	opts.OAuth = &api.OAuthOptions{
-		GitLabURL:     cfg.GitLabURL,
-		PublicURL:     cfg.PublicURL,
-		ClientID:      clientID,
-		ClientSecret:  cfg.OAuthClientSecret,
-		ReturnOrigins: cfg.OAuthReturnOrigins,
-	}
+	opts.OAuth = oauthOptions(cfg, clientID)
 
 	zap.L().Info("read api requires a gitlab credential",
 		zap.String("oauth_client_id", clientID),
@@ -539,6 +537,34 @@ func buildAPI(
 	)
 
 	return newAPI(conn, opts)
+}
+
+// oauthOptions configures the login flow through the OAuth application
+// clientID names.
+func oauthOptions(cfg *config.Config, clientID string) *api.OAuthOptions {
+	return &api.OAuthOptions{
+		GitLabURL:     cfg.GitLabURL,
+		PublicURL:     cfg.PublicURL,
+		ClientID:      clientID,
+		ClientSecret:  cfg.OAuthClientSecret,
+		ReturnOrigins: cfg.OAuthReturnOrigins,
+		Landing:       loginLanding(cfg),
+	}
+}
+
+// loginLanding is where a login with no return_to lands, matching the
+// frontend buildFrontend serves: the built-in one's page for the user who
+// logged in, the root of an operator's own (whose routes this app cannot
+// know), or, with no frontend at all, nil for the user's record in the API.
+func loginLanding(cfg *config.Config) func(username string) string {
+	switch {
+	case cfg.FrontendDir != "":
+		return func(string) string { return "/" }
+	case frontend.HasIndex(web.Dist()):
+		return func(username string) string { return "/users/" + url.PathEscape(username) }
+	default:
+		return nil
+	}
 }
 
 // membershipChecker restricts the API to group's members.
@@ -607,22 +633,54 @@ func buildServer(
 	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, site), nil
 }
 
-// buildFrontend builds the handler for the configured frontend, or nil when
-// none is configured. A directory that is not a built frontend fails the
-// start rather than serving 404s at "/".
+// buildFrontend builds the handler for the frontend: the directory
+// FRONTEND_DIR names when set, or else the one compiled into the binary.
+// It is nil for a binary compiled without building the frontend, which
+// then serves the API alone. A FRONTEND_DIR that is not a built frontend
+// fails the start rather than serving 404s at "/".
 func buildFrontend(cfg *config.Config) (http.Handler, error) {
-	if cfg.FrontendDir == "" {
+	if cfg.FrontendDir != "" {
+		site, err := frontend.Handler(cfg.FrontendDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serve the frontend: %w", err)
+		}
+
+		zap.L().Info("serving frontend", zap.String("dir", cfg.FrontendDir))
+
+		return site, nil
+	}
+
+	if !frontend.HasIndex(web.Dist()) {
+		zap.L().Info("this binary was built without its frontend; serving the api alone")
+
 		return nil, nil //nolint:nilnil // no frontend is a valid configuration, not an error
 	}
 
-	site, err := frontend.Handler(cfg.FrontendDir)
+	site, err := frontend.HandlerFS(web.Dist(), frontend.Options{
+		ContentSecurityPolicy: builtinPolicy(cfg.GitLabURL),
+		ImmutableDir:          "assets",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to serve the frontend: %w", err)
+		return nil, fmt.Errorf("failed to serve the built-in frontend: %w", err)
 	}
 
-	zap.L().Info("serving frontend", zap.String("dir", cfg.FrontendDir))
+	zap.L().Info("serving the built-in frontend")
 
 	return site, nil
+}
+
+// builtinPolicy is the Content Security Policy the built-in frontend runs
+// under. Everything it loads is its own, except the avatars in its
+// rankings, which come from wherever GitLab says they live: the instance
+// itself, or a Gravatar-style service it is configured with.
+func builtinPolicy(gitlabURL string) string {
+	images := "'self' data: https:"
+	if gitlab, ok := origin.Of(gitlabURL); ok {
+		images += " " + gitlab
+	}
+
+	return "default-src 'self'; img-src " + images + "; object-src 'none'; " +
+		"base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 }
 
 // newHTTPServer builds the *http.Server exposing /healthz, /readyz, the

@@ -1,8 +1,22 @@
+FROM docker.io/library/node:24.22.0-alpine3.24@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS web
+
+# The frontend is built first and compiled into the binary below, so an
+# image always serves the frontend made for its own API. The lockfile is
+# copied alone first so the dependency layer survives source-only changes.
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY web/ ./
+RUN npm run build
+
 FROM docker.io/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
 
 WORKDIR /app
 
 COPY . .
+COPY --from=web /web/dist ./web/dist
 
 ENV GO111MODULE=on \
     CGO_ENABLED=0

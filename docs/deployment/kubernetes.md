@@ -192,6 +192,6 @@ Letting the chart render it is what keeps it working. It inherits the release's 
 
 The database is yours and is left alone. It is also what the removal reads from, so dropping it first leaves the app no record of what it registered; `uninstall --sweep` enumerates the instance to recover from that.
 
-## A frontend on the same origin
+## The frontend
 
-`frontend.enabled` copies a static frontend out of an image of yours and serves it at `/` beside the API, so it can use the login session without any CORS. [Serving a frontend](../frontend.md) covers the values, and the alternative of routing paths at the Ingress instead.
+The image serves the web frontend at `/`, so the Ingress that exposes the API exposes the frontend too, on the same origin, with nothing to configure. Upgrading the image upgrades both together. [The frontend](../frontend.md) covers serving a different one.

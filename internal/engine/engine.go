@@ -310,24 +310,35 @@ func recordProcessed(txn *gorm.DB, event activity.Event) (bool, error) {
 }
 
 // upsertUser returns the local row for the event's actor, creating it on
-// first sight and keeping its username in step with GitLab's when it was
-// renamed since.
+// first sight and keeping its username and avatar in step with GitLab's
+// when they changed since. A payload that names neither leaves the stored
+// ones alone rather than blanking them.
 func upsertUser(txn *gorm.DB, event activity.Event) (*db.User, error) {
-	user := db.User{GitLabUserID: event.ActorID, Username: event.ActorUsername}
+	user := db.User{GitLabUserID: event.ActorID, Username: event.ActorUsername, AvatarURL: event.ActorAvatarURL}
 
 	err := txn.Where(&db.User{GitLabUserID: event.ActorID}).
-		Attrs(&db.User{Username: event.ActorUsername}).
+		Attrs(&db.User{Username: event.ActorUsername, AvatarURL: event.ActorAvatarURL}).
 		FirstOrCreate(&user).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve user %d: %w", event.ActorID, err)
 	}
 
+	updates := map[string]any{}
+
 	if event.ActorUsername != "" && user.Username != event.ActorUsername {
 		user.Username = event.ActorUsername
+		updates["username"] = event.ActorUsername
+	}
 
-		err = txn.Model(&user).Update("username", event.ActorUsername).Error
+	if event.ActorAvatarURL != "" && user.AvatarURL != event.ActorAvatarURL {
+		user.AvatarURL = event.ActorAvatarURL
+		updates["avatar_url"] = event.ActorAvatarURL
+	}
+
+	if len(updates) > 0 {
+		err = txn.Model(&user).Updates(updates).Error
 		if err != nil {
-			return nil, fmt.Errorf("failed to update username for user %d: %w", event.ActorID, err)
+			return nil, fmt.Errorf("failed to update profile for user %d: %w", event.ActorID, err)
 		}
 	}
 

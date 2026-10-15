@@ -38,6 +38,11 @@ type Template struct {
 	Title string
 	// Description describes the tier, with a %d where its threshold goes.
 	Description string
+	// First describes a tier whose threshold is 1, which Description's
+	// plural can't ("Author 1 commits."). Every template sets one, whether
+	// or not its curve currently starts at 1, so retuning a curve can't
+	// bring the plural back.
+	First string
 	// AvatarPath is the embedded asset shown for every tier of this
 	// criteria, or empty for no avatar. Tiers deliberately share one image
 	// rather than each having their own: a criteria at eleven tiers would
@@ -64,10 +69,15 @@ func (t Template) Expand() []Entry {
 		tier := index - t.MinTier + 1
 		threshold := t.Curve(index)
 
+		description := fmt.Sprintf(t.Description, threshold)
+		if threshold == 1 && t.First != "" {
+			description = t.First
+		}
+
 		entries = append(entries, Entry{
 			CriteriaKey: t.CriteriaKey,
 			Name:        fmt.Sprintf(t.Title, roman(tier)),
-			Description: fmt.Sprintf(t.Description, threshold),
+			Description: description,
 			AvatarPath:  t.AvatarPath,
 			Tier:        tier,
 			Threshold:   threshold,
@@ -125,6 +135,7 @@ var templates = []Template{
 		Category:    CategoryGit,
 		Title:       "Committer %s",
 		Description: "Author %d commits.",
+		First:       "Author your first commit.",
 		AvatarPath:  "assets/commit.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -134,6 +145,7 @@ var templates = []Template{
 		Category:    CategoryGit,
 		Title:       "Product Shipping %s",
 		Description: "Push %d times.",
+		First:       "Push for the first time.",
 		AvatarPath:  "assets/push.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -143,6 +155,7 @@ var templates = []Template{
 		Category:    CategoryGit,
 		Title:       "Friend of the Trees %s",
 		Description: "Create %d branches.",
+		First:       "Create your first branch.",
 		AvatarPath:  "assets/branch.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -152,6 +165,7 @@ var templates = []Template{
 		Category:    CategoryGit,
 		Title:       "Tagger %s",
 		Description: "Create %d tags.",
+		First:       "Create your first tag.",
 		AvatarPath:  "assets/tag.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -163,6 +177,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Merge Request Opener %s",
 		Description: "Open %d merge requests.",
+		First:       "Open your first merge request.",
 		AvatarPath:  "assets/mropen.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -172,6 +187,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Merger %s",
 		Description: "Merge %d merge requests.",
+		First:       "Merge your first merge request.",
 		AvatarPath:  "assets/merge.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -181,6 +197,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Stamp of Approval %s",
 		Description: "Approve %d merge requests.",
+		First:       "Approve your first merge request.",
 		AvatarPath:  "assets/stamp.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -190,6 +207,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Second Thoughts %s",
 		Description: "Close %d merge requests without merging them.",
+		First:       "Close a merge request without merging it.",
 		AvatarPath:  "assets/reject.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -199,6 +217,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Rubber Stamp %s",
 		Description: "Merge %d merge requests within an hour of them being opened.",
+		First:       "Merge a merge request within an hour of it being opened.",
 		AvatarPath:  "assets/stopwatch.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -208,6 +227,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Commentator %s",
 		Description: "Leave %d comments.",
+		First:       "Leave your first comment.",
 		AvatarPath:  "assets/comment.png",
 		Curve:       StandardMediumCurve,
 		MaxTier:     maxTier,
@@ -217,6 +237,7 @@ var templates = []Template{
 		Category:    CategoryMergeRequests,
 		Title:       "Loose Ends %s",
 		Description: "Resolve %d review discussions.",
+		First:       "Resolve your first review discussion.",
 		AvatarPath:  "assets/resolved.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -228,6 +249,7 @@ var templates = []Template{
 		Category:    CategoryIssues,
 		Title:       "Issue Opener %s",
 		Description: "Open %d issues.",
+		First:       "Open your first issue.",
 		AvatarPath:  "assets/bug.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -237,6 +259,7 @@ var templates = []Template{
 		Category:    CategoryIssues,
 		Title:       "Problem Solver %s",
 		Description: "Close %d issues.",
+		First:       "Close your first issue.",
 		AvatarPath:  "assets/fix.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -248,6 +271,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "Pipeline Operator %s",
 		Description: "Trigger %d pipelines.",
+		First:       "Trigger your first pipeline.",
 		AvatarPath:  "assets/pipes.png",
 		Curve:       StandardMediumCurve,
 		MaxTier:     maxTier,
@@ -257,6 +281,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "All Green %s",
 		Description: "Trigger %d pipelines that pass.",
+		First:       "Trigger a pipeline that passes.",
 		AvatarPath:  "assets/allgreen.png",
 		Curve:       StandardMediumCurve,
 		MaxTier:     maxTier,
@@ -266,6 +291,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "Firefighter %s",
 		Description: "Trigger %d pipelines that fail.",
+		First:       "Trigger a pipeline that fails.",
 		AvatarPath:  "assets/firefighter.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -275,6 +301,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "Assembly Line %s",
 		Description: "Run %d CI jobs.",
+		First:       "Run your first CI job.",
 		AvatarPath:  "assets/gears.png",
 		// Jobs are the most numerous thing on this list by an order of
 		// magnitude, since one pipeline is many jobs. The medium curve is
@@ -288,6 +315,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "Ship It %s",
 		Description: "Deploy %d times.",
+		First:       "Deploy for the first time.",
 		AvatarPath:  "assets/rocket.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -297,6 +325,7 @@ var templates = []Template{
 		Category:    CategoryCICD,
 		Title:       "Stuck the Landing %s",
 		Description: "Complete %d deployments successfully.",
+		First:       "Complete a deployment successfully.",
 		AvatarPath:  "assets/bullseye.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -308,6 +337,7 @@ var templates = []Template{
 		Category:    CategoryCollaboration,
 		Title:       "Reaction Time %s",
 		Description: "React to %d issues, merge requests, or comments.",
+		First:       "React to an issue, a merge request, or a comment.",
 		AvatarPath:  "assets/thumbsup.png",
 		Curve:       StandardMediumCurve,
 		MaxTier:     maxTier,
@@ -317,6 +347,7 @@ var templates = []Template{
 		Category:    CategoryCollaboration,
 		Title:       "Librarian %s",
 		Description: "Create %d wiki pages.",
+		First:       "Create your first wiki page.",
 		AvatarPath:  "assets/librarian.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -328,6 +359,7 @@ var templates = []Template{
 		Category:    CategoryEngagement,
 		Title:       "Regular %s",
 		Description: "Be active on %d separate days.",
+		First:       "Be active for a day.",
 		AvatarPath:  "assets/mug.png",
 		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
@@ -337,6 +369,7 @@ var templates = []Template{
 		Category:    CategoryEngagement,
 		Title:       "Connection Streak %s",
 		Description: "Stay active %d days in a row.",
+		First:       "Start a streak of active days.",
 		AvatarPath:  "assets/streak.png",
 		// Streaks are the one criteria whose milestones people already
 		// have names for, so the tiers are the week/fortnight/month/year
@@ -350,6 +383,7 @@ var templates = []Template{
 		Category:    CategoryEngagement,
 		Title:       "Night Owl %s",
 		Description: "Be active after midnight on %d separate days.",
+		First:       "Be active after midnight.",
 		AvatarPath:  "assets/owl.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
@@ -359,6 +393,7 @@ var templates = []Template{
 		Category:    CategoryEngagement,
 		Title:       "Early Bird %s",
 		Description: "Be active before dawn on %d separate days.",
+		First:       "Be active before dawn.",
 		AvatarPath:  "assets/bird.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,

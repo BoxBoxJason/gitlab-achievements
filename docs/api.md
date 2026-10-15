@@ -13,6 +13,7 @@ GitLab shows which achievements somebody holds but has no notion of EXP, so this
 | `GET` | `/api/v1/achievements` | The catalog: every criteria, its category, and every tier with its threshold and EXP |
 | `GET` | `/api/v1/achievements/{criteria}/icon` | The PNG every tier of a criteria shares |
 | `GET` | `/api/v1/me` | Who is signed in, and their record. See [Who is signed in](#who-is-signed-in) |
+| `GET` | `/api/v1/instance` | The GitLab instance this deployment mirrors, and the version serving it. See [The instance](#the-instance) |
 | `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part](participation.md#opting-out) |
 
 Users who are [left out](participation.md) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
@@ -25,14 +26,17 @@ A `404` means this app has recorded no activity for that user at all. A user it 
 
 ```console
 $ curl -s https://achievements.example.com/api/v1/users/alice/exp
-{"username":"alice","gitlab_user_id":42,"exp_total":1350}
+{"username":"alice","avatar_url":"https://gitlab.example.com/uploads/-/system/user/avatar/42/avatar.png","gitlab_user_id":42,"exp_total":1350}
 ```
+
+`avatar_url` is the avatar GitLab last reported for the user on any of their activity, as GitLab gave it, and is on every response naming a user, rankings included. It is `""` until a payload carrying one has arrived. The image lives on GitLab (or wherever GitLab says, such as Gravatar), so loading it is between the browser and GitLab.
 
 The full record adds the counters behind the total and the tiers earned off them:
 
 ```json
 {
   "username": "alice",
+  "avatar_url": "https://gitlab.example.com/uploads/-/system/user/avatar/42/avatar.png",
   "gitlab_user_id": 42,
   "exp_total": 1350,
   "counters": [
@@ -131,7 +135,7 @@ It takes `limit` and `offset` but no period: counters keep running totals, not a
       "title": "Committer",
       "icon_url": "/api/v1/achievements/commits/icon",
       "tiers": [
-        { "tier": 1, "name": "Committer I", "description": "Author 1 commits.", "threshold": 1, "exp_reward": 10 }
+        { "tier": 1, "name": "Committer I", "description": "Author your first commit.", "threshold": 1, "exp_reward": 10 }
       ]
     }
   ]
@@ -165,7 +169,7 @@ The session table holds neither the cookie nor a usable token. Rows are keyed by
 
 ### Coming back to your page
 
-`/oauth/login?return_to=<destination>` sends the browser to `destination` once it is logged in. Without it, the browser lands on the user's own record. Two kinds of destination are accepted:
+`/oauth/login?return_to=<destination>` sends the browser to `destination` once it is logged in. Without it, the browser lands on the user's own page in the built-in frontend, at the root of the frontend `FRONTEND_DIR` serves, or on their record in this API when the binary has no frontend. Two kinds of destination are accepted:
 
 - a path on this app, such as `/rankings?period=week`;
 - an absolute URL on `PUBLIC_URL`'s origin, or on one listed in `OAUTH_RETURN_ORIGINS`.
@@ -178,9 +182,19 @@ Anything else is refused with a `400` before the browser goes to GitLab, so the 
 
 | Answer | Meaning |
 | --- | --- |
-| `200` | Signed in. The body has `username`, `gitlab_user_id`, `record` (the same document as `/users/{ref}`, or `null` for somebody with nothing recorded yet or who is [left out](participation.md)), and `participation` |
+| `200` | Signed in. The body has `username`, `avatar_url`, `gitlab_user_id`, `record` (the same document as `/users/{ref}`, or `null` for somebody with nothing recorded yet or who is [left out](participation.md)), and `participation` |
 | `401` | Not signed in: show a login link to `/oauth/login` |
 | `404` | This deployment has no sign-in (`API_AUTH=none`) |
+
+### The instance
+
+`GET /api/v1/instance` describes the deployment rather than anybody's record, for a frontend that links names to GitLab profiles:
+
+```json
+{ "gitlab_url": "https://gitlab.example.com", "version": "v0.5.0" }
+```
+
+It sits behind the same authentication as the rest of the API.
 
 ### Restricting who may sign in
 
@@ -199,7 +213,7 @@ A verified credential is trusted for `API_AUTH_CACHE_TTL` (one minute by default
 
 State-changing requests (`POST`, `DELETE`) are checked for cross-site request forgery: a browser request from another origin is refused with `403`. Scripts using a bearer token send no such headers and are unaffected.
 
-A frontend that uses the session cookie should be served from the same origin as the API. See [Serving a frontend](frontend.md).
+A frontend that uses the session cookie should be served from the same origin as the API, as the built-in one is. See [The frontend](frontend.md).
 
 ## The other endpoints
 
@@ -212,7 +226,7 @@ Everything is served on one port, `LISTEN_ADDR`.
 | `/webhooks/gitlab` | Where GitLab's deliveries arrive. `POST` only, authenticated with the webhook secret |
 | `/api/v1/...` | The read API |
 | `/oauth/...` | Browser login flow, when `API_AUTH=gitlab` |
-| `/` | A static frontend, when `FRONTEND_DIR` is set. See [Serving a frontend](frontend.md) |
+| `/` | The web frontend, or the one `FRONTEND_DIR` names. See [The frontend](frontend.md) |
 
 `/healthz` and `/readyz` are unauthenticated by design.
 

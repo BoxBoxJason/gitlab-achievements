@@ -129,10 +129,11 @@ func NormalizeProjectEvent(event *gitlab.ProjectEvent) []activity.Event {
 	}
 
 	base := activity.Event{
-		OccurredAt:    ParseEventTime(event.CreatedAt),
-		ActorUsername: eventAuthorUsername(event),
-		ActorID:       event.AuthorID,
-		ProjectID:     event.ProjectID,
+		OccurredAt:     ParseEventTime(event.CreatedAt),
+		ActorUsername:  eventAuthorUsername(event),
+		ActorAvatarURL: event.Author.AvatarURL,
+		ActorID:        event.AuthorID,
+		ProjectID:      event.ProjectID,
 	}
 
 	// A push carries no target type; everything else names the resource it
@@ -369,11 +370,12 @@ func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
 	}
 
 	base := activity.Event{
-		OccurredAt:    TimeOrZero(pipeline.CreatedAt),
-		DedupKey:      fmt.Sprintf("pipeline:%d", pipeline.ID),
-		ActorUsername: pipeline.User.Username,
-		ActorID:       pipeline.User.ID,
-		ProjectID:     pipeline.ProjectID,
+		OccurredAt:     TimeOrZero(pipeline.CreatedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", pipeline.ID),
+		ActorUsername:  pipeline.User.Username,
+		ActorAvatarURL: pipeline.User.AvatarURL,
+		ActorID:        pipeline.User.ID,
+		ProjectID:      pipeline.ProjectID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPipelineRun, 1)}

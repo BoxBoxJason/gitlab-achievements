@@ -1,58 +1,63 @@
-# Serving a frontend
+# The frontend
 
-This app has no web interface of its own, only the [API](api.md). A rankings page, or any other frontend you build on it, should be served from the **same origin** as the API, for example `https://achievements.example.com/` with the API under `/api/v1/` beside it.
+The binary serves a web frontend at `/`: the leaderboard (all time, or over the last day, week, 30 or 365 days), each person's achievements and their progress toward the next tier, the catalog with a ranking for every achievement, and a page to opt out or back in. It looks and behaves like GitLab, in light and dark, because the people using it spend their day in GitLab.
 
-Same origin is what lets the frontend use the login session as it is:
+It is compiled into the binary rather than shipped beside it, so a release always serves the frontend made for its own API. There is nothing to deploy or configure: open `PUBLIC_URL` in a browser.
 
-- The session cookie is `HttpOnly` and `SameSite=Lax`. A page on the same origin sends it with every `fetch` automatically. A page on another origin would need CORS with credentials, which this app deliberately does not offer.
-- State-changing calls (`POST`/`DELETE`, such as opting out) are refused when they come from another origin. That is the protection against cross-site request forgery.
+## Signing in
 
-There are two ways to get there. Pick whichever fits how you deploy.
+With `API_AUTH=gitlab`, the frontend shows a "Sign in with GitLab" page until the browser has a session, and sends the person back to the page they asked for afterwards. With the default `API_AUTH=none`, there is no sign-in and everything is readable by whoever can reach the app. The participation page then explains that opting out goes through the operator.
 
-## Option 1: let the app serve it
+`API_ALLOWED_GROUP` applies to the frontend as it does to the API: somebody outside the group signs in, is told the instance is restricted, and can sign out again.
 
-Point `FRONTEND_DIR` at a directory of built static files with `index.html` at its root, the output of `npm run build` in most toolchains. The app serves it at `/`:
+## What it shows that GitLab does not
 
-- Files are served as they are. Content-hashed assets are cacheable; `index.html` is sent with `Cache-Control: no-cache` so a new build is picked up on the next load.
-- Any other path with no file extension (`/users/alice`, `/leaderboard/week`), or any path a browser navigates to as a page (`/users/first.last`), is answered with `index.html`, so client-side routing works on a deep link or a reload. A missing asset (`/assets/missing.js`) is a real `404`.
+Achievements land on GitLab hidden until their recipient accepts them from the email GitLab sends, and [GitLab offers no other way to do that](achievements-api-behavior.md). On your own page, the frontend marks every top tier GitLab still holds hidden, so people know why their profile looks emptier than this page.
+
+Avatars come from GitLab: the app records each person's avatar URL from the activity it already receives (webhooks, the historical backfill, reconciliation), so nobody's face costs a GitLab call. Somebody whose activity predates this feature shows GitLab's initial-on-a-tint placeholder until their next activity carries their avatar.
+
+## Security headers
+
+Every response from the built-in frontend carries a Content Security Policy that allows the app's own scripts, styles and fonts and nothing inline. Images may also come from the GitLab instance, or from any HTTPS host, because that is where GitLab says avatars live (Gravatar, a CDN). Framing is refused.
+
+Its hashed assets (`/assets/*`) are cached for a year as immutable; `index.html` is never cached, so an upgrade is picked up on the next load.
+
+## Working on it
+
+The source is in [`web/`](../web): Vue 3, TypeScript, Tailwind CSS, built with Vite. GitLab's own fonts (`@gitlab/fonts`) and icons (`@gitlab/svgs`) come from npm and are bundled, so nothing loads from a third party at runtime.
+
+```bash
+make web/dev    # http://localhost:5173, against fixture data, no GitLab needed
+```
+
+The fixtures (`web/mock/`) serve the real catalog, the binary's own icons, and 57 made-up people. `MOCK_AUTH=signed-out` or `MOCK_AUTH=none` shows the other two ways a deployment can answer `/api/v1/me`.
+
+Against a running app instead, `cd web && npm run dev` proxies `/api` and `/oauth` to `http://localhost:8080` (or `API_TARGET`), so the session cookie works as it does in production.
+
+```bash
+make web/test   # type check and unit tests
+make build/all  # the frontend, then the binary embedding it
+```
+
+`make build` alone compiles whatever `web/dist` holds. On a fresh checkout that is only a placeholder, and the binary serves the API alone, logging that it was built without its frontend. That keeps `go install` and the Go-only CI jobs working without Node. The container image always builds both.
+
+## Serving a different frontend
+
+`FRONTEND_DIR` replaces the built-in frontend with a directory of your own: built static files with `index.html` at the root, the output of `npm run build` in most toolchains. It is served the same way:
+
+- Files are served as they are; `index.html` is sent with `Cache-Control: no-cache` so a new build is picked up on the next load.
+- Any other path with no file extension (`/users/alice`), or any path a browser navigates to as a page (`/users/first.last`), is answered with `index.html`, so client-side routing works on a deep link or a reload. A missing asset (`/assets/missing.js`) is a real `404`.
 - Directories are never listed. Only `GET` and `HEAD` are answered.
 - Responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. No Content Security Policy is set, because a sensible one depends on your frontend. Set it in your build or at the ingress.
 - The frontend can never shadow `/api/`, `/oauth/`, `/webhooks/gitlab`, `/healthz` or `/readyz`. Those always win, so do not give client-side routes those prefixes.
 
 The app refuses to start if `FRONTEND_DIR` has no `index.html`, rather than serving 404s at `/`.
 
-On Kubernetes, the chart copies the files out of an image you build for the frontend, using an init container. Updating the frontend is then a matter of changing its tag:
+Your frontend should be served from the **same origin** as the API, which `FRONTEND_DIR` does for you. The session cookie is `HttpOnly` and `SameSite=Lax`, so a page on the same origin sends it with every `fetch`; a page on another origin would need CORS with credentials, which this app deliberately does not offer. State-changing calls (`POST`/`DELETE`, such as opting out) are refused when they come from another origin, which is the protection against cross-site request forgery.
 
-```yaml
-frontend:
-  enabled: true
-  image:
-    repository: registry.example.com/achievements-rankings
-    tag: "1.4.0"
-  # Where index.html is inside that image. The default suits an image
-  # built FROM nginx; the image only needs sh and cp.
-  sourcePath: /usr/share/nginx/html
-```
+You can also serve it yourself on the same hostname and route by path at the ingress: `/api/`, `/oauth/` and `/webhooks/` to this app, everything else to your frontend. Ingress controllers prefer the longest matching prefix, so the two do not fight.
 
-## Option 2: route paths at the ingress
-
-Serve the frontend however you like (its own Deployment, an nginx, a static host behind a proxy) and route by path on one hostname. The API and the login flow go to this app, everything else to the frontend:
-
-```yaml
-# values.yaml for this chart
-ingress:
-  enabled: true
-  hosts:
-    - host: achievements.example.com
-      paths:
-        - { path: /api/, pathType: Prefix }
-        - { path: /oauth/, pathType: Prefix }
-        - { path: /webhooks/, pathType: Prefix }
-```
-
-Your frontend's own Ingress then claims `path: /` on the same host. Ingress controllers prefer the longest matching prefix, so the two do not fight.
-
-## Signing in from the frontend
+### Signing in from your own frontend
 
 ```js
 // On load: who is signed in?
@@ -65,8 +70,8 @@ if (res.ok) render(await res.json());
 await fetch("/oauth/logout", { method: "POST" });
 ```
 
-After logging in, the browser comes back to `return_to`. Only paths on this app and URLs on allowed origins are accepted; see [Coming back to your page](api.md#coming-back-to-your-page). If the frontend is served from another host, list its origin in `OAUTH_RETURN_ORIGINS` so the login can return there. API calls from that host still will not carry the cookie, which is why the options above put everything on one origin.
+After logging in, the browser comes back to `return_to`. Only paths on this app and URLs on allowed origins are accepted; see [Coming back to your page](api.md#coming-back-to-your-page). If your page is served from another host, list its origin in `OAUTH_RETURN_ORIGINS` so the login can return there. API calls from that host still will not carry the cookie, which is why the options above keep everything on one origin.
 
 Sessions renew their GitLab token on their own and last `SESSION_LIFETIME`, a week by default. A frontend never deals with tokens, only with `/me` answering `401` once a session has ended.
 
-For what to render, `/api/v1/leaderboard` (paged, all-time or `?period=week`), `/api/v1/leaderboard/criteria/{criteria}` and `/api/v1/achievements` (the catalog, with icons) are described in [the API reference](api.md#rankings).
+For what to render, see [the API reference](api.md#rankings). `/api/v1/instance` gives the GitLab URL to link profiles to.

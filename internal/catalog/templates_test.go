@@ -65,3 +65,19 @@ func TestExpand_ReadsBothCurvesAtTheTierIndex(t *testing.T) {
 		t.Errorf("expected the surviving tier to keep its %d EXP, got %d", full[2].Exp, entries[0].Exp)
 	}
 }
+
+func TestExpand_UsesFirstForAThresholdOfOne(t *testing.T) {
+	tmpl := template()
+	tmpl.Curve = catalog.Steps(1, 5, 10)
+	tmpl.First = "Do the thing once."
+
+	entries := tmpl.Expand()
+
+	if entries[0].Description != "Do the thing once." {
+		t.Errorf("expected the singular wording at a threshold of 1, got %q", entries[0].Description)
+	}
+
+	if entries[1].Description != "Do the thing 5 times." {
+		t.Errorf("expected the plural wording above 1, got %q", entries[1].Description)
+	}
+}

@@ -109,9 +109,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := userActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID, username: userName(payload.User),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	case *gitlab.IssueCommentEvent:
@@ -120,9 +121,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := userActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID, username: userName(payload.User),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	case *gitlab.MergeCommentEvent:
@@ -131,9 +133,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := eventUserActor(payload.User, attrs.AuthorID)
 
 		activities := normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID, username: eventUserName(payload.User),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 
@@ -146,9 +149,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := eventUserActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID, username: eventUserName(payload.User),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	}
@@ -182,10 +186,11 @@ func normalizePush(event *gitlab.PushEvent, receivedAt time.Time) []activity.Eve
 		// a ref back to a commit it already pointed at. Both are rare, and
 		// undercounting them is the right way to be wrong here, since the
 		// same key is what makes an ordinary redelivery count once.
-		DedupKey:      fmt.Sprintf("push:%d:%s:%s", event.ProjectID, event.Ref, event.After),
-		ActorUsername: event.UserUsername,
-		ActorID:       event.UserID,
-		ProjectID:     event.ProjectID,
+		DedupKey:       fmt.Sprintf("push:%d:%s:%s", event.ProjectID, event.Ref, event.After),
+		ActorUsername:  event.UserUsername,
+		ActorAvatarURL: event.UserAvatar,
+		ActorID:        event.UserID,
+		ProjectID:      event.ProjectID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPush, 1)}
@@ -218,11 +223,12 @@ func normalizeTagPush(event *gitlab.TagEvent, receivedAt time.Time) []activity.E
 	}
 
 	base := activity.Event{
-		OccurredAt:    receivedAt,
-		DedupKey:      fmt.Sprintf("tag_push:%d:%s:%s", event.ProjectID, event.Ref, event.After),
-		ActorUsername: event.UserUsername,
-		ActorID:       event.UserID,
-		ProjectID:     event.ProjectID,
+		OccurredAt:     receivedAt,
+		DedupKey:       fmt.Sprintf("tag_push:%d:%s:%s", event.ProjectID, event.Ref, event.After),
+		ActorUsername:  event.UserUsername,
+		ActorAvatarURL: event.UserAvatar,
+		ActorID:        event.UserID,
+		ProjectID:      event.ProjectID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPush, 1)}
@@ -267,13 +273,14 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 	}
 
 	base := activity.Event{
-		OccurredAt:    parseEventTime(occurredAt, receivedAt),
-		Kind:          kind,
-		DedupKey:      key,
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     attrs.TargetProjectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(occurredAt, receivedAt),
+		Kind:           kind,
+		DedupKey:       key,
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      attrs.TargetProjectID,
+		Count:          1,
 	}
 
 	activities := []activity.Event{base}
@@ -366,13 +373,14 @@ func normalizeIssue(event *gitlab.IssueEvent, receivedAt time.Time) []activity.E
 	}
 
 	return []activity.Event{{
-		OccurredAt:    parseEventTime(occurredAt, receivedAt),
-		Kind:          kind,
-		DedupKey:      fmt.Sprintf("issue:%d:%s", attrs.ID, suffix),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     attrs.ProjectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(occurredAt, receivedAt),
+		Kind:           kind,
+		DedupKey:       fmt.Sprintf("issue:%d:%s", attrs.ID, suffix),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      attrs.ProjectID,
+		Count:          1,
 	}}
 }
 
@@ -401,11 +409,12 @@ func normalizePipeline(event *gitlab.PipelineEvent, receivedAt time.Time) []acti
 	attrs := event.ObjectAttributes
 
 	base := activity.Event{
-		OccurredAt:    parseEventTime(attrs.CreatedAt, receivedAt),
-		DedupKey:      fmt.Sprintf("pipeline:%d", attrs.ID),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     event.Project.ID,
+		OccurredAt:     parseEventTime(attrs.CreatedAt, receivedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", attrs.ID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.Project.ID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPipelineRun, 1)}
@@ -429,6 +438,7 @@ func normalizePipeline(event *gitlab.PipelineEvent, receivedAt time.Time) []acti
 // interface to reach them through.
 type note struct {
 	username  string
+	avatarURL string
 	createdAt string
 	id        int64
 	authorID  int64
@@ -447,13 +457,14 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 	}
 
 	return []activity.Event{{
-		OccurredAt:    parseEventTime(comment.createdAt, receivedAt),
-		Kind:          activity.KindComment,
-		DedupKey:      fmt.Sprintf("note:%d", comment.id),
-		ActorUsername: comment.username,
-		ActorID:       comment.authorID,
-		ProjectID:     comment.projectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(comment.createdAt, receivedAt),
+		Kind:           activity.KindComment,
+		DedupKey:       fmt.Sprintf("note:%d", comment.id),
+		ActorUsername:  comment.username,
+		ActorAvatarURL: comment.avatarURL,
+		ActorID:        comment.authorID,
+		ProjectID:      comment.projectID,
+		Count:          1,
 	}}
 }
 
@@ -480,31 +491,18 @@ func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) 
 		key = fmt.Sprintf("discussion:note:%d:resolved", attrs.ID)
 	}
 
+	username, avatarURL := eventUserActor(event.User, attrs.ResolvedByID)
+
 	return []activity.Event{{
-		OccurredAt:    parseEventTime(attrs.ResolvedAt, receivedAt),
-		Kind:          activity.KindDiscussionResolved,
-		DedupKey:      key,
-		ActorUsername: resolverUsername(event),
-		ActorID:       attrs.ResolvedByID,
-		ProjectID:     attrs.ProjectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(attrs.ResolvedAt, receivedAt),
+		Kind:           activity.KindDiscussionResolved,
+		DedupKey:       key,
+		ActorUsername:  username,
+		ActorAvatarURL: avatarURL,
+		ActorID:        attrs.ResolvedByID,
+		ProjectID:      attrs.ProjectID,
+		Count:          1,
 	}}
-}
-
-// resolverUsername names the resolver, which GitLab reports only as an ID.
-//
-// The delivery's acting user is that person in the ordinary case, because
-// resolving the thread is what produced the delivery. When the two disagree
-// the delivery is about something else happening to a thread resolved
-// earlier, and the payload names no username for the resolver at all, so
-// this reports none: the engine keys the user on their GitLab ID and fills
-// the name in the next time they do something.
-func resolverUsername(event *gitlab.MergeCommentEvent) string {
-	if event.User == nil || event.User.ID != event.ObjectAttributes.ResolvedByID {
-		return ""
-	}
-
-	return event.User.Username
 }
 
 // normalizeJob counts one CI job that ran.
@@ -520,13 +518,14 @@ func normalizeJob(event *gitlab.JobEvent, receivedAt time.Time) []activity.Event
 	}
 
 	return []activity.Event{{
-		OccurredAt:    parseEventTime(jobCreatedAt(event), receivedAt),
-		Kind:          activity.KindJobRun,
-		DedupKey:      fmt.Sprintf("job:%d", event.BuildID),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     event.ProjectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(jobCreatedAt(event), receivedAt),
+		Kind:           activity.KindJobRun,
+		DedupKey:       fmt.Sprintf("job:%d", event.BuildID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.ProjectID,
+		Count:          1,
 	}}
 }
 
@@ -555,11 +554,12 @@ func normalizeDeployment(event *gitlab.DeploymentEvent, receivedAt time.Time) []
 	}
 
 	base := activity.Event{
-		OccurredAt:    parseEventTime(event.StatusChangedAt, receivedAt),
-		DedupKey:      fmt.Sprintf("deployment:%d", event.DeploymentID),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     event.Project.ID,
+		OccurredAt:     parseEventTime(event.StatusChangedAt, receivedAt),
+		DedupKey:       fmt.Sprintf("deployment:%d", event.DeploymentID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.Project.ID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindDeployment, 1)}
@@ -598,13 +598,14 @@ func normalizeEmoji(event *gitlab.EmojiEvent, receivedAt time.Time) []activity.E
 	}
 
 	return []activity.Event{{
-		OccurredAt:    parseEventTime(attrs.CreatedAt, receivedAt),
-		Kind:          activity.KindEmojiAwarded,
-		DedupKey:      fmt.Sprintf("emoji:%d", attrs.ID),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		ProjectID:     event.ProjectID,
-		Count:         1,
+		OccurredAt:     parseEventTime(attrs.CreatedAt, receivedAt),
+		Kind:           activity.KindEmojiAwarded,
+		DedupKey:       fmt.Sprintf("emoji:%d", attrs.ID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.ProjectID,
+		Count:          1,
 	}}
 }
 
@@ -631,29 +632,41 @@ func normalizeWikiPage(event *gitlab.WikiPageEvent, receivedAt time.Time) []acti
 	}
 
 	return []activity.Event{{
-		OccurredAt:    receivedAt,
-		Kind:          activity.KindWikiPageCreated,
-		DedupKey:      fmt.Sprintf("wiki_page:%s:%s", event.Project.PathWithNamespace, attrs.Slug),
-		ActorUsername: event.User.Username,
-		ActorID:       event.User.ID,
-		Count:         1,
+		OccurredAt:     receivedAt,
+		Kind:           activity.KindWikiPageCreated,
+		DedupKey:       fmt.Sprintf("wiki_page:%s:%s", event.Project.PathWithNamespace, attrs.Slug),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		Count:          1,
 	}}
 }
 
-func userName(user *gitlab.User) string {
-	if user == nil {
-		return ""
+// userActor is the payload user's username and avatar, provided they are
+// the actor the activity is credited to. A comment delivery's user is
+// whoever caused the delivery, which is not always the note's author or the
+// thread's resolver: resolving somebody else's thread redelivers their note,
+// and editing a thread resolved earlier redelivers the resolution. The
+// payload names nobody else, so this reports neither rather than the wrong
+// ones, which would put that user's name and face on somebody else's row;
+// the engine keys the user on their GitLab ID and fills them in the next
+// time they do something.
+func userActor(user *gitlab.User, actorID int64) (username, avatarURL string) {
+	if user == nil || user.ID != actorID {
+		return "", ""
 	}
 
-	return user.Username
+	return user.Username, user.AvatarURL
 }
 
-func eventUserName(user *gitlab.EventUser) string {
-	if user == nil {
-		return ""
+// eventUserActor is userActor for the payloads typing their user as
+// *gitlab.EventUser.
+func eventUserActor(user *gitlab.EventUser, actorID int64) (username, avatarURL string) {
+	if user == nil || user.ID != actorID {
+		return "", ""
 	}
 
-	return user.Username
+	return user.Username, user.AvatarURL
 }
 
 // activityFrom specializes base to one kind, scoping its dedup key to the

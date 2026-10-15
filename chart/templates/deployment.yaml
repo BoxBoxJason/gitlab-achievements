@@ -1,3 +1,7 @@
+{{- /* frontend.* was removed in 0.4.0: the image now serves its own frontend. Fail rather than silently replace a custom one. */}}
+{{- if (.Values.frontend).enabled }}
+{{- fail "frontend.* was removed in chart 0.4.0: the image now serves its own frontend at /. To serve a different one, set FRONTEND_DIR through config.extraEnv and mount the files yourself (see docs/frontend.md)." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,27 +46,6 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      {{- if .Values.frontend.enabled }}
-      initContainers:
-        # Copies the built frontend out of its image into a volume the app
-        # serves it from, so the frontend ships on its own release cadence.
-        - name: frontend
-          image: "{{ required "frontend.image.repository is required when frontend.enabled" .Values.frontend.image.repository }}:{{ required "frontend.image.tag is required when frontend.enabled" .Values.frontend.image.tag }}"
-          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
-          command: ["sh", "-c", "cp -R \"$SOURCE\"/. /frontend/"]
-          env:
-            - name: SOURCE
-              value: {{ .Values.frontend.sourcePath | quote }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- with .Values.frontend.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          volumeMounts:
-            - name: frontend
-              mountPath: /frontend
-      {{- end }}
       containers:
         - name: gitlab-achievements
           image: {{ include "gitlab-achievements.image" . | quote }}
@@ -87,10 +70,6 @@ spec:
               value: {{ .Values.config.backfill.mode | quote }}
             - name: RECONCILE
               value: {{ .Values.config.reconcile.mode | quote }}
-            {{- if .Values.frontend.enabled }}
-            - name: FRONTEND_DIR
-              value: /frontend
-            {{- end }}
             - name: METRICS_ADDR
               value: {{ ternary (printf ":%v" .Values.metrics.port) "off" .Values.metrics.enabled | quote }}
             {{- with .Values.config.extraEnv }}
@@ -129,28 +108,13 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- $mounts := include "gitlab-achievements.volumeMounts" . }}
-          {{- if or $mounts .Values.frontend.enabled }}
+          {{- with (include "gitlab-achievements.volumeMounts" .) }}
           volumeMounts:
-            {{- with $mounts }}
             {{- . | nindent 12 }}
-            {{- end }}
-            {{- if .Values.frontend.enabled }}
-            - name: frontend
-              mountPath: /frontend
-              readOnly: true
-            {{- end }}
           {{- end }}
-      {{- $volumes := include "gitlab-achievements.volumes" . }}
-      {{- if or $volumes .Values.frontend.enabled }}
+      {{- with (include "gitlab-achievements.volumes" .) }}
       volumes:
-        {{- with $volumes }}
         {{- . | nindent 8 }}
-        {{- end }}
-        {{- if .Values.frontend.enabled }}
-        - name: frontend
-          emptyDir: {}
-        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

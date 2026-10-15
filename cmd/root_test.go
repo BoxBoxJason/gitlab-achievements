@@ -15,6 +15,8 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/api"
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
+	"github.com/boxboxjason/gitlab-achievements/internal/frontend"
+	"github.com/boxboxjason/gitlab-achievements/web"
 )
 
 func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
@@ -320,6 +322,70 @@ func mustAPI(t *testing.T, conn *gorm.DB) *api.API {
 	}
 
 	return readAPI
+}
+
+// The binary serves the frontend compiled into it when one was built, and the
+// API alone otherwise: a Go-only checkout embeds just the placeholder.
+func TestBuildFrontend_ServesTheBuiltInOneUnderItsPolicy(t *testing.T) {
+	site, err := buildFrontend(&config.Config{GitLabURL: "http://gitlab.internal:8080"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !frontend.HasIndex(web.Dist()) {
+		if site != nil {
+			t.Fatal("expected no frontend from a binary built without one")
+		}
+
+		t.Skip("web/dist holds no build; run make web/build to cover the built-in frontend")
+	}
+
+	rec := httptest.NewRecorder()
+	site.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/users/alice", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected the index for a client-side route, got %d", rec.Code)
+	}
+
+	policy := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "default-src 'self'") || !strings.Contains(policy, "http://gitlab.internal:8080") {
+		t.Errorf("expected the built-in policy, admitting avatars from the instance, got %q", policy)
+	}
+}
+
+// A login with no return_to lands on the frontend that is actually served,
+// and on the API's record only when there is none.
+func TestLoginLanding_FollowsTheServedFrontend(t *testing.T) {
+	own := loginLanding(&config.Config{FrontendDir: t.TempDir()})
+	if own == nil || own("alice") != "/" {
+		t.Fatal("expected an operator's frontend to be landed on at its root")
+	}
+
+	builtin := loginLanding(&config.Config{})
+
+	if !frontend.HasIndex(web.Dist()) {
+		if builtin != nil {
+			t.Fatal("expected a binary without a frontend to land on the api")
+		}
+
+		t.Skip("web/dist holds no build; run make web/build to cover the built-in frontend")
+	}
+
+	if builtin == nil || builtin("a b") != "/users/a%20b" {
+		t.Fatal("expected the built-in frontend's page for the user who logged in")
+	}
+}
+
+func TestBuiltinPolicy_AdmitsAvatarsFromWhereGitLabKeepsThem(t *testing.T) {
+	policy := builtinPolicy("https://GitLab.example.com/some/path")
+
+	if !strings.Contains(policy, "img-src 'self' data: https: https://gitlab.example.com;") {
+		t.Errorf("expected the instance's origin among image sources, got %q", policy)
+	}
+
+	if !strings.Contains(policy, "frame-ancestors 'none'") || strings.Contains(policy, "unsafe") {
+		t.Errorf("expected a strict policy, got %q", policy)
+	}
 }
 
 func TestNewHTTPServer_FrontendNeverShadowsTheAPI(t *testing.T) {

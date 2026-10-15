@@ -61,6 +61,7 @@ type API struct {
 	sessions   *sessions
 	mux        *http.ServeMux
 	icons      map[string]icon
+	instance   Instance
 }
 
 // Options configures an API.
@@ -82,6 +83,8 @@ type Options struct {
 	// Left empty, a random key is used, which is only fit for tests: every
 	// session would end with the process.
 	SessionSecret string
+	// Instance is what /instance reports about the deployment.
+	Instance Instance
 	// SessionLifetime is how long a browser stays logged in; zero means
 	// config.DefaultSessionLifetime.
 	SessionLifetime time.Duration
@@ -103,6 +106,7 @@ func New(conn *gorm.DB, opts Options) (*API, error) {
 		mux:        http.NewServeMux(),
 		exclusions: opts.Exclusions,
 		icons:      loadIcons(),
+		instance:   opts.Instance,
 	}
 
 	if opts.Verifier != nil {
@@ -194,6 +198,7 @@ func (a *API) routes() {
 	read.HandleFunc("GET "+PathPrefix+"leaderboard/criteria/{criteria}", a.handleCriteriaLeaderboard)
 	read.HandleFunc("GET "+PathPrefix+"achievements", a.handleAchievements)
 	read.HandleFunc("GET "+MePath, a.handleMe)
+	read.HandleFunc("GET "+InstancePath, a.handleInstance)
 	a.optOutRoutes(read)
 
 	a.mux.Handle(PathPrefix, a.protect(read))

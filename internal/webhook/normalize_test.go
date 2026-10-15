@@ -448,6 +448,58 @@ func TestNormalize_ResolvingADiscussionCountsForTheResolver(t *testing.T) {
 	}
 }
 
+func TestNormalize_UsernamesGoOnlyToTheActorTheyBelongTo(t *testing.T) {
+	// alice resolving user 20's thread redelivers user 20's note with alice
+	// as the payload user; naming the note's author "alice" would rename
+	// user 20's row after her.
+	events := normalize(resolvedNote(10, false), receivedAt)
+
+	if got := findKind(t, events, activity.KindComment).ActorUsername; got != "" {
+		t.Errorf("expected no username for a comment whose author the payload does not describe, got %q", got)
+	}
+
+	// A thread resolved earlier by user 30, redelivered because alice edited it.
+	edited := normalize(resolvedNote(30, false), receivedAt)
+
+	if got := findKind(t, edited, activity.KindDiscussionResolved).ActorUsername; got != "" {
+		t.Errorf("expected no username for a resolver the payload does not describe, got %q", got)
+	}
+
+	issue := normalize(&gitlab.IssueCommentEvent{
+		User: &gitlab.User{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.IssueCommentEventObjectAttributes{ID: 4, AuthorID: 20, ProjectID: 1},
+	}, receivedAt)
+
+	if got := issue[0].ActorUsername; got != "" {
+		t.Errorf("expected no username for an issue comment by somebody else, got %q", got)
+	}
+}
+
+func TestNormalize_AvatarsGoOnlyToTheActorTheyBelongTo(t *testing.T) {
+	note := resolvedNote(10, false)
+	note.User.AvatarURL = "https://gitlab.example.com/uploads/alice.png"
+
+	events := normalize(note, receivedAt)
+
+	if got := findKind(t, events, activity.KindDiscussionResolved).ActorAvatarURL; got != note.User.AvatarURL {
+		t.Errorf("expected the resolver's avatar on the resolution, got %q", got)
+	}
+
+	// The delivery is alice's doing, but the comment is user 20's.
+	if got := findKind(t, events, activity.KindComment).ActorAvatarURL; got != "" {
+		t.Errorf("expected no avatar for a comment whose author the payload does not describe, got %q", got)
+	}
+
+	push := normalize(&gitlab.PushEvent{
+		UserID: 10, UserUsername: "alice", UserAvatar: note.User.AvatarURL, ProjectID: 1,
+		Ref: "refs/heads/main", Before: "aaaa", After: "bbbb",
+	}, receivedAt)
+
+	if got := findKind(t, push, activity.KindPush).ActorAvatarURL; got != note.User.AvatarURL {
+		t.Errorf("expected the pusher's avatar, got %q", got)
+	}
+}
+
 func TestNormalize_DiscussionResolvedByAPushIsNobodysAchievement(t *testing.T) {
 	events := normalize(resolvedNote(10, true), receivedAt)
 
