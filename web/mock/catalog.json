@@ -1,0 +1,2129 @@
+{
+  "criteria": [
+    {
+      "criteria_key": "commits",
+      "category": "git",
+      "title": "Committer",
+      "icon_url": "/api/v1/achievements/commits/icon",
+      "tiers": [
+        {
+          "name": "Committer I",
+          "description": "Author your first commit.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Committer II",
+          "description": "Author 5 commits.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Committer III",
+          "description": "Author 10 commits.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Committer IV",
+          "description": "Author 50 commits.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Committer V",
+          "description": "Author 100 commits.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Committer VI",
+          "description": "Author 500 commits.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Committer VII",
+          "description": "Author 1000 commits.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Committer VIII",
+          "description": "Author 5000 commits.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Committer IX",
+          "description": "Author 10000 commits.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Committer X",
+          "description": "Author 50000 commits.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Committer XI",
+          "description": "Author 100000 commits.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "pushes",
+      "category": "git",
+      "title": "Product Shipping",
+      "icon_url": "/api/v1/achievements/pushes/icon",
+      "tiers": [
+        {
+          "name": "Product Shipping I",
+          "description": "Push for the first time.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Product Shipping II",
+          "description": "Push 3 times.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Product Shipping III",
+          "description": "Push 5 times.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Product Shipping IV",
+          "description": "Push 10 times.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Product Shipping V",
+          "description": "Push 50 times.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Product Shipping VI",
+          "description": "Push 100 times.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Product Shipping VII",
+          "description": "Push 500 times.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Product Shipping VIII",
+          "description": "Push 1000 times.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Product Shipping IX",
+          "description": "Push 5000 times.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Product Shipping X",
+          "description": "Push 10000 times.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Product Shipping XI",
+          "description": "Push 50000 times.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "branches_created",
+      "category": "git",
+      "title": "Friend of the Trees",
+      "icon_url": "/api/v1/achievements/branches_created/icon",
+      "tiers": [
+        {
+          "name": "Friend of the Trees I",
+          "description": "Create your first branch.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Friend of the Trees II",
+          "description": "Create 3 branches.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Friend of the Trees III",
+          "description": "Create 5 branches.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Friend of the Trees IV",
+          "description": "Create 10 branches.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Friend of the Trees V",
+          "description": "Create 50 branches.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Friend of the Trees VI",
+          "description": "Create 100 branches.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Friend of the Trees VII",
+          "description": "Create 500 branches.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Friend of the Trees VIII",
+          "description": "Create 1000 branches.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Friend of the Trees IX",
+          "description": "Create 5000 branches.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Friend of the Trees X",
+          "description": "Create 10000 branches.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Friend of the Trees XI",
+          "description": "Create 50000 branches.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "tags_created",
+      "category": "git",
+      "title": "Tagger",
+      "icon_url": "/api/v1/achievements/tags_created/icon",
+      "tiers": [
+        {
+          "name": "Tagger I",
+          "description": "Create your first tag.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Tagger II",
+          "description": "Create 3 tags.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Tagger III",
+          "description": "Create 5 tags.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Tagger IV",
+          "description": "Create 10 tags.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Tagger V",
+          "description": "Create 50 tags.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Tagger VI",
+          "description": "Create 100 tags.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Tagger VII",
+          "description": "Create 500 tags.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Tagger VIII",
+          "description": "Create 1000 tags.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Tagger IX",
+          "description": "Create 5000 tags.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Tagger X",
+          "description": "Create 10000 tags.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Tagger XI",
+          "description": "Create 50000 tags.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_opened",
+      "category": "merge_requests",
+      "title": "Merge Request Opener",
+      "icon_url": "/api/v1/achievements/merge_requests_opened/icon",
+      "tiers": [
+        {
+          "name": "Merge Request Opener I",
+          "description": "Open your first merge request.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Merge Request Opener II",
+          "description": "Open 5 merge requests.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Merge Request Opener III",
+          "description": "Open 10 merge requests.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Merge Request Opener IV",
+          "description": "Open 50 merge requests.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Merge Request Opener V",
+          "description": "Open 100 merge requests.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Merge Request Opener VI",
+          "description": "Open 500 merge requests.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Merge Request Opener VII",
+          "description": "Open 1000 merge requests.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Merge Request Opener VIII",
+          "description": "Open 5000 merge requests.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Merge Request Opener IX",
+          "description": "Open 10000 merge requests.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Merge Request Opener X",
+          "description": "Open 50000 merge requests.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Merge Request Opener XI",
+          "description": "Open 100000 merge requests.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_merged",
+      "category": "merge_requests",
+      "title": "Merger",
+      "icon_url": "/api/v1/achievements/merge_requests_merged/icon",
+      "tiers": [
+        {
+          "name": "Merger I",
+          "description": "Merge your first merge request.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Merger II",
+          "description": "Merge 3 merge requests.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Merger III",
+          "description": "Merge 5 merge requests.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Merger IV",
+          "description": "Merge 10 merge requests.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Merger V",
+          "description": "Merge 50 merge requests.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Merger VI",
+          "description": "Merge 100 merge requests.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Merger VII",
+          "description": "Merge 500 merge requests.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Merger VIII",
+          "description": "Merge 1000 merge requests.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Merger IX",
+          "description": "Merge 5000 merge requests.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Merger X",
+          "description": "Merge 10000 merge requests.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Merger XI",
+          "description": "Merge 50000 merge requests.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_approved",
+      "category": "merge_requests",
+      "title": "Stamp of Approval",
+      "icon_url": "/api/v1/achievements/merge_requests_approved/icon",
+      "tiers": [
+        {
+          "name": "Stamp of Approval I",
+          "description": "Approve your first merge request.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Stamp of Approval II",
+          "description": "Approve 3 merge requests.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Stamp of Approval III",
+          "description": "Approve 5 merge requests.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Stamp of Approval IV",
+          "description": "Approve 10 merge requests.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Stamp of Approval V",
+          "description": "Approve 50 merge requests.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Stamp of Approval VI",
+          "description": "Approve 100 merge requests.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Stamp of Approval VII",
+          "description": "Approve 500 merge requests.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Stamp of Approval VIII",
+          "description": "Approve 1000 merge requests.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Stamp of Approval IX",
+          "description": "Approve 5000 merge requests.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Stamp of Approval X",
+          "description": "Approve 10000 merge requests.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Stamp of Approval XI",
+          "description": "Approve 50000 merge requests.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_closed",
+      "category": "merge_requests",
+      "title": "Second Thoughts",
+      "icon_url": "/api/v1/achievements/merge_requests_closed/icon",
+      "tiers": [
+        {
+          "name": "Second Thoughts I",
+          "description": "Close a merge request without merging it.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Second Thoughts II",
+          "description": "Close 3 merge requests without merging them.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Second Thoughts III",
+          "description": "Close 5 merge requests without merging them.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Second Thoughts IV",
+          "description": "Close 10 merge requests without merging them.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Second Thoughts V",
+          "description": "Close 50 merge requests without merging them.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Second Thoughts VI",
+          "description": "Close 100 merge requests without merging them.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Second Thoughts VII",
+          "description": "Close 500 merge requests without merging them.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Second Thoughts VIII",
+          "description": "Close 1000 merge requests without merging them.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Second Thoughts IX",
+          "description": "Close 5000 merge requests without merging them.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Second Thoughts X",
+          "description": "Close 10000 merge requests without merging them.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Second Thoughts XI",
+          "description": "Close 50000 merge requests without merging them.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_merged_fast",
+      "category": "merge_requests",
+      "title": "Rubber Stamp",
+      "icon_url": "/api/v1/achievements/merge_requests_merged_fast/icon",
+      "tiers": [
+        {
+          "name": "Rubber Stamp I",
+          "description": "Merge a merge request within an hour of it being opened.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Rubber Stamp II",
+          "description": "Merge 3 merge requests within an hour of them being opened.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Rubber Stamp III",
+          "description": "Merge 5 merge requests within an hour of them being opened.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Rubber Stamp IV",
+          "description": "Merge 10 merge requests within an hour of them being opened.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Rubber Stamp V",
+          "description": "Merge 50 merge requests within an hour of them being opened.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Rubber Stamp VI",
+          "description": "Merge 100 merge requests within an hour of them being opened.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Rubber Stamp VII",
+          "description": "Merge 500 merge requests within an hour of them being opened.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Rubber Stamp VIII",
+          "description": "Merge 1000 merge requests within an hour of them being opened.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Rubber Stamp IX",
+          "description": "Merge 5000 merge requests within an hour of them being opened.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Rubber Stamp X",
+          "description": "Merge 10000 merge requests within an hour of them being opened.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Rubber Stamp XI",
+          "description": "Merge 50000 merge requests within an hour of them being opened.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "comments",
+      "category": "merge_requests",
+      "title": "Commentator",
+      "icon_url": "/api/v1/achievements/comments/icon",
+      "tiers": [
+        {
+          "name": "Commentator I",
+          "description": "Leave 2 comments.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Commentator II",
+          "description": "Leave 10 comments.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Commentator III",
+          "description": "Leave 20 comments.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Commentator IV",
+          "description": "Leave 100 comments.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Commentator V",
+          "description": "Leave 200 comments.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Commentator VI",
+          "description": "Leave 1000 comments.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Commentator VII",
+          "description": "Leave 2000 comments.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Commentator VIII",
+          "description": "Leave 10000 comments.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Commentator IX",
+          "description": "Leave 20000 comments.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Commentator X",
+          "description": "Leave 100000 comments.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Commentator XI",
+          "description": "Leave 200000 comments.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "discussions_resolved",
+      "category": "merge_requests",
+      "title": "Loose Ends",
+      "icon_url": "/api/v1/achievements/discussions_resolved/icon",
+      "tiers": [
+        {
+          "name": "Loose Ends I",
+          "description": "Resolve your first review discussion.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Loose Ends II",
+          "description": "Resolve 5 review discussions.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Loose Ends III",
+          "description": "Resolve 10 review discussions.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Loose Ends IV",
+          "description": "Resolve 50 review discussions.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Loose Ends V",
+          "description": "Resolve 100 review discussions.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Loose Ends VI",
+          "description": "Resolve 500 review discussions.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Loose Ends VII",
+          "description": "Resolve 1000 review discussions.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Loose Ends VIII",
+          "description": "Resolve 5000 review discussions.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Loose Ends IX",
+          "description": "Resolve 10000 review discussions.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Loose Ends X",
+          "description": "Resolve 50000 review discussions.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Loose Ends XI",
+          "description": "Resolve 100000 review discussions.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "issues_opened",
+      "category": "issues",
+      "title": "Issue Opener",
+      "icon_url": "/api/v1/achievements/issues_opened/icon",
+      "tiers": [
+        {
+          "name": "Issue Opener I",
+          "description": "Open your first issue.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Issue Opener II",
+          "description": "Open 5 issues.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Issue Opener III",
+          "description": "Open 10 issues.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Issue Opener IV",
+          "description": "Open 50 issues.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Issue Opener V",
+          "description": "Open 100 issues.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Issue Opener VI",
+          "description": "Open 500 issues.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Issue Opener VII",
+          "description": "Open 1000 issues.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Issue Opener VIII",
+          "description": "Open 5000 issues.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Issue Opener IX",
+          "description": "Open 10000 issues.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Issue Opener X",
+          "description": "Open 50000 issues.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Issue Opener XI",
+          "description": "Open 100000 issues.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "issues_closed",
+      "category": "issues",
+      "title": "Problem Solver",
+      "icon_url": "/api/v1/achievements/issues_closed/icon",
+      "tiers": [
+        {
+          "name": "Problem Solver I",
+          "description": "Close your first issue.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Problem Solver II",
+          "description": "Close 5 issues.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Problem Solver III",
+          "description": "Close 10 issues.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Problem Solver IV",
+          "description": "Close 50 issues.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Problem Solver V",
+          "description": "Close 100 issues.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Problem Solver VI",
+          "description": "Close 500 issues.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Problem Solver VII",
+          "description": "Close 1000 issues.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Problem Solver VIII",
+          "description": "Close 5000 issues.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Problem Solver IX",
+          "description": "Close 10000 issues.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Problem Solver X",
+          "description": "Close 50000 issues.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Problem Solver XI",
+          "description": "Close 100000 issues.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "pipelines_run",
+      "category": "ci_cd",
+      "title": "Pipeline Operator",
+      "icon_url": "/api/v1/achievements/pipelines_run/icon",
+      "tiers": [
+        {
+          "name": "Pipeline Operator I",
+          "description": "Trigger 2 pipelines.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Pipeline Operator II",
+          "description": "Trigger 10 pipelines.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Pipeline Operator III",
+          "description": "Trigger 20 pipelines.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Pipeline Operator IV",
+          "description": "Trigger 100 pipelines.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Pipeline Operator V",
+          "description": "Trigger 200 pipelines.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Pipeline Operator VI",
+          "description": "Trigger 1000 pipelines.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Pipeline Operator VII",
+          "description": "Trigger 2000 pipelines.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Pipeline Operator VIII",
+          "description": "Trigger 10000 pipelines.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Pipeline Operator IX",
+          "description": "Trigger 20000 pipelines.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Pipeline Operator X",
+          "description": "Trigger 100000 pipelines.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Pipeline Operator XI",
+          "description": "Trigger 200000 pipelines.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "pipelines_succeeded",
+      "category": "ci_cd",
+      "title": "All Green",
+      "icon_url": "/api/v1/achievements/pipelines_succeeded/icon",
+      "tiers": [
+        {
+          "name": "All Green I",
+          "description": "Trigger 2 pipelines that pass.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "All Green II",
+          "description": "Trigger 10 pipelines that pass.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "All Green III",
+          "description": "Trigger 20 pipelines that pass.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "All Green IV",
+          "description": "Trigger 100 pipelines that pass.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "All Green V",
+          "description": "Trigger 200 pipelines that pass.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "All Green VI",
+          "description": "Trigger 1000 pipelines that pass.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "All Green VII",
+          "description": "Trigger 2000 pipelines that pass.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "All Green VIII",
+          "description": "Trigger 10000 pipelines that pass.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "All Green IX",
+          "description": "Trigger 20000 pipelines that pass.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "All Green X",
+          "description": "Trigger 100000 pipelines that pass.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "All Green XI",
+          "description": "Trigger 200000 pipelines that pass.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "pipelines_failed",
+      "category": "ci_cd",
+      "title": "Firefighter",
+      "icon_url": "/api/v1/achievements/pipelines_failed/icon",
+      "tiers": [
+        {
+          "name": "Firefighter I",
+          "description": "Trigger a pipeline that fails.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Firefighter II",
+          "description": "Trigger 3 pipelines that fail.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Firefighter III",
+          "description": "Trigger 5 pipelines that fail.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Firefighter IV",
+          "description": "Trigger 10 pipelines that fail.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Firefighter V",
+          "description": "Trigger 50 pipelines that fail.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Firefighter VI",
+          "description": "Trigger 100 pipelines that fail.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Firefighter VII",
+          "description": "Trigger 500 pipelines that fail.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Firefighter VIII",
+          "description": "Trigger 1000 pipelines that fail.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Firefighter IX",
+          "description": "Trigger 5000 pipelines that fail.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Firefighter X",
+          "description": "Trigger 10000 pipelines that fail.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Firefighter XI",
+          "description": "Trigger 50000 pipelines that fail.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "jobs_run",
+      "category": "ci_cd",
+      "title": "Assembly Line",
+      "icon_url": "/api/v1/achievements/jobs_run/icon",
+      "tiers": [
+        {
+          "name": "Assembly Line I",
+          "description": "Run 2 CI jobs.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Assembly Line II",
+          "description": "Run 10 CI jobs.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Assembly Line III",
+          "description": "Run 20 CI jobs.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Assembly Line IV",
+          "description": "Run 100 CI jobs.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Assembly Line V",
+          "description": "Run 200 CI jobs.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Assembly Line VI",
+          "description": "Run 1000 CI jobs.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Assembly Line VII",
+          "description": "Run 2000 CI jobs.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Assembly Line VIII",
+          "description": "Run 10000 CI jobs.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Assembly Line IX",
+          "description": "Run 20000 CI jobs.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Assembly Line X",
+          "description": "Run 100000 CI jobs.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Assembly Line XI",
+          "description": "Run 200000 CI jobs.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "deployments",
+      "category": "ci_cd",
+      "title": "Ship It",
+      "icon_url": "/api/v1/achievements/deployments/icon",
+      "tiers": [
+        {
+          "name": "Ship It I",
+          "description": "Deploy for the first time.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Ship It II",
+          "description": "Deploy 5 times.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Ship It III",
+          "description": "Deploy 10 times.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Ship It IV",
+          "description": "Deploy 50 times.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Ship It V",
+          "description": "Deploy 100 times.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Ship It VI",
+          "description": "Deploy 500 times.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Ship It VII",
+          "description": "Deploy 1000 times.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Ship It VIII",
+          "description": "Deploy 5000 times.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Ship It IX",
+          "description": "Deploy 10000 times.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Ship It X",
+          "description": "Deploy 50000 times.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Ship It XI",
+          "description": "Deploy 100000 times.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "deployments_succeeded",
+      "category": "ci_cd",
+      "title": "Stuck the Landing",
+      "icon_url": "/api/v1/achievements/deployments_succeeded/icon",
+      "tiers": [
+        {
+          "name": "Stuck the Landing I",
+          "description": "Complete a deployment successfully.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Stuck the Landing II",
+          "description": "Complete 5 deployments successfully.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Stuck the Landing III",
+          "description": "Complete 10 deployments successfully.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Stuck the Landing IV",
+          "description": "Complete 50 deployments successfully.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Stuck the Landing V",
+          "description": "Complete 100 deployments successfully.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Stuck the Landing VI",
+          "description": "Complete 500 deployments successfully.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Stuck the Landing VII",
+          "description": "Complete 1000 deployments successfully.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Stuck the Landing VIII",
+          "description": "Complete 5000 deployments successfully.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Stuck the Landing IX",
+          "description": "Complete 10000 deployments successfully.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Stuck the Landing X",
+          "description": "Complete 50000 deployments successfully.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Stuck the Landing XI",
+          "description": "Complete 100000 deployments successfully.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "emoji_awarded",
+      "category": "collaboration",
+      "title": "Reaction Time",
+      "icon_url": "/api/v1/achievements/emoji_awarded/icon",
+      "tiers": [
+        {
+          "name": "Reaction Time I",
+          "description": "React to 2 issues, merge requests, or comments.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Reaction Time II",
+          "description": "React to 10 issues, merge requests, or comments.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Reaction Time III",
+          "description": "React to 20 issues, merge requests, or comments.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Reaction Time IV",
+          "description": "React to 100 issues, merge requests, or comments.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Reaction Time V",
+          "description": "React to 200 issues, merge requests, or comments.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Reaction Time VI",
+          "description": "React to 1000 issues, merge requests, or comments.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Reaction Time VII",
+          "description": "React to 2000 issues, merge requests, or comments.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Reaction Time VIII",
+          "description": "React to 10000 issues, merge requests, or comments.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Reaction Time IX",
+          "description": "React to 20000 issues, merge requests, or comments.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Reaction Time X",
+          "description": "React to 100000 issues, merge requests, or comments.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Reaction Time XI",
+          "description": "React to 200000 issues, merge requests, or comments.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "wiki_pages_created",
+      "category": "collaboration",
+      "title": "Librarian",
+      "icon_url": "/api/v1/achievements/wiki_pages_created/icon",
+      "tiers": [
+        {
+          "name": "Librarian I",
+          "description": "Create your first wiki page.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Librarian II",
+          "description": "Create 3 wiki pages.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Librarian III",
+          "description": "Create 5 wiki pages.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Librarian IV",
+          "description": "Create 10 wiki pages.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Librarian V",
+          "description": "Create 50 wiki pages.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Librarian VI",
+          "description": "Create 100 wiki pages.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Librarian VII",
+          "description": "Create 500 wiki pages.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Librarian VIII",
+          "description": "Create 1000 wiki pages.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Librarian IX",
+          "description": "Create 5000 wiki pages.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Librarian X",
+          "description": "Create 10000 wiki pages.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Librarian XI",
+          "description": "Create 50000 wiki pages.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "active_days",
+      "category": "engagement",
+      "title": "Regular",
+      "icon_url": "/api/v1/achievements/active_days/icon",
+      "tiers": [
+        {
+          "name": "Regular I",
+          "description": "Be active for a day.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Regular II",
+          "description": "Be active on 5 separate days.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Regular III",
+          "description": "Be active on 10 separate days.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Regular IV",
+          "description": "Be active on 50 separate days.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Regular V",
+          "description": "Be active on 100 separate days.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Regular VI",
+          "description": "Be active on 500 separate days.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Regular VII",
+          "description": "Be active on 1000 separate days.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Regular VIII",
+          "description": "Be active on 5000 separate days.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Regular IX",
+          "description": "Be active on 10000 separate days.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Regular X",
+          "description": "Be active on 50000 separate days.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Regular XI",
+          "description": "Be active on 100000 separate days.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "activity_streak",
+      "category": "engagement",
+      "title": "Connection Streak",
+      "icon_url": "/api/v1/achievements/activity_streak/icon",
+      "tiers": [
+        {
+          "name": "Connection Streak I",
+          "description": "Start a streak of active days.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Connection Streak II",
+          "description": "Stay active 2 days in a row.",
+          "tier": 2,
+          "threshold": 2,
+          "exp_reward": 3
+        },
+        {
+          "name": "Connection Streak III",
+          "description": "Stay active 3 days in a row.",
+          "tier": 3,
+          "threshold": 3,
+          "exp_reward": 5
+        },
+        {
+          "name": "Connection Streak IV",
+          "description": "Stay active 5 days in a row.",
+          "tier": 4,
+          "threshold": 5,
+          "exp_reward": 10
+        },
+        {
+          "name": "Connection Streak V",
+          "description": "Stay active 7 days in a row.",
+          "tier": 5,
+          "threshold": 7,
+          "exp_reward": 50
+        },
+        {
+          "name": "Connection Streak VI",
+          "description": "Stay active 14 days in a row.",
+          "tier": 6,
+          "threshold": 14,
+          "exp_reward": 100
+        },
+        {
+          "name": "Connection Streak VII",
+          "description": "Stay active 30 days in a row.",
+          "tier": 7,
+          "threshold": 30,
+          "exp_reward": 500
+        },
+        {
+          "name": "Connection Streak VIII",
+          "description": "Stay active 60 days in a row.",
+          "tier": 8,
+          "threshold": 60,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Connection Streak IX",
+          "description": "Stay active 100 days in a row.",
+          "tier": 9,
+          "threshold": 100,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Connection Streak X",
+          "description": "Stay active 180 days in a row.",
+          "tier": 10,
+          "threshold": 180,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Connection Streak XI",
+          "description": "Stay active 365 days in a row.",
+          "tier": 11,
+          "threshold": 365,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "night_owl_days",
+      "category": "engagement",
+      "title": "Night Owl",
+      "icon_url": "/api/v1/achievements/night_owl_days/icon",
+      "tiers": [
+        {
+          "name": "Night Owl I",
+          "description": "Be active after midnight.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Night Owl II",
+          "description": "Be active after midnight on 3 separate days.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Night Owl III",
+          "description": "Be active after midnight on 5 separate days.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Night Owl IV",
+          "description": "Be active after midnight on 10 separate days.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Night Owl V",
+          "description": "Be active after midnight on 50 separate days.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Night Owl VI",
+          "description": "Be active after midnight on 100 separate days.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Night Owl VII",
+          "description": "Be active after midnight on 500 separate days.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Night Owl VIII",
+          "description": "Be active after midnight on 1000 separate days.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Night Owl IX",
+          "description": "Be active after midnight on 5000 separate days.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Night Owl X",
+          "description": "Be active after midnight on 10000 separate days.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Night Owl XI",
+          "description": "Be active after midnight on 50000 separate days.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "early_bird_days",
+      "category": "engagement",
+      "title": "Early Bird",
+      "icon_url": "/api/v1/achievements/early_bird_days/icon",
+      "tiers": [
+        {
+          "name": "Early Bird I",
+          "description": "Be active before dawn.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Early Bird II",
+          "description": "Be active before dawn on 3 separate days.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Early Bird III",
+          "description": "Be active before dawn on 5 separate days.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Early Bird IV",
+          "description": "Be active before dawn on 10 separate days.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Early Bird V",
+          "description": "Be active before dawn on 50 separate days.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Early Bird VI",
+          "description": "Be active before dawn on 100 separate days.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Early Bird VII",
+          "description": "Be active before dawn on 500 separate days.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Early Bird VIII",
+          "description": "Be active before dawn on 1000 separate days.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Early Bird IX",
+          "description": "Be active before dawn on 5000 separate days.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Early Bird X",
+          "description": "Be active before dawn on 10000 separate days.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Early Bird XI",
+          "description": "Be active before dawn on 50000 separate days.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    }
+  ]
+}

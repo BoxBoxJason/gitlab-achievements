@@ -113,6 +113,32 @@ jobs:
       - name: Run govulncheck (Makefile)
         run: make vulncheck
 
+  web:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # The build runs the type check as well (vue-tsc -b), so the two jobs
+      # it would otherwise be are one.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   oci:
     name: Build OCI Image
     runs-on: ubuntu-latest

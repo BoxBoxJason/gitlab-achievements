@@ -26,6 +26,27 @@ govulncheck_version := v1.9.0
 # Default target
 .DEFAULT_GOAL := build
 
+# Frontend. `make build` compiles whatever web/dist holds, which is only a
+# placeholder until web/build has run, so a Go-only checkout still builds
+# (it serves the API alone). `make build/all` builds both, as the image does.
+WEB_DIR ?= web
+NPM ?= npm
+
+web/deps:
+	cd $(WEB_DIR) && $(NPM) ci --no-audit --no-fund
+
+web/build: web/deps
+	cd $(WEB_DIR) && $(NPM) run build
+
+web/test: web/deps
+	cd $(WEB_DIR) && $(NPM) run typecheck && $(NPM) test
+
+# The frontend against fixture data, no GitLab needed: http://localhost:5173
+web/dev: web/deps
+	cd $(WEB_DIR) && $(NPM) run dev:mock
+
+build/all: web/build build
+
 # Download dependencies
 deps:
 	@echo "Downloading dependencies..."
@@ -81,4 +102,4 @@ helm/template:
 	helm template gitlab-achievements --debug $(CHART_DIR)
 
 # Phony targets
-.PHONY: deps build lint vulncheck dependency-check test package helm/lint helm/package
+.PHONY: deps build build/all lint vulncheck dependency-check test package helm/lint helm/package web/deps web/build web/test web/dev

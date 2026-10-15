@@ -113,6 +113,10 @@ type Event struct {
 	// ActorUsername is the acting user's GitLab username, recorded
 	// alongside the ID so a user row can be created without a lookup.
 	ActorUsername string
+	// ActorAvatarURL is the acting user's avatar as the payload reported
+	// it, empty where it reported none. It is carried so the frontend can
+	// show faces without asking GitLab, the same way the username is.
+	ActorAvatarURL string
 	// ActorID is the acting user's GitLab user ID.
 	ActorID int64
 	// ProjectID is the GitLab project the activity happened in, or 0 for

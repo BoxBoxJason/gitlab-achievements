@@ -8,11 +8,12 @@
 // keep working as they are. A frontend on another origin would need all of
 // that loosened.
 //
-// The frontend is any directory of built static files with an index.html
-// at its root, as single-page-app toolchains produce. Paths that name no
-// file and look like client-side routes (no file extension) are answered
-// with index.html, so a deep link like /users/alice reaches the app's own
-// router instead of a 404.
+// The frontend is any tree of built static files with an index.html at its
+// root, as single-page-app toolchains produce: the one compiled into the
+// binary (see the web package), or a directory an operator points
+// FRONTEND_DIR at. Paths that name no file and look like client-side routes
+// (no file extension) are answered with index.html, so a deep link like
+// /users/alice reaches the app's own router instead of a 404.
 package frontend
 
 import (
@@ -28,21 +29,49 @@ import (
 // indexFile is the page every client-side route is answered with.
 const indexFile = "index.html"
 
+// Options tunes how a frontend is served, for a frontend whose build is
+// known. A directory of somebody else's build is served with the zero
+// value, which assumes nothing about it.
+type Options struct {
+	// ContentSecurityPolicy is sent with every response when set.
+	ContentSecurityPolicy string
+	// ImmutableDir names a top-level directory whose files are named by
+	// content hash, so they are cached for good instead of revalidated.
+	// That matters for an embedded build in particular, whose files carry
+	// no modification time to revalidate against.
+	ImmutableDir string
+}
+
 // Handler serves the frontend built into dir.
 func Handler(dir string) (http.Handler, error) {
-	root := os.DirFS(dir)
-
-	info, err := fs.Stat(root, indexFile)
-	if err != nil || info.IsDir() {
-		return nil, fmt.Errorf("frontend directory %q has no %s at its root", dir, indexFile)
+	site, err := HandlerFS(os.DirFS(dir), Options{})
+	if err != nil {
+		return nil, fmt.Errorf("frontend directory %q: %w", dir, err)
 	}
 
-	return &handler{root: root, files: http.FileServerFS(root)}, nil
+	return site, nil
+}
+
+// HandlerFS serves the frontend built into root.
+func HandlerFS(root fs.FS, opts Options) (http.Handler, error) {
+	if !HasIndex(root) {
+		return nil, fmt.Errorf("no %s at its root", indexFile)
+	}
+
+	return &handler{root: root, files: http.FileServerFS(root), opts: opts}, nil
+}
+
+// HasIndex reports whether root holds a built frontend at all.
+func HasIndex(root fs.FS) bool {
+	info, err := fs.Stat(root, indexFile)
+
+	return err == nil && !info.IsDir()
 }
 
 type handler struct {
 	root  fs.FS
 	files http.Handler
+	opts  Options
 }
 
 // ServeHTTP serves one file, or index.html for a client-side route.
@@ -59,10 +88,18 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	setSecurityHeaders(resp.Header())
 
+	if h.opts.ContentSecurityPolicy != "" {
+		resp.Header().Set("Content-Security-Policy", h.opts.ContentSecurityPolicy)
+	}
+
 	switch h.resolve(req.URL.Path, wantsPage(req)) {
 	case servedIndex:
 		h.serveIndex(resp, req)
 	case servedFile:
+		if h.immutable(req.URL.Path) {
+			resp.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+
 		h.files.ServeHTTP(resp, req)
 	default:
 		http.NotFound(resp, req)
@@ -103,6 +140,15 @@ func (h *handler) resolve(requestPath string, navigation bool) int {
 	}
 }
 
+// immutable reports whether requestPath is inside Options.ImmutableDir.
+func (h *handler) immutable(requestPath string) bool {
+	if h.opts.ImmutableDir == "" {
+		return false
+	}
+
+	return strings.HasPrefix(path.Clean("/"+requestPath), "/"+h.opts.ImmutableDir+"/")
+}
+
 // wantsPage reports whether the browser is loading a document, as opposed to
 // a script, stylesheet, image or fetch, which never ask for text/html.
 func wantsPage(req *http.Request) bool {
@@ -123,7 +169,7 @@ func (h *handler) serveIndex(resp http.ResponseWriter, req *http.Request) {
 //
 // They are the conservative ones that suit any static frontend. A Content
 // Security Policy is not among them because a sensible one depends on the
-// frontend itself; set it in the frontend's build or at the ingress.
+// frontend itself; Options carries one for a frontend whose build is known.
 func setSecurityHeaders(header http.Header) {
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "strict-origin-when-cross-origin")

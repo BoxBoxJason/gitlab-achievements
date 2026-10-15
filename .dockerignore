@@ -15,3 +15,5 @@ cliff.toml
 Containerfile
 CONTRIBUTING.md
 renovate.json
+web/node_modules/
+web/dist/

@@ -317,6 +317,50 @@ func TestProcess_KeepsUsernameInStepWithGitLab(t *testing.T) {
 	}
 }
 
+func TestProcess_KeepsAvatarInStepWithGitLab(t *testing.T) {
+	conn := testConn(t)
+	eng := New(conn)
+
+	first := commitEvent("project_event:1:commit", 1)
+	first.ActorAvatarURL = "https://gitlab.example.com/uploads/old.png"
+
+	// A payload with no avatar must not blank the one already known.
+	silent := commitEvent("project_event:2:commit", 1)
+
+	changed := commitEvent("project_event:3:commit", 1)
+	changed.ActorAvatarURL = "https://gitlab.example.com/uploads/new.png"
+
+	for _, event := range []activity.Event{first, silent} {
+		if err := eng.Process(t.Context(), event); err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+	}
+
+	if got := avatarOf(t, conn); got != first.ActorAvatarURL {
+		t.Fatalf("expected the first avatar to be kept, got %q", got)
+	}
+
+	if err := eng.Process(t.Context(), changed); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if got := avatarOf(t, conn); got != changed.ActorAvatarURL {
+		t.Errorf("expected the avatar to follow GitLab's, got %q", got)
+	}
+}
+
+// avatarOf returns the only user's stored avatar.
+func avatarOf(t *testing.T, conn *gorm.DB) string {
+	t.Helper()
+
+	var user appdb.User
+	if err := conn.First(&user).Error; err != nil {
+		t.Fatalf("failed to load user: %v", err)
+	}
+
+	return user.AvatarURL
+}
+
 func TestProcess_CountsSeveralCriteriaForOneKind(t *testing.T) {
 	conn := testConn(t)
 	eng := New(conn)

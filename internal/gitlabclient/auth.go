@@ -33,9 +33,10 @@ const verifyTimeout = 10 * time.Second
 
 // Identity is who a token belongs to on the GitLab instance.
 type Identity struct {
-	Username string `json:"username"`
-	ID       int64  `json:"id"`
-	IsAdmin  bool   `json:"is_admin"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatar_url"`
+	ID        int64  `json:"id"`
+	IsAdmin   bool   `json:"is_admin"`
 }
 
 // TokenVerifier resolves arbitrary GitLab credentials to the identity

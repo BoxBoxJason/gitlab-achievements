@@ -219,6 +219,25 @@ func TestNormalizeProjectEvent_FallsBackToTheEmbeddedAuthorUsername(t *testing.T
 	}
 }
 
+func TestNormalizeProjectEvent_CarriesTheAuthorsAvatar(t *testing.T) {
+	const avatar = "https://gitlab.example.com/uploads/bob.png"
+
+	event := &gitlab.ProjectEvent{
+		ID: 1, AuthorID: 10, ActionName: "opened", TargetType: "Issue",
+		Author: gitlab.BasicUser{ID: 10, Username: "bob", AvatarURL: avatar},
+	}
+
+	activities := NormalizeProjectEvent(event)
+	if len(activities) != 1 || activities[0].ActorAvatarURL != avatar {
+		t.Fatalf("expected the author's avatar on the activity, got %+v", activities)
+	}
+
+	pipeline := NormalizePipeline(&gitlab.Pipeline{ID: 1, User: &gitlab.BasicUser{ID: 10, AvatarURL: avatar}})
+	if len(pipeline) == 0 || pipeline[0].ActorAvatarURL != avatar {
+		t.Fatalf("expected the triggering user's avatar on the pipeline, got %+v", pipeline)
+	}
+}
+
 func TestNormalizeProjectEvent_UnparseableTimestampKeepsTheActivity(t *testing.T) {
 	event := &gitlab.ProjectEvent{
 		ID: 1, AuthorID: 10, ActionName: "opened", TargetType: "Issue",

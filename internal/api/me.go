@@ -19,6 +19,7 @@ type Me struct {
 	Record        *Detail       `json:"record"`
 	Participation *OptOutStatus `json:"participation,omitempty"`
 	Username      string        `json:"username"`
+	AvatarURL     string        `json:"avatar_url"`
 	GitLabUserID  int64         `json:"gitlab_user_id"`
 }
 
@@ -36,7 +37,7 @@ func (a *API) handleMe(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	caller := Me{Username: identity.Username, GitLabUserID: identity.ID}
+	caller := Me{Username: identity.Username, AvatarURL: identity.AvatarURL, GitLabUserID: identity.ID}
 
 	detail, err := a.store.DetailByGitLabID(req.Context(), identity.ID)
 

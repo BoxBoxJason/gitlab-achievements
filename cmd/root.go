@@ -31,8 +31,10 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/httpserver"
 	"github.com/boxboxjason/gitlab-achievements/internal/logging"
 	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
+	"github.com/boxboxjason/gitlab-achievements/internal/origin"
 	"github.com/boxboxjason/gitlab-achievements/internal/scheduler"
 	"github.com/boxboxjason/gitlab-achievements/internal/webhook"
+	"github.com/boxboxjason/gitlab-achievements/web"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -492,6 +494,7 @@ func buildAPI(
 		SessionSecret:    cfg.SessionSecret,
 		SessionLifetime:  cfg.SessionLifetime,
 		IdentityCacheTTL: cfg.APIAuthCacheTTL,
+		Instance:         api.Instance{GitLabURL: cfg.GitLabURL, Version: resolveVersion()},
 	}
 
 	if cfg.AuthMode() != config.APIAuthGitLab {
@@ -607,22 +610,54 @@ func buildServer(
 	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, site), nil
 }
 
-// buildFrontend builds the handler for the configured frontend, or nil when
-// none is configured. A directory that is not a built frontend fails the
-// start rather than serving 404s at "/".
+// buildFrontend builds the handler for the frontend: the directory
+// FRONTEND_DIR names when set, or else the one compiled into the binary.
+// It is nil for a binary compiled without building the frontend, which
+// then serves the API alone. A FRONTEND_DIR that is not a built frontend
+// fails the start rather than serving 404s at "/".
 func buildFrontend(cfg *config.Config) (http.Handler, error) {
-	if cfg.FrontendDir == "" {
+	if cfg.FrontendDir != "" {
+		site, err := frontend.Handler(cfg.FrontendDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serve the frontend: %w", err)
+		}
+
+		zap.L().Info("serving frontend", zap.String("dir", cfg.FrontendDir))
+
+		return site, nil
+	}
+
+	if !frontend.HasIndex(web.Dist()) {
+		zap.L().Info("this binary was built without its frontend; serving the api alone")
+
 		return nil, nil //nolint:nilnil // no frontend is a valid configuration, not an error
 	}
 
-	site, err := frontend.Handler(cfg.FrontendDir)
+	site, err := frontend.HandlerFS(web.Dist(), frontend.Options{
+		ContentSecurityPolicy: builtinPolicy(cfg.GitLabURL),
+		ImmutableDir:          "assets",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to serve the frontend: %w", err)
+		return nil, fmt.Errorf("failed to serve the built-in frontend: %w", err)
 	}
 
-	zap.L().Info("serving frontend", zap.String("dir", cfg.FrontendDir))
+	zap.L().Info("serving the built-in frontend")
 
 	return site, nil
+}
+
+// builtinPolicy is the Content Security Policy the built-in frontend runs
+// under. Everything it loads is its own, except the avatars in its
+// rankings, which come from wherever GitLab says they live: the instance
+// itself, or a Gravatar-style service it is configured with.
+func builtinPolicy(gitlabURL string) string {
+	images := "'self' data: https:"
+	if gitlab, ok := origin.Of(gitlabURL); ok {
+		images += " " + gitlab
+	}
+
+	return "default-src 'self'; img-src " + images + "; object-src 'none'; " +
+		"base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 }
 
 // newHTTPServer builds the *http.Server exposing /healthz, /readyz, the

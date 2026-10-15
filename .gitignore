@@ -37,3 +37,10 @@ bin/
 codequality/
 dependency-check/
 unit-tests.xml
+
+# Frontend: dependencies, and the build embedded into the binary. The
+# placeholder in dist keeps go:embed compiling on a checkout that never
+# built it.
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep

@@ -62,6 +62,7 @@ type window struct {
 // CriteriaEntry is one row of a per-criteria ranking.
 type CriteriaEntry struct {
 	Username     string `json:"username"`
+	AvatarURL    string `json:"avatar_url"`
 	GitLabUserID int64  `json:"gitlab_user_id"`
 	Count        int64  `json:"count"`
 	// Tier is the highest tier the count reaches, 0 for none yet.
@@ -173,6 +174,7 @@ func (s *store) leaderboard(ctx context.Context, slice page) ([]Entry, int64, er
 // periodRow is one user's EXP earned inside a window.
 type periodRow struct {
 	Username     string
+	AvatarURL    string
 	GitLabUserID int64
 	ExpTotal     int64
 	Earned       int64
@@ -209,9 +211,9 @@ func (s *store) periodLeaderboard(ctx context.Context, slice page, since time.Ti
 	var rows []periodRow
 
 	err = base().
-		Select("users.username AS username, users.git_lab_user_id AS git_lab_user_id, " +
+		Select("users.username AS username, users.avatar_url AS avatar_url, users.git_lab_user_id AS git_lab_user_id, " +
 			"users.exp_total AS exp_total, SUM(achievement_definitions.exp_reward) AS earned").
-		Group("users.id, users.username, users.git_lab_user_id, users.exp_total").
+		Group("users.id, users.username, users.avatar_url, users.git_lab_user_id, users.exp_total").
 		Order("earned DESC, users.git_lab_user_id ASC").
 		Limit(slice.limit).
 		Offset(slice.offset).
@@ -227,6 +229,7 @@ func (s *store) periodLeaderboard(ctx context.Context, slice page, since time.Ti
 		entries = append(entries, Entry{
 			Summary: Summary{
 				Username:     row.Username,
+				AvatarURL:    row.AvatarURL,
 				GitLabUserID: row.GitLabUserID,
 				ExpTotal:     row.ExpTotal,
 			},
@@ -263,12 +266,14 @@ func (s *store) criteriaLeaderboard(ctx context.Context, criteriaKey string, sli
 
 	var rows []struct {
 		Username     string
+		AvatarURL    string
 		GitLabUserID int64
 		Count        int64
 	}
 
 	err = base().
-		Select("users.username AS username, users.git_lab_user_id AS git_lab_user_id, progress_counters.count AS count").
+		Select("users.username AS username, users.avatar_url AS avatar_url, " +
+			"users.git_lab_user_id AS git_lab_user_id, progress_counters.count AS count").
 		Order("progress_counters.count DESC, users.git_lab_user_id ASC").
 		Limit(slice.limit).
 		Offset(slice.offset).
@@ -282,6 +287,7 @@ func (s *store) criteriaLeaderboard(ctx context.Context, criteriaKey string, sli
 	for index, row := range rows {
 		entries = append(entries, CriteriaEntry{
 			Username:     row.Username,
+			AvatarURL:    row.AvatarURL,
 			GitLabUserID: row.GitLabUserID,
 			Count:        row.Count,
 			Tier:         tierReached(definitions, row.Count),
@@ -350,6 +356,7 @@ func (s *store) rank(txn *gorm.DB, user *db.User) (int, error) {
 func summaryOf(user *db.User) Summary {
 	return Summary{
 		Username:     user.Username,
+		AvatarURL:    user.AvatarURL,
 		GitLabUserID: user.GitLabUserID,
 		ExpTotal:     user.ExpTotal,
 	}
