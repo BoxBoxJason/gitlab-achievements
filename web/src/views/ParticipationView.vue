@@ -5,7 +5,7 @@ import { api, ApiError } from '@/api/client'
 import EmptyState from '@/components/EmptyState.vue'
 import GlAlert from '@/components/GlAlert.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { refreshMe, session } from '@/composables/session'
+import { noteUnauthorized, refreshMe, session } from '@/composables/session'
 import { formatAbsolute } from '@/lib/format'
 
 const participation = computed(() => session.me?.participation)
@@ -31,6 +31,7 @@ async function change(action: 'out' | 'in') {
     confirming.value = false
     await refreshMe()
   } catch (error) {
+    noteUnauthorized(error)
     failure.value = error instanceof ApiError ? error.message : 'The change could not be saved.'
   } finally {
     busy.value = false

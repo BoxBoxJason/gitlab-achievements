@@ -113,6 +113,15 @@ const mine = computed(() => {
             </tbody>
           </table>
           <SkeletonRows v-if="ranking.loading.value" :rows="8" />
+          <EmptyState
+            v-else-if="ranking.data.value?.entries.length === 0 && ranking.data.value.total > 0"
+            :title="`There's no page ${page}`"
+          >
+            The ranking ends before this page.
+            <template #actions>
+              <RouterLink :to="{ query: { ...route.query, page: undefined } }" class="btn">Go to the first page</RouterLink>
+            </template>
+          </EmptyState>
           <EmptyState v-else-if="ranking.data.value?.entries.length === 0" title="Nobody has started this one">
             The first person whose activity counts toward it will top this ranking.
           </EmptyState>

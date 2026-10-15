@@ -169,7 +169,7 @@ The session table holds neither the cookie nor a usable token. Rows are keyed by
 
 ### Coming back to your page
 
-`/oauth/login?return_to=<destination>` sends the browser to `destination` once it is logged in. Without it, the browser lands on the user's own record. Two kinds of destination are accepted:
+`/oauth/login?return_to=<destination>` sends the browser to `destination` once it is logged in. Without it, the browser lands on the user's own page in the built-in frontend, at the root of the frontend `FRONTEND_DIR` serves, or on their record in this API when the binary has no frontend. Two kinds of destination are accepted:
 
 - a path on this app, such as `/rankings?period=week`;
 - an absolute URL on `PUBLIC_URL`'s origin, or on one listed in `OAUTH_RETURN_ORIGINS`.

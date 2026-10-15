@@ -119,6 +119,13 @@ function medal(rank: number): string {
 
     <SkeletonRows v-if="loading" :rows="10" />
 
+    <EmptyState v-else-if="data && data.entries.length === 0 && data.total > 0" :title="`There's no page ${page}`">
+      The ranking ends before this page.
+      <template #actions>
+        <RouterLink :to="{ query: { ...route.query, page: undefined } }" class="btn">Go to the first page</RouterLink>
+      </template>
+    </EmptyState>
+
     <EmptyState v-else-if="data && data.entries.length === 0 && ranked" :title="`Nobody earned a tier ${emptyWindow}`">
       EXP is counted when a tier is reached, dated by the activity that reached it.
       <template #actions>

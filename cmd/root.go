@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -525,13 +526,7 @@ func buildAPI(
 		}
 	}
 
-	opts.OAuth = &api.OAuthOptions{
-		GitLabURL:     cfg.GitLabURL,
-		PublicURL:     cfg.PublicURL,
-		ClientID:      clientID,
-		ClientSecret:  cfg.OAuthClientSecret,
-		ReturnOrigins: cfg.OAuthReturnOrigins,
-	}
+	opts.OAuth = oauthOptions(cfg, clientID)
 
 	zap.L().Info("read api requires a gitlab credential",
 		zap.String("oauth_client_id", clientID),
@@ -542,6 +537,34 @@ func buildAPI(
 	)
 
 	return newAPI(conn, opts)
+}
+
+// oauthOptions configures the login flow through the OAuth application
+// clientID names.
+func oauthOptions(cfg *config.Config, clientID string) *api.OAuthOptions {
+	return &api.OAuthOptions{
+		GitLabURL:     cfg.GitLabURL,
+		PublicURL:     cfg.PublicURL,
+		ClientID:      clientID,
+		ClientSecret:  cfg.OAuthClientSecret,
+		ReturnOrigins: cfg.OAuthReturnOrigins,
+		Landing:       loginLanding(cfg),
+	}
+}
+
+// loginLanding is where a login with no return_to lands, matching the
+// frontend buildFrontend serves: the built-in one's page for the user who
+// logged in, the root of an operator's own (whose routes this app cannot
+// know), or, with no frontend at all, nil for the user's record in the API.
+func loginLanding(cfg *config.Config) func(username string) string {
+	switch {
+	case cfg.FrontendDir != "":
+		return func(string) string { return "/" }
+	case frontend.HasIndex(web.Dist()):
+		return func(username string) string { return "/users/" + url.PathEscape(username) }
+	default:
+		return nil
+	}
 }
 
 // membershipChecker restricts the API to group's members.

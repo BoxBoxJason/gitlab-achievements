@@ -353,6 +353,29 @@ func TestBuildFrontend_ServesTheBuiltInOneUnderItsPolicy(t *testing.T) {
 	}
 }
 
+// A login with no return_to lands on the frontend that is actually served,
+// and on the API's record only when there is none.
+func TestLoginLanding_FollowsTheServedFrontend(t *testing.T) {
+	own := loginLanding(&config.Config{FrontendDir: t.TempDir()})
+	if own == nil || own("alice") != "/" {
+		t.Fatal("expected an operator's frontend to be landed on at its root")
+	}
+
+	builtin := loginLanding(&config.Config{})
+
+	if !frontend.HasIndex(web.Dist()) {
+		if builtin != nil {
+			t.Fatal("expected a binary without a frontend to land on the api")
+		}
+
+		t.Skip("web/dist holds no build; run make web/build to cover the built-in frontend")
+	}
+
+	if builtin == nil || builtin("a b") != "/users/a%20b" {
+		t.Fatal("expected the built-in frontend's page for the user who logged in")
+	}
+}
+
 func TestBuiltinPolicy_AdmitsAvatarsFromWhereGitLabKeepsThem(t *testing.T) {
 	policy := builtinPolicy("https://GitLab.example.com/some/path")
 

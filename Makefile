@@ -45,7 +45,10 @@ web/test: web/deps
 web/dev: web/deps
 	cd $(WEB_DIR) && $(NPM) run dev:mock
 
-build/all: web/build build
+# The Go build must not start until web/dist holds the build it embeds,
+# which listing both as prerequisites wouldn't guarantee under make -j.
+build/all: web/build
+	$(MAKE) build
 
 # Download dependencies
 deps:

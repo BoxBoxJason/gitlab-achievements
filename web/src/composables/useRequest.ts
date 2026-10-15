@@ -38,5 +38,5 @@ export function useRequest<T, S>(source: WatchSource<S>, load: (value: S) => Pro
     latest = -1
   })
 
-  return { data, error, loading, reload: () => run((typeof source === 'function' ? source() : source.value) as S) }
+  return { data, error, loading }
 }

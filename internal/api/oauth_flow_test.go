@@ -128,6 +128,29 @@ func TestLogin_ReturnsToTheRequestedPage(t *testing.T) {
 	}
 }
 
+func TestLogin_WithoutReturnToLandsWhereConfigured(t *testing.T) {
+	gitlab := fakeGitLab(t, false)
+	api := mustNew(testConn(t), Options{
+		Verifier: &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}},
+		OAuth: &OAuthOptions{
+			GitLabURL: gitlab.URL,
+			PublicURL: "https://achievements.example.com",
+			ClientID:  "client-id",
+			Landing:   func(username string) string { return "/users/" + username },
+		},
+	})
+
+	for returnTo, want := range map[string]string{
+		"":        "/users/alice",
+		"/boards": "/boards",
+	} {
+		rec := login(t, api, returnTo)
+		if got := rec.Header().Get("Location"); rec.Code != http.StatusFound || got != want {
+			t.Errorf("return_to %q: got %d to %q, want a redirect to %q", returnTo, rec.Code, got, want)
+		}
+	}
+}
+
 func TestLogin_WithoutReturnToDropsAnAbandonedLoginsDestination(t *testing.T) {
 	api := flowAPI(t, "https://gitlab.example.com", &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
 

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { api, ApiError } from '@/api/client'
+import { api, ApiError, PAGE_SIZE } from '@/api/client'
 import type { Detail } from '@/api/types'
 import ApiLink from '@/components/ApiLink.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -44,6 +44,9 @@ const groups = computed(() =>
     : [],
 )
 
+// A user not yet named by any payload is only reachable by GitLab ID.
+const apiRef = computed(() => (user.value ? user.value.username || String(user.value.gitlab_user_id) : ''))
+
 const tiersEarned = computed(() => user.value?.awards.length ?? 0)
 const tiersTotal = computed(() => data.value?.catalog.criteria.reduce((sum, c) => sum + c.tiers.length, 0) ?? 0)
 const started = computed(() => [...standings.value.values()].filter((s) => s.reached).length)
@@ -61,7 +64,7 @@ const hidden = computed(
 )
 
 const profileURL = computed(() =>
-  session.instance && user.value ? new URL(user.value.username, session.instance.gitlab_url.replace(/\/?$/, '/')).toString() : '',
+  session.instance && user.value?.username ? new URL(user.value.username, session.instance.gitlab_url.replace(/\/?$/, '/')).toString() : '',
 )
 </script>
 
@@ -83,16 +86,16 @@ const profileURL = computed(() =>
       <UserAvatar :username="user.username" :src="user.avatar_url" :user-id="user.gitlab_user_id" :size="96" />
       <div class="min-w-[10rem] flex-1">
         <div class="flex flex-wrap items-center gap-2">
-          <h1 class="break-words text-2xl leading-8">{{ user.username }}</h1>
+          <h1 class="break-words text-2xl leading-8">{{ user.username || `User ${user.gitlab_user_id}` }}</h1>
           <span v-if="mine" class="badge badge-info">You</span>
         </div>
-        <p class="text-fg-subtle">@{{ user.username }}</p>
+        <p v-if="user.username" class="text-fg-subtle">@{{ user.username }}</p>
       </div>
       <div class="flex items-center gap-2">
         <a v-if="profileURL" :href="profileURL" class="btn" target="_blank" rel="noopener">
           GitLab profile <GlIcon name="external-link" :size="14" />
         </a>
-        <ApiLink :href="`/api/v1/users/${encodeURIComponent(user.username)}`" />
+        <ApiLink :href="`/api/v1/users/${encodeURIComponent(apiRef)}`" />
       </div>
     </header>
 
@@ -100,7 +103,7 @@ const profileURL = computed(() =>
       <div class="px-4 py-3">
         <dt class="text-fg-subtle">Rank</dt>
         <dd class="num mt-0.5 text-lg font-semibold text-fg-strong sm:text-xl">
-          <RouterLink :to="{ name: 'leaderboard', query: user.rank > 20 ? { page: String(Math.ceil(user.rank / 20)) } : {} }" class="text-fg-strong">
+          <RouterLink :to="{ name: 'leaderboard', query: user.rank > PAGE_SIZE ? { page: String(Math.ceil(user.rank / PAGE_SIZE)) } : {} }" class="text-fg-strong">
             #{{ formatNumber(user.rank) }}
           </RouterLink>
         </dd>

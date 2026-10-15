@@ -109,10 +109,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := userActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID,
-			username: userName(payload.User, attrs.AuthorID), avatarURL: userAvatarURL(payload.User, attrs.AuthorID),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	case *gitlab.IssueCommentEvent:
@@ -121,10 +121,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := userActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID,
-			username: userName(payload.User, attrs.AuthorID), avatarURL: userAvatarURL(payload.User, attrs.AuthorID),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	case *gitlab.MergeCommentEvent:
@@ -133,10 +133,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := eventUserActor(payload.User, attrs.AuthorID)
 
 		activities := normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID,
-			username: eventUserName(payload.User, attrs.AuthorID), avatarURL: eventUserAvatarURL(payload.User, attrs.AuthorID),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 
@@ -149,10 +149,10 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 		}
 
 		attrs := payload.ObjectAttributes
+		username, avatarURL := eventUserActor(payload.User, attrs.AuthorID)
 
 		return normalizeNote(note{
-			id: attrs.ID, authorID: attrs.AuthorID,
-			username: eventUserName(payload.User, attrs.AuthorID), avatarURL: eventUserAvatarURL(payload.User, attrs.AuthorID),
+			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
 	}
@@ -491,12 +491,14 @@ func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) 
 		key = fmt.Sprintf("discussion:note:%d:resolved", attrs.ID)
 	}
 
+	username, avatarURL := eventUserActor(event.User, attrs.ResolvedByID)
+
 	return []activity.Event{{
 		OccurredAt:     parseEventTime(attrs.ResolvedAt, receivedAt),
 		Kind:           activity.KindDiscussionResolved,
 		DedupKey:       key,
-		ActorUsername:  eventUserName(event.User, attrs.ResolvedByID),
-		ActorAvatarURL: eventUserAvatarURL(event.User, attrs.ResolvedByID),
+		ActorUsername:  username,
+		ActorAvatarURL: avatarURL,
 		ActorID:        attrs.ResolvedByID,
 		ProjectID:      attrs.ProjectID,
 		Count:          1,
@@ -640,50 +642,31 @@ func normalizeWikiPage(event *gitlab.WikiPageEvent, receivedAt time.Time) []acti
 	}}
 }
 
-// userName is the payload user's username, provided they are the actor the
-// activity is credited to. A comment delivery's user is whoever caused the
-// delivery, which is not always the note's author or the thread's resolver:
-// resolving somebody else's thread redelivers their note, and editing a
-// thread resolved earlier redelivers the resolution. The payload names
-// nobody else, so this reports no name rather than the wrong one; the engine
-// keys the user on their GitLab ID and fills the name in the next time they
-// do something.
-func userName(user *gitlab.User, actorID int64) string {
+// userActor is the payload user's username and avatar, provided they are
+// the actor the activity is credited to. A comment delivery's user is
+// whoever caused the delivery, which is not always the note's author or the
+// thread's resolver: resolving somebody else's thread redelivers their note,
+// and editing a thread resolved earlier redelivers the resolution. The
+// payload names nobody else, so this reports neither rather than the wrong
+// ones, which would put that user's name and face on somebody else's row;
+// the engine keys the user on their GitLab ID and fills them in the next
+// time they do something.
+func userActor(user *gitlab.User, actorID int64) (username, avatarURL string) {
 	if user == nil || user.ID != actorID {
-		return ""
+		return "", ""
 	}
 
-	return user.Username
+	return user.Username, user.AvatarURL
 }
 
-// eventUserName is userName for the payloads typing their user as
+// eventUserActor is userActor for the payloads typing their user as
 // *gitlab.EventUser.
-func eventUserName(user *gitlab.EventUser, actorID int64) string {
+func eventUserActor(user *gitlab.EventUser, actorID int64) (username, avatarURL string) {
 	if user == nil || user.ID != actorID {
-		return ""
+		return "", ""
 	}
 
-	return user.Username
-}
-
-// userAvatarURL is the payload user's avatar, under the same rule as
-// userName: their face must not end up on somebody else's row.
-func userAvatarURL(user *gitlab.User, actorID int64) string {
-	if user == nil || user.ID != actorID {
-		return ""
-	}
-
-	return user.AvatarURL
-}
-
-// eventUserAvatarURL is userAvatarURL for the payloads typing their user as
-// *gitlab.EventUser.
-func eventUserAvatarURL(user *gitlab.EventUser, actorID int64) string {
-	if user == nil || user.ID != actorID {
-		return ""
-	}
-
-	return user.AvatarURL
+	return user.Username, user.AvatarURL
 }
 
 // activityFrom specializes base to one kind, scoping its dedup key to the
