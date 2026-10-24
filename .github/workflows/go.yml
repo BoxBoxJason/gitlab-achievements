@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       - name: Run Build (Makefile)
@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       - name: Go Install
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       # Keyed on the Go version and the Makefile (which pins the tool versions):
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       # Keyed on the Go version and the Makefile (which pins the tool versions):
@@ -105,7 +105,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       # Reports only vulnerabilities in code paths the binary actually calls,
