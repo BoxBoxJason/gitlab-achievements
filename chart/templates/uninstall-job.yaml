@@ -70,11 +70,16 @@ spec:
             {{- end }}
           env:
             {{- include "gitlab-achievements.env" . | nindent 12 }}
+            {{- with (include "gitlab-achievements.credentialEnv" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- with .Values.config.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- with (include "gitlab-achievements.envFrom" .) }}
           envFrom:
-            {{- include "gitlab-achievements.envFrom" . | nindent 12 }}
+            {{- . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.uninstallJob.resources | nindent 12 }}
           {{- with (include "gitlab-achievements.volumeMounts" .) }}

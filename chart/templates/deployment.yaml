@@ -1,3 +1,4 @@
+{{- include "gitlab-achievements.validateSecrets" . }}
 {{- /* frontend.* was removed in 0.4.0: the image now serves its own frontend. Fail rather than silently replace a custom one. */}}
 {{- if (.Values.frontend).enabled }}
 {{- fail "frontend.* was removed in chart 0.4.0: the image now serves its own frontend at /. To serve a different one, set FRONTEND_DIR through config.extraEnv and mount the files yourself (see docs/frontend.md)." }}
@@ -20,11 +21,6 @@ spec:
   template:
     metadata:
       annotations:
-        {{- if not .Values.secrets.existingSecret }}
-        # Rotating a token in values.yaml rolls the pod, instead of leaving it
-        # running with the credential it started with.
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
-        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -66,6 +62,9 @@ spec:
             {{- end }}
           env:
             {{- include "gitlab-achievements.env" . | nindent 12 }}
+            {{- with (include "gitlab-achievements.credentialEnv" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
             - name: BACKFILL
               value: {{ .Values.config.backfill.mode | quote }}
             - name: RECONCILE
@@ -75,8 +74,10 @@ spec:
             {{- with .Values.config.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- with (include "gitlab-achievements.envFrom" .) }}
           envFrom:
-            {{- include "gitlab-achievements.envFrom" . | nindent 12 }}
+            {{- . | nindent 12 }}
+          {{- end }}
           {{- if .Values.startupProbe.enabled }}
           # Nothing is served until bootstrap finishes, so this probe is what
           # decides how long a first start is allowed to take. See values.yaml.

@@ -49,40 +49,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Container image reference, shared by every workload so they always run the
-same build. The digest, when set, is appended rather than substituted for the
-tag: repository:tag@digest is valid and keeps the version readable.
+same build. image.tag may carry a digest (0.3.0@sha256:...), which is passed
+through as is: repository:tag@digest is a valid reference.
 */}}
 {{- define "gitlab-achievements.image" -}}
-{{- $ref := printf "%s:%s" .Values.image.repository (include "gitlab-achievements.imageTag" .) -}}
-{{- with .Values.image.digest -}}
-{{- $digest := trimPrefix "@" . -}}
-{{- if not (regexMatch "^[a-z0-9]+([+._-][a-z0-9]+)*:[a-zA-Z0-9=_-]+$" $digest) -}}
-{{- fail (printf "image.digest must be algorithm:hex, e.g. sha256:47c8..., got %q" .) -}}
-{{- end -}}
-{{- $ref = printf "%s@%s" $ref $digest -}}
-{{- end -}}
-{{- $ref -}}
+{{- printf "%s:%s" .Values.image.repository (include "gitlab-achievements.imageRef" .) -}}
 {{- end }}
 
 {{/*
-Image tag, also used as the app.kubernetes.io/version label. A digest, or a
-tag with one appended, renders both an invalid image reference and an
-invalid label, so either is refused in favour of image.digest.
+image.tag as written, digest included; falls back to the chart's appVersion.
+*/}}
+{{- define "gitlab-achievements.imageRef" -}}
+{{- .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- end }}
+
+{{/*
+Image tag without any @digest, for the app.kubernetes.io/version label, which
+cannot contain "@" or ":".
 */}}
 {{- define "gitlab-achievements.imageTag" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
-{{- if or (contains "@" $tag) (contains ":" $tag) -}}
-{{- fail "image.tag must be a tag, not a digest: put sha256:... in image.digest instead" -}}
-{{- end -}}
-{{- $tag -}}
-{{- end }}
-
-{{/*
-Name of the Secret holding the credentials: the one the operator manages, or
-the one this chart creates.
-*/}}
-{{- define "gitlab-achievements.secretName" -}}
-{{- default (include "gitlab-achievements.fullname" .) .Values.secrets.existingSecret }}
+{{- include "gitlab-achievements.imageRef" . | splitList "@" | first -}}
 {{- end }}
 
 {{/*
@@ -95,7 +81,7 @@ anything outside the pod actually addresses.
 {{/*
 Non-secret configuration, shared by the Deployment and the backfill Job so the
 two are always configured against the same instance. Credentials arrive
-separately, through envFrom, so they never appear in a pod spec.
+separately, so they never appear in a pod spec.
 */}}
 {{- define "gitlab-achievements.env" -}}
 - name: GITLAB_URL
@@ -123,7 +109,18 @@ separately, through envFrom, so they never appear in a pod spec.
 - name: API_AUTH
   value: {{ .Values.config.api.auth | quote }}
 - name: OAUTH_CLIENT_ID
-  value: {{ .Values.config.api.oauthClientId | quote }}
+  {{- with .Values.config.api.oauthClientIdRef }}
+  {{- if .name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .name | quote }}
+      key: {{ required "config.api.oauthClientIdRef.key is required alongside name" .key | quote }}
+  {{- else }}
+  value: {{ $.Values.config.api.oauthClientId | quote }}
+  {{- end }}
+  {{- else }}
+  value: {{ $.Values.config.api.oauthClientId | quote }}
+  {{- end }}
 - name: API_ALLOWED_GROUP
   value: {{ .Values.config.api.allowedGroup | quote }}
 - name: API_AUTH_CACHE_TTL
@@ -132,6 +129,10 @@ separately, through envFrom, so they never appear in a pod spec.
   value: {{ .Values.config.api.sessionLifetime | quote }}
 - name: OAUTH_RETURN_ORIGINS
   value: {{ join "," .Values.config.api.returnOrigins | quote }}
+{{- with include "gitlab-achievements.defaultDsn" . }}
+- name: DATABASE_DSN
+  value: {{ . | quote }}
+{{- end }}
 - name: EXCLUDE_BOTS
   value: {{ .Values.config.exclusions.bots | quote }}
 - name: EXCLUDE_USERS
@@ -143,26 +144,60 @@ separately, through envFrom, so they never appear in a pod spec.
 {{- end }}
 
 {{/*
-Credentials, as an envFrom entry. Whether the Secret is the chart's or the
-operator's, the key names are the app's environment variables.
+Credentials taken from a Secret key of the operator's choosing, as env
+entries. An env entry beats envFrom, so a ref overrides existingSecret.
 */}}
+{{- define "gitlab-achievements.credentialEnv" -}}
+{{- $refs := .Values.secrets.refs | default dict -}}
+{{- range $name, $env := dict "gitlabReadToken" "GITLAB_READ_TOKEN" "gitlabWriteToken" "GITLAB_WRITE_TOKEN" "webhookSecret" "WEBHOOK_SECRET" "databaseDsn" "DATABASE_DSN" "oauthClientSecret" "OAUTH_CLIENT_SECRET" "sessionSecret" "SESSION_SECRET" }}
+{{- $ref := get $refs $name }}
+{{- if and $ref $ref.name }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ref.name | quote }}
+      key: {{ required (printf "secrets.refs.%s needs a key" $name) $ref.key | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/* Credentials from existingSecret, as an envFrom entry. */}}
 {{- define "gitlab-achievements.envFrom" -}}
+{{- with .Values.secrets.existingSecret }}
 - secretRef:
-    name: {{ include "gitlab-achievements.secretName" . }}
+    name: {{ . }}
+{{- end }}
 {{- end }}
 
 {{/*
-The database DSN written into the Secret this chart creates: whatever the
-operator set, or a SQLite file under persistence.mountPath when they left it
-empty and persistence is enabled. Not used when secrets.existingSecret names
-a Secret the operator manages themselves.
+Fails unless every required credential comes from a ref or existingSecret.
+databaseDsn may instead be left unset to use SQLite on the PVC.
 */}}
-{{- define "gitlab-achievements.databaseDsn" -}}
-{{- if .Values.secrets.databaseDsn }}
-{{- .Values.secrets.databaseDsn }}
-{{- else if .Values.persistence.enabled }}
-{{- printf "sqlite://%s/gitlab-achievements.db" (trimSuffix "/" .Values.persistence.mountPath) }}
+{{- define "gitlab-achievements.validateSecrets" -}}
+{{- $refs := .Values.secrets.refs | default dict -}}
+{{- if not .Values.secrets.existingSecret }}
+{{- range $name := list "gitlabReadToken" "gitlabWriteToken" "webhookSecret" }}
+{{- if not (get (get $refs $name | default dict) "name") }}
+{{- fail (printf "secrets.refs.%s or secrets.existingSecret is required" $name) }}
 {{- end }}
+{{- end }}
+{{- if and (eq $.Values.config.api.auth "gitlab") (not (get (get $refs "sessionSecret" | default dict) "name")) }}
+{{- fail "secrets.refs.sessionSecret or secrets.existingSecret is required when config.api.auth is gitlab" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+SQLite file on the PVC, used as DATABASE_DSN when nothing else provides one.
+*/}}
+{{- define "gitlab-achievements.defaultDsn" -}}
+{{- $ref := get (.Values.secrets.refs | default dict) "databaseDsn" | default dict -}}
+{{- if and (not .Values.secrets.existingSecret) (not $ref.name) -}}
+{{- if not .Values.persistence.enabled -}}
+{{- fail "secrets.refs.databaseDsn or secrets.existingSecret is required when persistence.enabled is false" -}}
+{{- end -}}
+{{- printf "sqlite://%s/gitlab-achievements.db" (trimSuffix "/" .Values.persistence.mountPath) -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -176,7 +211,7 @@ one the operator already has, or the one this chart creates.
 {{/*
 The data volume, shared by the Deployment and both Jobs so all three see the
 same SQLite file. Empty when persistence is disabled, e.g. because
-secrets.databaseDsn points at a database managed elsewhere.
+the database DSN points elsewhere.
 */}}
 {{- define "gitlab-achievements.volumes" -}}
 {{- if .Values.persistence.enabled -}}

@@ -22,6 +22,8 @@ gotestsum_version := v1.13.0
 golangci_lint_version := v2.14.0
 # renovate: datasource=go depName=golang.org/x/vuln
 govulncheck_version := v1.9.0
+# renovate: datasource=go depName=github.com/norwoodj/helm-docs
+helm_docs_version := v1.14.2
 
 # Default target
 .DEFAULT_GOAL := build
@@ -104,5 +106,10 @@ helm/template:
 	@echo "Packaging the Helm chart..."
 	helm template gitlab-achievements --debug $(CHART_DIR)
 
+# Generate the chart README from the values.yaml comments
+helm/docs:
+	@command -v helm-docs >/dev/null 2>&1 || { echo "Installing helm-docs..."; go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(helm_docs_version); }
+	helm-docs --chart-search-root $(CHART_DIR)
+
 # Phony targets
-.PHONY: deps build build/all lint vulncheck dependency-check test package helm/lint helm/package web/deps web/build web/test web/dev
+.PHONY: deps build build/all lint vulncheck dependency-check test package helm/lint helm/template helm/docs web/deps web/build web/test web/dev

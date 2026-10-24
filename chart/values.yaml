@@ -2,179 +2,184 @@
 # See docs/deployment/kubernetes.md for a walkthrough, and docs/configuration.md
 # for what every setting under `config` does.
 
-# -- Keeps the chart's -chart suffix out of the names of the objects it creates.
+# -- Overrides the chart name used in object names and labels.
 nameOverride: gitlab-achievements
+# -- Overrides the full object name prefix; empty derives it from the release name.
 fullnameOverride: ""
 
 image:
+  # -- Container image repository.
   repository: ghcr.io/boxboxjason/gitlab-achievements
-  # Pin this to a released version in production; empty falls back to the
-  # chart's appVersion.
+  # -- Image tag; pin a released version in production, empty uses the chart's appVersion.
+  # A digest may be appended, e.g. `0.3.0@sha256:47c8...`.
   tag: ""
-  # Optional content digest, e.g. sha256:47c8... (no leading @). When set it
-  # is appended to the reference as repository:tag@digest, so the runtime
-  # pulls exactly that image and the tag is only a label for humans.
-  digest: ""
+  # -- Image pull policy.
   pullPolicy: IfNotPresent
 
+# -- Secrets used to pull the image from a private registry.
 imagePullSecrets: []
 
-# The app is a singleton by design: one process registers the instance's
-# webhooks, runs the hourly reconciliation sweeps, and walks history. A second
-# replica would duplicate all three against the same GitLab instance, so the
-# chart deploys one and replaces it rather than running two side by side.
+# -- Number of replicas. The app is a singleton by design: one process registers the
+# instance's webhooks, runs the hourly reconciliation sweeps and walks history, so a
+# second replica would duplicate all three against the same GitLab instance.
 replicaCount: 1
+# -- Deployment strategy; Recreate so two pods never overlap during a rollout.
 strategy:
   type: Recreate
 
 config:
-  # Base URL of the GitLab instance to mirror, e.g. https://gitlab.example.com.
+  # -- Base URL of the GitLab instance to mirror, e.g. https://gitlab.example.com.
   gitlabUrl: ""
-  # Full path of the namespace that owns the achievement definitions.
+  # -- Full path of the namespace that owns the achievement definitions.
   achievementsNamespace: ""
-  # Externally reachable base URL of this app. GitLab's webhooks are registered
+  # -- Externally reachable base URL of this app. GitLab's webhooks are registered
   # against it, so the instance must be able to resolve and reach it.
   publicUrl: ""
-  # debug, info, warn, error.
+  # -- Log level: debug, info, warn or error.
   logLevel: info
-  # auto, group, or project. auto picks group hooks where the license allows.
+  # -- Webhook scope: auto, group or project. auto picks group hooks where the license allows.
   hookScope: auto
-  # Groups or projects per second the webhook registration sweep works through.
+  # -- Groups or projects per second the webhook registration sweep works through.
   hookRate: 20
   backfill:
-    # auto, off, or force. Set to off when the cold start should run as the
-    # separate Job below rather than in the serving pod.
+    # -- Cold-start history walk: auto, off or force. Use off when running it as the
+    # separate `backfillJob` rather than in the serving pod.
     mode: auto
-    # How far back history is walked: a date (2024-01-01) or a duration (720h).
+    # -- How far back history is walked: a date (2024-01-01) or a duration (720h).
     # Empty walks everything.
     since: ""
-    # Requests per second the historical walk is allowed to issue. It caps
-    # the reconciliation sync below too: both are instance-wide read sweeps.
+    # -- Requests per second the historical walk may issue. It also caps the reconciliation
+    # sync, as both are instance-wide read sweeps.
     rate: 5
   reconcile:
-    # Periodic re-read of recent activity, healing webhook deliveries GitLab
-    # never managed to make. auto runs it in the serving pod, shortly after
-    # startup and on the interval below. off disables it, for a deployment
-    # scheduling `gitlab-achievements reconcile` from outside the chart.
+    # -- Periodic re-read of recent activity, healing webhook deliveries GitLab never made.
+    # auto runs it in the serving pod; off disables it, for when you schedule
+    # `gitlab-achievements reconcile` from outside the chart.
     mode: auto
-    # How often recent activity is re-read.
+    # -- How often recent activity is re-read.
     interval: 24h
-    # How far back each pass reaches. Must exceed the interval, so
-    # consecutive windows overlap rather than abut; the app refuses to start
-    # otherwise.
+    # -- How far back each pass reaches. Must exceed the interval so consecutive windows
+    # overlap; the app refuses to start otherwise.
     lookback: 48h
   api:
-    # none or gitlab. gitlab verifies a GitLab token on every API request.
+    # -- API authentication: none, or gitlab to verify a GitLab token on every request.
     auth: none
-    # Client ID of a hand-registered OAuth application. Empty lets the app
-    # register a public one for itself when auth is gitlab.
+    # -- Client ID of a hand-registered OAuth application; empty self-registers.
     oauthClientId: ""
-    # Full path of a GitLab group; only its members (and instance admins)
-    # may use the API. Empty admits any GitLab user.
+    # -- `{name, key}` of a Secret holding the OAuth client ID; wins over `oauthClientId`.
+    oauthClientIdRef: {}
+    # -- Full path of a GitLab group whose members (and instance admins) may use the API.
+    # Empty admits any GitLab user.
     allowedGroup: ""
-    # How long a verified GitLab credential is trusted before asking GitLab
-    # again. Also how long a revoked token keeps working. 0s disables.
+    # -- How long a verified GitLab credential is trusted before GitLab is asked again, which
+    # is also how long a revoked token keeps working. 0s disables the cache.
     authCacheTTL: 1m
-    # How long a browser stays signed in. Sessions renew their GitLab token
-    # as it runs out, so this is how often people log in again.
+    # -- How long a browser stays signed in. Sessions renew their GitLab token as it runs
+    # out, so this is how often people log in again.
     sessionLifetime: 168h
-    # Origins besides publicUrl's a login may send the browser back to,
+    # -- Origins besides `publicUrl` a login may send the browser back to,
     # e.g. a page of your own on another host.
     returnOrigins: []
     #  - https://rankings.example.com
   # Who takes part. See docs/participation.md.
   exclusions:
-    # Leave out the accounts GitLab flags as bots: project and group access
-    # token users, service accounts, GitLab's own bots.
+    # -- Leave out accounts GitLab flags as bots: access token users, service accounts and
+    # GitLab's own bots.
     bots: true
-    # Usernames or GitLab user IDs to leave out.
+    # -- Usernames or GitLab user IDs to leave out.
     users: []
     #  - renovate
     #  - "1234"
-    # Regular expression (RE2); matching usernames are left out.
+    # -- Regular expression (RE2); matching usernames are left out.
     usernamePattern: ""
-    # Let users opt themselves out through the API. Only takes effect with
-    # api.auth: gitlab, since the API has to know who is asking.
+    # -- Let users opt themselves out through the API. Needs `config.api.auth: gitlab`,
+    # since the API has to know who is asking.
     allowOptOut: true
-  # Extra environment variables, appended last so they can override anything
-  # above. Standard Kubernetes env entries, so valueFrom works.
+  # -- Extra environment variables, appended last so they override anything above.
+  # Standard Kubernetes env entries, so `valueFrom` works.
   extraEnv: []
   #  - name: GOMEMLIMIT
   #    value: "400MiB"
 
 secrets:
-  # Name of a Secret you manage yourself (External Secrets, SOPS, sealed
-  # secrets...). It is loaded with envFrom, so its keys must be named
-  # GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN, WEBHOOK_SECRET, DATABASE_DSN and,
-  # where applicable, OAUTH_CLIENT_SECRET and SESSION_SECRET (required with
-  # config.api.auth: gitlab). Set it and leave the values below empty, or
-  # leave it empty and let the chart create the Secret from them.
+  # -- Name of a Secret loaded with envFrom. Keys must be GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN,
+  # WEBHOOK_SECRET, DATABASE_DSN, and OAUTH_CLIENT_SECRET / SESSION_SECRET if used.
   existingSecret: ""
-  # GitLab token with read_api scope, used for all data fetching.
-  gitlabReadToken: ""
-  # GitLab token with api scope belonging to the instance-admin service
-  # account, used to manage webhooks and achievements. See docs/gitlab-setup.md
-  # for what trusting this credential to a cluster implies.
-  gitlabWriteToken: ""
-  # Shared secret GitLab presents on every webhook delivery.
-  webhookSecret: ""
-  # Database connection string. Left empty, it defaults to a SQLite file under
-  # persistence.mountPath, backed by the PVC below. Point it at a PostgreSQL,
-  # MySQL, or SQL Server you manage instead, e.g.
-  # postgres://user:password@postgres.databases.svc:5432/achievements?sslmode=require
-  # — in which case persistence can be disabled, since nothing local needs it.
-  databaseDsn: ""
-  # Only needed alongside config.api.oauthClientId for a confidential client.
-  oauthClientSecret: ""
-  # Key for encrypting the GitLab tokens browser sessions hold, at least 32
-  # characters. Required when config.api.auth is gitlab; generate one with
-  # `openssl rand -base64 48`. Changing it signs everybody out.
-  sessionSecret: ""
+  # -- Per-credential `{name, key}` of any Secret; wins over `existingSecret`.
+  # Keys: gitlabReadToken, gitlabWriteToken, webhookSecret, databaseDsn,
+  # oauthClientSecret, sessionSecret (required when `config.api.auth` is gitlab).
+  refs: {}
+    # gitlabReadToken:
+    #   name: "gitlab-secret"
+    #   key: "read-token"
+    # gitlabWriteToken:
+    #   name: "gitlab-secret"
+    #   key: "write-token"
+    # webhookSecret:
+    #   name: "webhook-secret"
+    #   key: "secret"
+    # databaseDsn:
+    #   name: "db-secret"
+    #   key: "uri"
+    # oauthClientSecret:
+    #   name: "oauth-secret"
+    #   key: "client-secret"
+    # sessionSecret:
+    #   name: "session-secret"
+    #   key: "secret"
 
-# Backs the default SQLite database with a PersistentVolumeClaim, mounted at
-# persistence.mountPath. Ignored if secrets.databaseDsn points at a database
-# you manage elsewhere (PostgreSQL, MySQL, SQL Server) — disable it then, so
-# the release doesn't carry an unused volume.
 persistence:
+  # -- Create a PVC for the default SQLite database; disable when the database DSN points elsewhere.
   enabled: true
-  # Claim the chart creates. Set to use one you already have instead; the
-  # chart neither creates nor deletes it, and size/storageClassName/accessMode
-  # below are ignored.
+  # -- Use an existing claim instead of creating one.
   existingClaim: ""
+  # -- Size of the volume.
   size: 1Gi
-  # Empty uses the cluster's default StorageClass.
+  # -- StorageClass of the volume; empty uses the cluster default.
   storageClassName: ""
+  # -- Access mode of the volume.
   accessMode: ReadWriteOnce
-  # Directory the volume is mounted at. The default SQLite DSN points inside it.
+  # -- Directory the volume is mounted at. The default SQLite DSN points inside it.
   mountPath: /data
 
 service:
+  # -- Service type.
   type: ClusterIP
+  # -- Service port.
   port: 8080
+  # -- Service annotations.
   annotations: {}
 
-# Prometheus metrics, served on a port of their own so the Ingress (which
-# routes to the http port only) never exposes them. See docs/metrics.md.
 metrics:
+  # -- Serve Prometheus metrics on a port of their own, so the Ingress never exposes them.
+  # See docs/metrics.md.
   enabled: true
+  # -- Port the metrics are served on.
   port: 9464
   serviceMonitor:
-    # Requires the Prometheus Operator's CRDs.
+    # -- Create a ServiceMonitor; requires the Prometheus Operator's CRDs.
     enabled: false
+    # -- Scrape interval.
     interval: 30s
+    # -- Scrape timeout.
     scrapeTimeout: 10s
-    # Extra labels, e.g. the release label your Prometheus selects on.
+    # -- Extra labels, e.g. the release label your Prometheus selects on.
     labels: {}
 
 ingress:
+  # -- Create an Ingress.
   enabled: false
+  # -- IngressClass name.
   className: ""
+  # -- Ingress annotations.
   annotations: {}
+  # -- Hosts and paths the Ingress routes to the app.
   hosts:
     - host: achievements.example.com
       paths:
         - path: /
           pathType: Prefix
+  # -- TLS configuration.
   tls: []
   #  - secretName: gitlab-achievements-tls
   #    hosts:
@@ -182,84 +187,122 @@ ingress:
 
 resources:
   requests:
+    # -- CPU request.
     cpu: 50m
+    # -- Memory request.
     memory: 128Mi
   limits:
+    # -- Memory limit.
     memory: 512Mi
 
 # Bootstrap runs before the HTTP server listens, and on a Free-tier instance it
-# registers a webhook on every project there is, so the first probe to succeed
-# can be many minutes after the container starts. The startup probe is what
-# grants that time: liveness and readiness only begin once it passes, so raise
-# its failureThreshold rather than the others' on a large instance.
-# 60 x 10s = 10 minutes by default.
+# registers a webhook on every project, so the first probe can succeed many
+# minutes after start. The startup probe grants that time: liveness and
+# readiness begin once it passes, so raise its failureThreshold rather than the
+# others' on a large instance. 60 x 10s = 10 minutes by default.
 startupProbe:
+  # -- Enable the startup probe.
   enabled: true
+  # -- Seconds between probes.
   periodSeconds: 10
+  # -- Seconds before a probe times out.
   timeoutSeconds: 3
+  # -- Failed probes before the container is restarted.
   failureThreshold: 60
 
 livenessProbe:
+  # -- Enable the liveness probe.
   enabled: true
+  # -- Seconds between probes.
   periodSeconds: 10
+  # -- Seconds before a probe times out.
   timeoutSeconds: 3
+  # -- Failed probes before the container is restarted.
   failureThreshold: 3
 
-# /readyz checks the database and GitLab are reachable right now, so a pod goes
-# unready during a GitLab outage and the Service stops routing to it.
+# /readyz checks the database and GitLab are reachable, so a pod goes unready
+# during a GitLab outage and the Service stops routing to it.
 readinessProbe:
+  # -- Enable the readiness probe.
   enabled: true
+  # -- Seconds between probes.
   periodSeconds: 10
+  # -- Seconds before a probe times out.
   timeoutSeconds: 5
+  # -- Failed probes before the pod is marked unready.
   failureThreshold: 3
 
-# Shutdown drains webhook deliveries GitLab has already been told succeeded.
+# -- Seconds granted on shutdown to drain webhook deliveries GitLab was already told succeeded.
 terminationGracePeriodSeconds: 60
 
 podSecurityContext:
+  # -- Refuse to start containers running as root.
   runAsNonRoot: true
+  # -- UID the container runs as.
   runAsUser: 1000
+  # -- GID the container runs as.
   runAsGroup: 1000
+  # -- Group that owns mounted volumes.
   fsGroup: 1000
   seccompProfile:
+    # -- Seccomp profile type.
     type: RuntimeDefault
 
 securityContext:
+  # -- Forbid gaining more privileges than the parent process.
   allowPrivilegeEscalation: false
+  # -- Run the container privileged.
   privileged: false
+  # -- Mount the root filesystem read-only.
   readOnlyRootFilesystem: true
   capabilities:
+    # -- Linux capabilities to drop.
     drop:
       - ALL
 
 serviceAccount:
+  # -- Create a ServiceAccount.
   create: true
+  # -- ServiceAccount name; empty derives it from the release name.
   name: ""
+  # -- ServiceAccount annotations.
   annotations: {}
+  # -- Mount the API token into pods; the app never talks to the Kubernetes API.
   automountServiceAccountToken: false
 
+# -- Annotations added to the pod.
 podAnnotations: {}
+# -- Labels added to the pod.
 podLabels: {}
+# -- Node selector for pod scheduling.
 nodeSelector: {}
+# -- Tolerations for pod scheduling.
 tolerations: []
+# -- Affinity rules for pod scheduling.
 affinity: {}
+# -- PriorityClass of the pod.
 priorityClassName: ""
 
-# One-off historical walk as its own Job, for instances big enough that the
-# cold start shouldn't be something a serving pod does in the background. Set
-# config.backfill.mode to off when you enable this. The Job is not a Helm hook:
-# it is created alongside the release and runs to completion once. Re-running
-# it means deleting it and upgrading again.
 backfillJob:
+  # -- Run the historical walk as its own one-off Job, for instances big enough that the
+  # cold start shouldn't happen in the serving pod. Set `config.backfill.mode` to off with it.
+  # The Job is not a Helm hook: it runs once, and re-running means deleting it and upgrading.
   enabled: false
-  # Walks history again even if a previous walk finished.
+  # -- Walk history again even if a previous walk finished.
   force: false
+  # -- Retries before the Job is marked failed.
   backoffLimit: 3
+  # -- Seconds a finished Job is kept before cleanup.
   ttlSecondsAfterFinished: 86400
+  # -- Resource requests and limits of the Job's pod.
   resources: {}
+  # -- Node selector of the Job's pod.
   nodeSelector: {}
+  # -- Tolerations of the Job's pod.
   tolerations: []
+  # -- Affinity rules of the Job's pod.
   affinity: {}
+  # -- Annotations added to the Job's pod.
   podAnnotations: {}
 
 # Removes what this app put on the GitLab instance: the event ingestion
@@ -276,22 +319,28 @@ backfillJob:
 # earned one and nothing brings those back. That must be something you ask for,
 # not something `helm uninstall` does on your behalf.
 uninstallJob:
+  # -- Run the Job that removes the app's webhooks and achievements from GitLab.
+  # Read the comment above in values.yaml before enabling.
   enabled: false
-  # Report what would be removed and call nothing. Worth one run of its own
-  # before the real thing.
+  # -- Report what would be removed and call nothing; worth a run of its own first.
   dryRun: false
-  # Remove only the webhooks, leaving people the badges they earned.
+  # -- Remove only the webhooks, leaving people the badges they earned.
   keepAchievements: false
-  # Also enumerate the instance for hooks and achievements this app has no
-  # record of, for a database that was lost or restored from an old backup.
-  # Costs a full walk of every group or project, so it is not the default.
+  # -- Also enumerate the instance for hooks and achievements the app has no record of,
+  # for a lost or restored database. Walks every group or project, so it is not the default.
   sweep: false
+  # -- Retries before the Job is marked failed.
   backoffLimit: 3
-  # Kept long enough to read the logs afterwards, which are the only report of
-  # what was removed and what was left behind.
+  # -- Seconds a finished Job is kept. Keep it long enough to read the logs, the only
+  # report of what was removed and what was left behind.
   ttlSecondsAfterFinished: 86400
+  # -- Resource requests and limits of the Job's pod.
   resources: {}
+  # -- Node selector of the Job's pod.
   nodeSelector: {}
+  # -- Tolerations of the Job's pod.
   tolerations: []
+  # -- Affinity rules of the Job's pod.
   affinity: {}
+  # -- Annotations added to the Job's pod.
   podAnnotations: {}
