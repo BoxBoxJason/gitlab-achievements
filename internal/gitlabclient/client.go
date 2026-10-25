@@ -20,7 +20,8 @@
 // Retries on 429/5xx responses (honoring the Retry-After header) are
 // handled internally by the underlying HTTP client and require no extra
 // configuration; see gitlab.ClientOptionFunc if that behavior needs
-// tuning (e.g. gitlab.WithoutRetries).
+// tuning (e.g. gitlab.WithoutRetries). WriteClient only retries a 5xx for
+// an idempotent method (see NewWriteClient).
 package gitlabclient
 
 import (
@@ -56,7 +57,19 @@ func NewReadClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*Rea
 
 // NewWriteClient builds a WriteClient for the GitLab instance at baseURL,
 // authenticating with token.
+//
+// Its retries are limited to idempotent methods. Every GraphQL mutation is a
+// POST, and a 5xx can arrive after GitLab has already committed one (a
+// gateway timing out on a slow request, a worker restarting before it
+// answered). Replaying achievementsAward then creates a second award and a
+// second email, and the pass that made the call only ever records the last
+// one, so the rest stay on the recipient's profile for good. A 5xx is
+// instead returned to the caller, which re-reads what GitLab holds before
+// acting again. A 429 is still retried for every method, since GitLab
+// rejects a rate-limited request before acting on it.
 func NewWriteClient(baseURL, token string, opts ...gitlab.ClientOptionFunc) (*WriteClient, error) {
+	opts = append([]gitlab.ClientOptionFunc{gitlab.WithOnlyIdempotentRetries()}, opts...)
+
 	raw, err := newRawClient(baseURL, token, "write", opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build gitlab write client: %w", err)

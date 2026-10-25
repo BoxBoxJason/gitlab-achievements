@@ -71,6 +71,8 @@ After 30 days the recipient can still accept, but only by calling `userAchieveme
 
 This is the sharpest operational hazard in the whole API, because retrying a failed award is the natural thing for a reconciliation loop to do. Any award that reached GitLab but whose response this app failed to record would be awarded again on the next pass. `ReconcileAwards` therefore reads what GitLab already holds for a user (one paginated query, only when it has work for them) and matches against it instead of re-awarding blind.
 
+The same hazard sits one layer lower, in the HTTP client. A 5xx can follow a mutation GitLab already committed (a gateway timing out on a slow request, say), and the API client's default is to replay it up to five times. The write client is therefore built to retry only idempotent methods, and every GraphQL mutation is a POST, so a failed award surfaces to `ReconcileAwards` and the next pass re-reads the holdings before acting.
+
 ## 5. What the awarding token *can* do
 
 - **Revoke**: `achievementsRevoke` is allowed for whoever can award, needs only the user-achievement ID, sends no email, and takes the badge off the profile even when the recipient had accepted it. Revoked awards drop out of `userAchievements` entirely.
