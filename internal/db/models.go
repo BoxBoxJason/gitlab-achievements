@@ -248,9 +248,10 @@ type SyncState struct {
 
 // Lease is a cross-process mutex held in the database, so that two
 // processes sharing one database cannot run a singleton pass at the same
-// time. The bootstrap sequence is the one that needs it: it decides what
-// to create on GitLab by looking at this database, so two of them running
-// together both see "not created yet" and both create it.
+// time. The bootstrap sequence and award delivery are the ones that need
+// it: both decide what to create on GitLab by looking at this database, so
+// two of them running together both see "not created yet" and both create
+// it.
 //
 // Ownership is a lease rather than a flag because a holder can die without
 // releasing it. Owner identifies the current holder and ExpiresAt is how

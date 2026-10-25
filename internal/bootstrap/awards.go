@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
@@ -11,6 +12,12 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/metrics"
 )
+
+// awardsLeaseOptions is how ReconcileAwards waits for the awards lease.
+// Tests shorten the retry so a second pass doesn't idle out the default.
+//
+//nolint:gochecknoglobals // a test seam, never written outside tests
+var awardsLeaseOptions = db.LeaseOptions{}
 
 // AwardsReport summarizes what ReconcileAwards did.
 type AwardsReport struct {
@@ -53,8 +60,22 @@ type AwardsReport struct {
 // hold from the awards a user has now, rather than from what an earlier
 // pass concluded, so a tier withdrawn under one catalog and promoted back
 // under the next is delivered again rather than left behind.
+//
+// Only one pass runs at a time, across every process sharing the database
+// (see db.AwardsLease); a second waits for the first to finish. Two passes
+// that overlap on a user both read what GitLab holds before either has
+// awarded anything, and both award. The pass runs under the lease's
+// context, so one that loses the lease stops at the next user instead of
+// carrying on beside the new holder.
 func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB) (AwardsReport, error) {
 	var report AwardsReport
+
+	ctx, release, err := db.AcquireLease(ctx, conn, db.AwardsLease, awardsLeaseOptions)
+	if err != nil {
+		return report, fmt.Errorf("failed to acquire the awards lease: %w", err)
+	}
+
+	defer release()
 
 	// Recorded however the pass ends: a run cut short still delivered, and
 	// failed, whatever it got through before stopping.
@@ -68,6 +89,11 @@ func ReconcileAwards(ctx context.Context, write achievementWriter, conn *gorm.DB
 	}
 
 	for _, userID := range userIDs {
+		err = ctx.Err()
+		if err != nil {
+			return report, fmt.Errorf("award delivery stopped: %w", err)
+		}
+
 		err = reconcileUserAwards(ctx, write, conn, userID, &report)
 		if err != nil {
 			return report, err
@@ -193,9 +219,16 @@ func deliverAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *d
 	}
 
 	if existing != nil {
-		report.Adopted++
+		err = recordAwardDelivered(conn, award, existing, report)
+		if errors.Is(err, errAwardMoved) {
+			return nil
+		}
 
-		return recordAwardDelivered(conn, award, existing, report)
+		if err == nil {
+			report.Adopted++
+		}
+
+		return err
 	}
 
 	awarded, awardErr := held.award(ctx, award)
@@ -203,7 +236,60 @@ func deliverAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *d
 		return recordAwardFailure(conn, award, report, awardErr)
 	}
 
-	return recordAwardDelivered(conn, award, awarded, report)
+	err = recordAwardDelivered(conn, award, awarded, report)
+	if !errors.Is(err, errAwardMoved) {
+		return err
+	}
+
+	// Somebody else recorded this award while it was being made, so the
+	// one just made is a duplicate nothing would ever track. Taking it
+	// back off is what keeps it from staying on the profile for good.
+	revokeErr := held.revoke(ctx, awarded.ID)
+	if revokeErr != nil {
+		zap.L().Warn("failed to revoke a duplicate award, it stays on GitLab untracked",
+			zap.String("username", award.User.Username),
+			zap.Int64("gitlab_user_achievement_id", awarded.ID),
+			zap.Error(revokeErr),
+		)
+	}
+
+	return nil
+}
+
+// awardStatusColumn is the awards column every delivery transition sets.
+const awardStatusColumn = "status"
+
+// errAwardMoved reports that an award row changed between this pass
+// reading it and writing it back, so the write was skipped.
+var errAwardMoved = errors.New("award changed under this pass")
+
+// transitionAward applies updates to award only if its row still holds the
+// status and GitLab ID this pass read, and reports errAwardMoved when it
+// doesn't.
+//
+// Delivery is serialized by the awards lease, which makes this the second
+// line of defence rather than the first: a pass that lost its lease, or one
+// from a release that took none, can still be writing. Overwriting what it
+// recorded would lose track of an award GitLab holds, so the row is left as
+// it is for the next pass to decide from fresh.
+func transitionAward(conn *gorm.DB, award *db.Award, updates map[string]any) error {
+	result := conn.Model(award).
+		Where("status = ? AND git_lab_user_achievement_id = ?", award.Status, award.GitLabUserAchievementID).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		zap.L().Warn("award changed while this pass was delivering it, leaving it for the next pass",
+			zap.String("username", award.User.Username),
+			zap.Int64("award_id", award.ID),
+		)
+
+		return errAwardMoved
+	}
+
+	return nil
 }
 
 // supersedeAward takes a tier GitLab holds back off its recipient, now that
@@ -243,17 +329,21 @@ func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award 
 		}
 
 		if live {
-			_, err = held.revoke(ctx, award.GitLabUserAchievementID)
+			err = held.revoke(ctx, award.GitLabUserAchievementID)
 			if err != nil {
 				return recordAwardFailure(conn, award, report, err)
 			}
 		}
 	}
 
-	err := conn.Model(award).Updates(map[string]any{
-		"status":           db.AwardStatusSuperseded,
+	err := transitionAward(conn, award, map[string]any{
+		awardStatusColumn:  db.AwardStatusSuperseded,
 		"shown_on_profile": false,
-	}).Error
+	})
+	if errors.Is(err, errAwardMoved) {
+		return nil
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to persist superseded award %d: %w", award.ID, err)
 	}
@@ -271,12 +361,19 @@ func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award 
 // achievement is always hidden, but an award adopted from GitLab's record
 // may be one the recipient accepted long ago, and this column is the only
 // place that ever knows.
+//
+// It returns errAwardMoved, and records nothing, when the row changed since
+// this pass read it.
 func recordAwardDelivered(conn *gorm.DB, award *db.Award, delivered *gitlab.UserAchievement, report *AwardsReport) error {
-	err := conn.Model(award).Updates(map[string]any{
-		"status":                      db.AwardStatusAccepted,
+	err := transitionAward(conn, award, map[string]any{
+		awardStatusColumn:             db.AwardStatusAccepted,
 		"git_lab_user_achievement_id": delivered.ID,
 		"shown_on_profile":            delivered.ShowOnProfile,
-	}).Error
+	})
+	if errors.Is(err, errAwardMoved) {
+		return err
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to persist delivered award %d: %w", award.ID, err)
 	}
@@ -306,7 +403,11 @@ func recordAwardFailure(conn *gorm.DB, award *db.Award, report *AwardsReport, ca
 		zap.Error(cause),
 	)
 
-	err := conn.Model(award).Update("status", db.AwardStatusFailed).Error
+	err := transitionAward(conn, award, map[string]any{awardStatusColumn: db.AwardStatusFailed})
+	if errors.Is(err, errAwardMoved) {
+		return nil
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to persist award %d status: %w", award.ID, err)
 	}
@@ -455,10 +556,10 @@ func (h *heldAwards) award(ctx context.Context, award *db.Award) (*gitlab.UserAc
 
 // revoke withdraws one award on GitLab and forgets it, so nothing later in
 // the pass matches an award that is no longer actionable.
-func (h *heldAwards) revoke(ctx context.Context, userAchievementID int64) (*gitlab.UserAchievement, error) {
+func (h *heldAwards) revoke(ctx context.Context, userAchievementID int64) error {
 	revoked, err := h.write.RevokeAchievement(userAchievementID, gitlab.WithContext(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("failed to revoke award %d held by %q: %w", userAchievementID, h.username, err)
+		return fmt.Errorf("failed to revoke award %d held by %q: %w", userAchievementID, h.username, err)
 	}
 
 	if h.byAchievement != nil {
@@ -466,5 +567,5 @@ func (h *heldAwards) revoke(ctx context.Context, userAchievementID int64) (*gitl
 		delete(h.byID, userAchievementID)
 	}
 
-	return revoked, nil
+	return nil
 }

@@ -13,10 +13,16 @@ import (
 )
 
 const (
-	// BootstrapLease names the lease the bootstrap sequence takes. It is
-	// the only one this app uses; the table is keyed by name so that a
-	// second singleton pass would not need a second table.
+	// BootstrapLease names the lease the bootstrap sequence takes.
 	BootstrapLease = "bootstrap"
+
+	// AwardsLease names the lease award delivery takes. Delivery decides
+	// what to award from what GitLab held when it last looked, and awarding
+	// is not idempotent, so two passes that overlap on one user both award
+	// the same tier. Several are scheduled independently (the hourly sweep,
+	// a backfill's or a reconcile's delivery, a backfill Job), so they need
+	// a lease of their own rather than bootstrap's.
+	AwardsLease = "awards"
 
 	// DefaultLeaseTTL is how long a claim stands without renewal. It is
 	// short on purpose: a holder that dies blocks every other process for

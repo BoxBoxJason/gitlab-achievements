@@ -28,6 +28,8 @@ From then on it reacts to webhook deliveries as they arrive. Each one is authent
 
 Bootstrap's checks are not a one-time thing. Roughly every hour the app re-applies every hook's configuration, picks up groups and projects created since the last sweep, re-checks every achievement against GitLab's own record of it — recreating one that was deleted, adopting one whose ID the database has lost track of, and pushing back a name, description or avatar that was edited out of band — and retries awards GitLab has not confirmed. Failures are logged and retried on the next tick rather than crashing the process.
 
+Award delivery takes a lease of its own, so the hourly sweep, a backfill's delivery and a separate backfill Job never deliver at the same time. GitLab creates a fresh award on every call, so two overlapping passes would both see a tier as missing and both award it.
+
 ### 5. Activity reconciliation, daily
 
 Webhooks are best-effort. GitLab retries a delivery a few times and then gives up, and nothing in the live path notices, because a delivery that never arrives leaves no trace. Once a day the app re-reads the last couple of days of activity through the Events API and replays it. Anything already counted is discarded. See [Reconciliation](reconciliation.md).
