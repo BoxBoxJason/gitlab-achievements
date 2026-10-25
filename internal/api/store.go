@@ -284,6 +284,12 @@ func (s *store) detailOf(ctx context.Context, user *db.User) (*Detail, error) {
 // The username half reads users.username, which the engine keeps in step
 // with GitLab renames on every event, so somebody who was renamed resolves
 // under the name this app last saw rather than 404ing.
+//
+// That also means two rows can hold one name: somebody renamed, another
+// account claimed the freed name, and the first has had no event since to
+// refresh theirs. The username is not unique for that reason, and the row
+// updated most recently wins, since its holder is the one whose activity
+// last carried the name, rather than whichever row happens to be oldest.
 func (s *store) lookup(ctx context.Context, ref string) (*db.User, error) {
 	txn := s.conn.WithContext(ctx)
 
@@ -298,7 +304,7 @@ func (s *store) lookup(ctx context.Context, ref string) (*db.User, error) {
 		}
 	}
 
-	user, err := s.first(txn, &db.User{Username: ref})
+	user, err := s.first(txn.Order("updated_at DESC"), &db.User{Username: ref})
 	if err != nil {
 		return nil, err
 	}

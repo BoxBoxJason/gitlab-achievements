@@ -191,6 +191,31 @@ func TestLookup_ResolvesARenamedUserUnderTheirCurrentName(t *testing.T) {
 	}
 }
 
+// A rename followed by somebody else claiming the freed name leaves two rows
+// under it until the renamed user's next event. The name belongs to whoever
+// carried it last, not to the oldest row.
+func TestLookup_ResolvesAReusedUsernameToItsLatestHolder(t *testing.T) {
+	conn := testConn(t)
+	seedUser(t, conn, 30, "carol", 100)
+	seedUser(t, conn, 40, "carol", 50)
+
+	earlier := time.Now().UTC().Add(-time.Hour)
+	if err := conn.Model(&appdb.User{}).Where("git_lab_user_id = ?", 30).UpdateColumn("updated_at", earlier).Error; err != nil {
+		t.Fatalf("failed to age the stale row: %v", err)
+	}
+
+	s := &store{conn: conn}
+
+	got, err := s.Summary(t.Context(), "carol")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if got.GitLabUserID != 40 {
+		t.Errorf("expected the name's latest holder (40), got %d", got.GitLabUserID)
+	}
+}
+
 func TestLookup_ReportsAnUnknownUser(t *testing.T) {
 	s := &store{conn: testConn(t)}
 
