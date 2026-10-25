@@ -133,6 +133,20 @@ func TestValidate_ShortWebhookSecret(t *testing.T) {
 	}
 }
 
+func TestInsecureURLs(t *testing.T) {
+	cfg := validConfig()
+
+	if got := cfg.InsecureURLs(); len(got) != 0 {
+		t.Errorf("expected https URLs to pass, got %v", got)
+	}
+
+	cfg.PublicURL = "http://achievements.svc.cluster.local:8080"
+
+	if got := cfg.InsecureURLs(); len(got) != 1 || got[0] != "public-url" {
+		t.Errorf("expected public-url to be flagged, got %v", got)
+	}
+}
+
 func TestValidate_SameReadAndWriteToken(t *testing.T) {
 	cfg := validConfig()
 	cfg.GitLabWriteToken = cfg.GitLabReadToken

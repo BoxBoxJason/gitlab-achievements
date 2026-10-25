@@ -288,7 +288,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	for _, urlField := range []requiredField{{"gitlab-url", c.GitLabURL}, {"public-url", c.PublicURL}} {
+	for _, urlField := range c.urlFields() {
 		if strings.TrimSpace(urlField.value) == "" {
 			continue
 		}
@@ -313,6 +313,25 @@ func (c *Config) Validate() error {
 // AuthMode returns the configured read-API authentication mode.
 func (c *Config) AuthMode() APIAuth {
 	return APIAuth(c.APIAuth)
+}
+
+// InsecureURLs names the URL settings that use plain http.
+//
+// Either one is allowed, since a lab or an in-cluster address may have no
+// TLS to offer, but both carry credentials: the GitLab tokens travel to
+// gitlab-url, the webhook secret and session cookies to public-url (and the
+// cookies lose Secure), all readable by anyone on the path.
+func (c *Config) InsecureURLs() []string {
+	var insecure []string
+
+	for _, field := range c.urlFields() {
+		parsed, err := url.Parse(field.value)
+		if err == nil && strings.EqualFold(parsed.Scheme, "http") {
+			insecure = append(insecure, field.name)
+		}
+	}
+
+	return insecure
 }
 
 // MetricsEnabled reports whether a metrics listener should be started.
@@ -650,6 +669,11 @@ func (c *Config) applyAPIDefaults() {
 type requiredField struct {
 	name  string
 	value string
+}
+
+// urlFields are the settings that hold absolute URLs.
+func (c *Config) urlFields() []requiredField {
+	return []requiredField{{"gitlab-url", c.GitLabURL}, {"public-url", c.PublicURL}}
 }
 
 func (c *Config) requiredFields() []requiredField {

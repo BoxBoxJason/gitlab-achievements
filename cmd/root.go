@@ -311,6 +311,12 @@ func run(cfg *config.Config) error {
 		zap.String("listen_addr", cfg.ListenAddr),
 	)
 
+	for _, name := range cfg.InsecureURLs() {
+		zap.L().Warn("a URL setting uses plain http: the credentials sent to or from it cross the network unencrypted",
+			zap.String("setting", name),
+		)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
