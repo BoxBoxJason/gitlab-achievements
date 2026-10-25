@@ -132,7 +132,11 @@ func reconcileUserAwards(ctx context.Context, write achievementWriter, conn *gor
 	}
 
 	top := topTiers(awards)
-	held := &heldAwards{write: write, username: awards[0].User.Username}
+	held := &heldAwards{
+		write:        write,
+		username:     awards[0].User.Username,
+		gitlabUserID: awards[0].User.GitLabUserID,
+	}
 
 	for index := range awards {
 		award := &awards[index]
@@ -221,15 +225,28 @@ func deliverAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *d
 // top one a user holds, the pass routes it to deliverAward instead and it
 // goes back to GitLab under a fresh ID, since a revoked award can't be
 // un-revoked.
+//
+// The recorded ID is only revoked while the user's own listing still shows
+// it live (see heldAwards.holds). One it doesn't show is either revoked
+// already, so there is nothing left to take off, or not this user's at all,
+// in which case revoking it would take the badge off whoever does hold it.
+// Either way the tier is done with as far as this user is concerned.
 func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award *db.Award, report *AwardsReport) error {
 	if award.Status == db.AwardStatusSuperseded {
 		return nil
 	}
 
 	if award.GitLabUserAchievementID != 0 {
-		_, err := held.revoke(ctx, award.GitLabUserAchievementID)
+		live, err := held.holds(ctx, award.GitLabUserAchievementID)
 		if err != nil {
 			return recordAwardFailure(conn, award, report, err)
+		}
+
+		if live {
+			_, err = held.revoke(ctx, award.GitLabUserAchievementID)
+			if err != nil {
+				return recordAwardFailure(conn, award, report, err)
+			}
 		}
 	}
 
@@ -312,11 +329,21 @@ func recordAwardFailure(conn *gorm.DB, award *db.Award, report *AwardsReport, ca
 // A lookup failure is remembered, so a user whose achievements couldn't be
 // listed doesn't have the same failing request made once per award they
 // hold.
+//
+// GitLab can only list holdings by username, while this app knows a user by
+// their GitLab ID, and the stored username is just whatever their latest
+// event carried. It goes stale when they rename, and once someone else
+// claims the freed name it answers for that other account. Every listed
+// record is therefore checked against gitlabUserID: adopting or revoking a
+// record because of a name match alone would hand one account's award to
+// another, and then revoke it from its real holder.
 type heldAwards struct {
 	write         achievementWriter
 	err           error
 	byAchievement map[int64]*gitlab.UserAchievement
+	byID          map[int64]*gitlab.UserAchievement
 	username      string
+	gitlabUserID  int64
 	loaded        bool
 }
 
@@ -340,6 +367,13 @@ func (h *heldAwards) find(ctx context.Context, achievementID int64) (*gitlab.Use
 // can be neither revoked again nor un-revoked, so matching one would leave
 // this app pointing at a record it can no longer act on; treating it as
 // absent re-awards the tier instead, which is the recoverable outcome.
+//
+// A listing that holds a record owned by any other GitLab user fails as a
+// whole, and leaves nothing to match against: the username no longer names
+// this user, so none of what it lists can be trusted to be theirs. Every
+// award they hold is then recorded as failed and retried on later passes,
+// which heal on their own once the user's next event refreshes the stored
+// name.
 func (h *heldAwards) load(ctx context.Context) error {
 	if h.loaded {
 		return h.err
@@ -347,13 +381,20 @@ func (h *heldAwards) load(ctx context.Context) error {
 
 	h.loaded = true
 	h.byAchievement = make(map[int64]*gitlab.UserAchievement)
+	h.byID = make(map[int64]*gitlab.UserAchievement)
 
 	includeHidden := true
 	opt := &gitlab.ListUserAchievementsOptions{IncludeHidden: &includeHidden}
 
 	for userAchievement, err := range h.write.ListUserAchievements(h.username, opt, gitlab.WithContext(ctx)) {
 		if err != nil {
-			h.err = fmt.Errorf("failed to list achievements held by %q: %w", h.username, err)
+			h.fail(fmt.Errorf("failed to list achievements held by %q: %w", h.username, err))
+
+			return h.err
+		}
+
+		if userAchievement.UserID != h.gitlabUserID {
+			h.fail(fmt.Errorf("username %q now belongs to GitLab user %d, not %d", h.username, userAchievement.UserID, h.gitlabUserID))
 
 			return h.err
 		}
@@ -363,9 +404,34 @@ func (h *heldAwards) load(ctx context.Context) error {
 		}
 
 		h.byAchievement[userAchievement.AchievementID] = userAchievement
+		h.byID[userAchievement.ID] = userAchievement
 	}
 
 	return nil
+}
+
+// fail remembers a lookup failure and forgets anything listed before it, so
+// nothing is matched against a partial or untrustworthy listing.
+func (h *heldAwards) fail(err error) {
+	h.err = err
+	h.byAchievement = map[int64]*gitlab.UserAchievement{}
+	h.byID = map[int64]*gitlab.UserAchievement{}
+}
+
+// holds reports whether GitLab lists userAchievementID as a live award of
+// this user's.
+//
+// An ID this app recorded is not proof of ownership on its own: an older
+// release could adopt another account's record through a stale username,
+// and GitLab, or another pass, may have revoked the award since. Revoking
+// is only safe for an ID the user's own listing still shows.
+func (h *heldAwards) holds(ctx context.Context, userAchievementID int64) (bool, error) {
+	err := h.load(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return h.byID[userAchievementID] != nil, nil
 }
 
 // award pushes one award to GitLab and records it as held, so that a later
@@ -381,6 +447,7 @@ func (h *heldAwards) award(ctx context.Context, award *db.Award) (*gitlab.UserAc
 
 	if h.byAchievement != nil {
 		h.byAchievement[achievementID] = delivered
+		h.byID[delivered.ID] = delivered
 	}
 
 	return delivered, nil
@@ -396,6 +463,7 @@ func (h *heldAwards) revoke(ctx context.Context, userAchievementID int64) (*gitl
 
 	if h.byAchievement != nil {
 		delete(h.byAchievement, revoked.AchievementID)
+		delete(h.byID, userAchievementID)
 	}
 
 	return revoked, nil
