@@ -28,6 +28,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -151,6 +152,16 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 
 		return err
 	})
+	if errors.Is(err, errActorExcluded) {
+		// Excluded between the filter's check and the transaction: the
+		// rollback took the processed mark with it, as for any other
+		// excluded activity.
+		e.skipped.Add(1)
+		metrics.EngineEvent("excluded")
+
+		return nil
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to evaluate %s activity %q: %w", event.Kind, event.DedupKey, err)
 	}
@@ -194,6 +205,11 @@ func (e *Engine) excluded(ctx context.Context, event activity.Event) (bool, erro
 // a crash can't commit a tier without the EXP it pays.
 func evaluate(txn *gorm.DB, event activity.Event, criteria []string) (int, error) {
 	user, err := upsertUser(txn, event)
+	if err != nil {
+		return 0, err
+	}
+
+	err = claimParticipant(txn, user)
 	if err != nil {
 		return 0, err
 	}
@@ -343,6 +359,36 @@ func upsertUser(txn *gorm.DB, event activity.Event) (*db.User, error) {
 	}
 
 	return &user, nil
+}
+
+// errActorExcluded aborts an evaluation whose actor was excluded after the
+// filter had let the activity through.
+var errActorExcluded = errors.New("actor is excluded from achievements")
+
+// claimParticipant confirms, inside the evaluation's transaction, that the
+// actor still takes part, and holds their row until the transaction ends.
+//
+// The filter's verdict is reached outside the transaction (it may ask
+// GitLab), so an opt-out committed between the two would otherwise still
+// have this activity counted, against the promise that nothing is counted
+// from the moment someone is excluded. The guard is an UPDATE rather than
+// a read because an UPDATE waits for a concurrent one on the same row and
+// then re-checks its condition, on every database this app supports: an
+// opt-out that commits first is seen here, and one that comes second waits
+// until this activity is counted, and so takes effect after it.
+func claimParticipant(txn *gorm.DB, user *db.User) error {
+	result := txn.Model(&db.User{}).
+		Where("id = ? AND excluded_reason = ?", user.ID, string(exclusion.Included)).
+		Update("updated_at", time.Now().UTC())
+	if result.Error != nil {
+		return fmt.Errorf("failed to confirm user %d takes part: %w", user.GitLabUserID, result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return errActorExcluded
+	}
+
+	return nil
 }
 
 // incrementCounter adds weight to a user's running total for criteriaKey,

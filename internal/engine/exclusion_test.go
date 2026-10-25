@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"gorm.io/gorm"
+
 	appdb "github.com/boxboxjason/gitlab-achievements/internal/db"
 	"github.com/boxboxjason/gitlab-achievements/internal/exclusion"
 )
@@ -57,5 +59,50 @@ func TestProcess_ReportsAFilterFailure(t *testing.T) {
 	err := eng.Process(t.Context(), commitEvent("project_event:1:commit", 3))
 	if err == nil {
 		t.Fatal("expected a failed exclusion check to fail the evaluation, so the queue retries it")
+	}
+}
+
+// optingOutFilter lets the activity through and then opts its actor out
+// before the engine's transaction begins, the window the filter's verdict
+// leaves open since it is reached outside the transaction.
+type optingOutFilter struct {
+	conn *gorm.DB
+}
+
+func (f optingOutFilter) Check(_ context.Context, gitlabUserID int64, username string) (exclusion.Reason, error) {
+	user := appdb.User{GitLabUserID: gitlabUserID, Username: username}
+	if err := f.conn.Where(&appdb.User{GitLabUserID: gitlabUserID}).FirstOrCreate(&user).Error; err != nil {
+		return exclusion.Included, err
+	}
+
+	err := f.conn.Model(&user).Update("excluded_reason", string(exclusion.OptedOut)).Error
+
+	return exclusion.Included, err
+}
+
+func TestProcess_CountsNothingForAnOptOutRacingTheFilter(t *testing.T) {
+	conn := testConn(t)
+	eng := New(conn, WithFilter(optingOutFilter{conn: conn}))
+
+	err := eng.Process(t.Context(), commitEvent("project_event:1:commit", 3))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var counters, processed int64
+	if err := conn.Model(&appdb.ProgressCounter{}).Count(&counters).Error; err != nil {
+		t.Fatalf("failed to count counters: %v", err)
+	}
+
+	if err := conn.Model(&appdb.ProcessedEvent{}).Count(&processed).Error; err != nil {
+		t.Fatalf("failed to count processed events: %v", err)
+	}
+
+	if counters != 0 || processed != 0 {
+		t.Errorf("expected nothing kept for a user excluded mid-evaluation, got %d counters and %d processed", counters, processed)
+	}
+
+	if stats := eng.Stats(); stats.Skipped != 1 || stats.Processed != 0 {
+		t.Errorf("expected the activity to be skipped, got %+v", stats)
 	}
 }
