@@ -80,6 +80,11 @@ const (
 	// webhookShutdownTimeout bounds how long shutdown waits for activity
 	// already accepted from GitLab to be evaluated before giving up on it.
 	webhookShutdownTimeout = 15 * time.Second
+	// readinessGitLabCheckTTL is how long one /readyz answer about GitLab
+	// stands. /readyz is unauthenticated, so this caps what anybody can
+	// make the read token spend through it; at half the chart's default
+	// probe period, every kubelet probe still gets a fresh answer.
+	readinessGitLabCheckTTL = 5 * time.Second
 )
 
 const shortHashLength = 7
@@ -712,20 +717,21 @@ func builtinPolicy(gitlabURL string) string {
 
 // newHTTPServer builds the *http.Server exposing /healthz, /readyz, the
 // webhook ingestion endpoint, and the read API, wired to check the database
-// connection and GitLab reachability on every /readyz request.
+// connection on every /readyz request and GitLab reachability at most once
+// per readinessGitLabCheckTTL.
 func newHTTPServer(cfg *config.Config, sqlDB *sql.DB, readClient *gitlabclient.ReadClient, receiver http.Handler, readAPI *api.API, site http.Handler) *http.Server {
 	srv := httpserver.New(
 		func(ctx context.Context) error {
 			return sqlDB.PingContext(ctx)
 		},
-		func(ctx context.Context) error {
+		httpserver.Cached(func(ctx context.Context) error {
 			_, err := readClient.CurrentUser(gitlab.WithContext(ctx))
 			if err != nil {
 				return fmt.Errorf("gitlab readiness check failed: %w", err)
 			}
 
 			return nil
-		},
+		}, readinessGitLabCheckTTL),
 		func(reason string, err error) {
 			zap.L().Warn(reason, zap.Error(err))
 		},

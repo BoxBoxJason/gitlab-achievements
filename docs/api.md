@@ -222,7 +222,7 @@ Everything is served on one port, `LISTEN_ADDR`.
 | Path | Purpose |
 | --- | --- |
 | `/healthz` | Liveness. Answers 200 as soon as the process serves at all |
-| `/readyz` | Readiness. 200 once bootstrap has finished and the database and GitLab are reachable right now |
+| `/readyz` | Readiness. 200 once bootstrap has finished and the database and GitLab are reachable right now. GitLab's answer is reused for 5 seconds, so probing `/readyz` costs the read token at most one call per 5 seconds however often it is asked |
 | `/webhooks/gitlab` | Where GitLab's deliveries arrive. `POST` only, authenticated with the webhook secret |
 | `/api/v1/...` | The read API |
 | `/oauth/...` | Browser login flow, when `API_AUTH=gitlab` |

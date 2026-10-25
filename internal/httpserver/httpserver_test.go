@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/api"
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
@@ -269,5 +272,103 @@ func TestMount_ReachesTheReadAPIThroughItsOwnPrefixes(t *testing.T) {
 
 	if rec := doRequest(t, srv, http.MethodGet, "/api/v1/leaderboard"); rec.Code != http.StatusOK {
 		t.Errorf("expected the leaderboard to be reachable, got %d", rec.Code)
+	}
+}
+
+// /readyz is open to anybody, so its GitLab check has to cost the read
+// token a bounded amount however often it is asked.
+func TestCached_RunsTheCheckOncePerWindow(t *testing.T) {
+	var calls atomic.Int32
+
+	release := make(chan struct{})
+	check := httpserver.Cached(func(context.Context) error {
+		calls.Add(1)
+		<-release
+
+		return nil
+	}, time.Hour)
+
+	var wg sync.WaitGroup
+
+	for range 50 {
+		wg.Go(func() {
+			if err := check(t.Context()); err != nil {
+				t.Errorf("expected the shared check to pass, got: %v", err)
+			}
+		})
+	}
+
+	// Let every caller pile onto the one run before it finishes.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	for range 20 {
+		if err := check(t.Context()); err != nil {
+			t.Fatalf("expected the cached answer, got: %v", err)
+		}
+	}
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("expected one upstream check inside the window, got %d", got)
+	}
+}
+
+func TestCached_KeepsAFailureForTheWindowAndChecksAgainAfter(t *testing.T) {
+	var calls atomic.Int32
+
+	failure := errors.New("gitlab down")
+	check := httpserver.Cached(func(context.Context) error {
+		if calls.Add(1) == 1 {
+			return failure
+		}
+
+		return nil
+	}, 50*time.Millisecond)
+
+	if err := check(t.Context()); !errors.Is(err, failure) {
+		t.Fatalf("expected the failure, got: %v", err)
+	}
+
+	if err := check(t.Context()); !errors.Is(err, failure) {
+		t.Fatalf("expected the failure to stand for the window, got: %v", err)
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	if err := check(t.Context()); err != nil {
+		t.Fatalf("expected a fresh check once the window passed, got: %v", err)
+	}
+
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("expected two upstream checks, got %d", got)
+	}
+}
+
+// One caller giving up must not fail the check for the others sharing it.
+func TestCached_OneCallerLeavingDoesNotFailTheSharedCheck(t *testing.T) {
+	release := make(chan struct{})
+	check := httpserver.Cached(func(ctx context.Context) error {
+		<-release
+
+		return ctx.Err()
+	}, time.Hour)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	first := make(chan error, 1)
+
+	go func() { first <- check(ctx) }()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected the departed caller to see its own cancellation, got: %v", err)
+	}
+
+	close(release)
+
+	if err := check(t.Context()); err != nil {
+		t.Fatalf("expected the shared check unaffected by the departed caller, got: %v", err)
 	}
 }
