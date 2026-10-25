@@ -6,6 +6,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -46,10 +47,17 @@ func Open(dsn string) (*gorm.DB, error) {
 }
 
 // dialectorFor picks the gorm dialector matching the DSN's scheme.
+//
+// Neither error quotes the DSN: it carries the database password, and it
+// would reach whoever reads the logs, on every restart of a process that
+// crash-loops on it. The scheme is only quoted once it looks like one, since
+// a scheme-less DSN that happens to contain "://" further on (a native
+// MySQL DSN with a URL in a parameter, say) would otherwise be cut at that
+// point and quoted credentials and all.
 func dialectorFor(dsn string) (gorm.Dialector, error) {
 	scheme, rest, ok := strings.Cut(dsn, "://")
-	if !ok {
-		return nil, fmt.Errorf("invalid database DSN %q: missing scheme (expected postgres://, sqlite://, mysql://, or sqlserver://)", dsn)
+	if !ok || !isScheme(scheme) {
+		return nil, errors.New("invalid database DSN: missing scheme (expected postgres://, sqlite://, mysql://, or sqlserver://)")
 	}
 
 	switch strings.ToLower(scheme) {
@@ -64,6 +72,16 @@ func dialectorFor(dsn string) (gorm.Dialector, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database DSN scheme %q: expected postgres://, sqlite://, mysql://, or sqlserver://", scheme)
 	}
+}
+
+// isScheme reports whether s is a well-formed URL scheme (RFC 3986 section
+// 3.1): a letter followed by letters, digits, "+", "-" or ".".
+func isScheme(s string) bool {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	return s != "" &&
+		strings.IndexByte(letters, s[0]) >= 0 &&
+		strings.Trim(s, letters+"0123456789+-.") == ""
 }
 
 // sqliteDefaults are the connection settings every SQLite database is opened

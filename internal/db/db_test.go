@@ -60,6 +60,31 @@ func TestOpen_MissingScheme(t *testing.T) {
 	}
 }
 
+// TestOpen_DSNErrorsOmitCredentials guards against the password reaching
+// the logs: a DSN the app can't parse is reported on every restart of a
+// process that crash-loops on it, to anyone who can read its output.
+func TestOpen_DSNErrorsOmitCredentials(t *testing.T) {
+	cases := map[string]string{
+		"libpq keyword form":         "host=db user=achievements password=s3cret dbname=achievements",
+		"native MySQL DSN":           "achievements:s3cret@tcp(db:3306)/achievements?parseTime=true",
+		"native DSN containing ://":  "achievements:s3cret@tcp(db:3306)/achievements?proxy=http://p",
+		"unsupported scheme with pw": "mongodb://achievements:s3cret@db/achievements",
+	}
+
+	for name, dsn := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := db.Open(dsn)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+
+			if strings.Contains(err.Error(), "s3cret") {
+				t.Errorf("expected the error to leave the password out, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestOpen_UnsupportedScheme(t *testing.T) {
 	_, err := db.Open("mongodb://user:pass@localhost/db")
 	if err == nil {
