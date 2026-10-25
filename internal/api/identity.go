@@ -14,8 +14,8 @@ import (
 const (
 	// identityCacheEntries bounds the cache. Far above the number of people
 	// who could plausibly be using the API within one TTL, it exists only
-	// so a stream of distinct bogus tokens cannot grow it without limit
-	// (and failed verifications are never cached in the first place).
+	// so a stream of distinct tokens cannot grow it without limit (and
+	// tokens GitLab rejects are never cached in the first place).
 	identityCacheEntries = 10_000
 )
 
@@ -62,7 +62,7 @@ func (v *authorizingVerifier) Verify(ctx context.Context, token string) (*gitlab
 	return identity, nil
 }
 
-// cachingVerifier remembers successful verifications for a short while.
+// cachingVerifier remembers verifications for a short while.
 //
 // Without it every API request costs a GitLab round-trip, so a page making
 // five calls makes five more against the instance. A cached identity is
@@ -70,9 +70,15 @@ func (v *authorizingVerifier) Verify(ctx context.Context, token string) (*gitlab
 // removed from the allowed group) keeps working here, which is the price of
 // the cache and why the TTL is short and configurable down to off.
 //
-// Only successes are cached. A rejected or unverifiable credential is asked
-// about again every time, so a token that starts working (GitLab back up,
-// user added to the group) does so at once.
+// A refusal for being outside the allowed group is cached for ttl too, so a
+// user added to the group may wait that long to get in. Left uncached, any
+// account on the instance could spend a membership lookup on this app's
+// read token with every request it sent, which a cached member never costs.
+//
+// Every other failure is asked about again every time, so a token that
+// starts working (GitLab back up) does so at once. A token GitLab rejects
+// needs no cache: sending it costs the sender nothing, and a stream of
+// fresh ones would miss any cache anyway.
 //
 // Tokens are keyed by their SHA-256, so the cache never holds a credential
 // in the clear.
@@ -96,7 +102,10 @@ type identityForgetter interface {
 }
 
 type cachedIdentity struct {
-	expires  time.Time
+	expires time.Time
+	// denial is the ErrForbidden the token was refused with, when it was;
+	// identity is then unset.
+	denial   error
 	identity gitlabclient.Identity
 }
 
@@ -124,16 +133,24 @@ func newCachingVerifier(inner Verifier, ttl time.Duration) Verifier {
 func (v *cachingVerifier) Verify(ctx context.Context, token string) (*gitlabclient.Identity, error) {
 	key := sha256.Sum256([]byte(token))
 
-	if identity, ok := v.lookup(key); ok {
-		return identity, nil
+	if entry, ok := v.lookup(key); ok {
+		if entry.denial != nil {
+			return nil, entry.denial
+		}
+
+		return &entry.identity, nil
 	}
 
 	identity, err := v.inner.Verify(ctx, token)
+	if errors.Is(err, ErrForbidden) {
+		v.store(key, cachedIdentity{denial: err})
+	}
+
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the inner verifier's error is the answer, unchanged
 	}
 
-	v.store(key, identity)
+	v.store(key, cachedIdentity{identity: *identity})
 
 	return identity, nil
 }
@@ -148,27 +165,26 @@ func (v *cachingVerifier) forget(token string) {
 	v.mu.Unlock()
 }
 
-func (v *cachingVerifier) lookup(key [sha256.Size]byte) (*gitlabclient.Identity, bool) {
+func (v *cachingVerifier) lookup(key [sha256.Size]byte) (cachedIdentity, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	entry, ok := v.entries[key]
 	if !ok {
-		return nil, false
+		return cachedIdentity{}, false
 	}
 
 	if !v.now().Before(entry.expires) {
 		delete(v.entries, key)
 
-		return nil, false
+		return cachedIdentity{}, false
 	}
 
-	identity := entry.identity
-
-	return &identity, true
+	return entry, true
 }
 
-func (v *cachingVerifier) store(key [sha256.Size]byte, identity *gitlabclient.Identity) {
+// store remembers entry under key for ttl.
+func (v *cachingVerifier) store(key [sha256.Size]byte, entry cachedIdentity) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
@@ -176,7 +192,8 @@ func (v *cachingVerifier) store(key [sha256.Size]byte, identity *gitlabclient.Id
 	v.evict(now)
 
 	expires := now.Add(v.ttl)
-	v.entries[key] = cachedIdentity{identity: *identity, expires: expires}
+	entry.expires = expires
+	v.entries[key] = entry
 	v.order = append(v.order, queuedKey{key: key, expires: expires})
 }
 

@@ -53,7 +53,7 @@ func TestCachingVerifier_AsksGitLabOncePerWindow(t *testing.T) {
 	}
 }
 
-func TestCachingVerifier_NeverCachesFailures(t *testing.T) {
+func TestCachingVerifier_NeverCachesRejectedTokens(t *testing.T) {
 	inner := &stubVerifier{err: gitlabclient.ErrInvalidToken}
 	cache := newCachingVerifier(inner, time.Minute)
 
@@ -65,6 +65,35 @@ func TestCachingVerifier_NeverCachesFailures(t *testing.T) {
 
 	if inner.calls != 3 {
 		t.Fatalf("expected every failure to be asked about again, got %d calls", inner.calls)
+	}
+}
+
+// Being outside the allowed group is cached like a success, or every
+// request a non-member sent would cost a membership lookup on the read
+// token.
+func TestCachingVerifier_CachesAGroupRefusalForTheWindow(t *testing.T) {
+	inner := &stubVerifier{err: fmt.Errorf("%w: user 2 is not in the allowed group", ErrForbidden)}
+	now := time.Now()
+
+	cache, _ := newCachingVerifier(inner, time.Minute).(*cachingVerifier)
+	cache.now = func() time.Time { return now }
+
+	for range 25 {
+		if _, err := cache.Verify(t.Context(), "outsider"); !errors.Is(err, ErrForbidden) {
+			t.Fatalf("expected the refusal passed through, got %v", err)
+		}
+	}
+
+	if inner.calls != 1 {
+		t.Fatalf("expected one lookup inside the window, got %d", inner.calls)
+	}
+
+	now = now.Add(time.Minute)
+	inner.err = nil
+	inner.identity = &gitlabclient.Identity{ID: 2}
+
+	if _, err := cache.Verify(t.Context(), "outsider"); err != nil {
+		t.Fatalf("expected a user added to the group admitted once the window passed, got %v", err)
 	}
 }
 

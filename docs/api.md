@@ -204,7 +204,7 @@ Set `API_ALLOWED_GROUP` to a group's full path to admit only its members, includ
 
 ### Caching
 
-A verified credential is trusted for `API_AUTH_CACHE_TTL` (one minute by default) before GitLab is asked again, so a page making several calls costs one GitLab round-trip, not several. Only successes are cached; a rejected token is checked again every time. The cost is that a token revoked on GitLab, or a user removed from the allowed group, keeps working here for up to that long. Logging out drops the session's entry at once. Set `API_AUTH_CACHE_TTL=0s` to verify every request.
+A verified credential is trusted for `API_AUTH_CACHE_TTL` (one minute by default) before GitLab is asked again, so a page making several calls costs one GitLab round-trip, not several. A refusal for being outside `API_ALLOWED_GROUP` is cached for as long, so an account outside the group cannot make the app look its membership up on every request. Any other failure is not cached, and a rejected token is checked again every time. The cost is that a token revoked on GitLab, or a user removed from the allowed group, keeps working here for up to that long, and a user just added to the group may wait that long to get in. Logging out drops the session's entry at once. Set `API_AUTH_CACHE_TTL=0s` to verify every request.
 
 > [!NOTE]
 > With `API_AUTH=gitlab`, a request can only be served if GitLab could be asked about its credential within the cache window. The database-only guarantee above applies to the data; under the default `API_AUTH=none` it applies to the whole request.
