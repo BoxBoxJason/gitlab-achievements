@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -50,6 +51,9 @@ const (
 	// the same reason the identity lookup is bounded: a slow instance must
 	// not hold requests open for as long as it takes to answer.
 	tokenEndpointTimeout = 10 * time.Second
+	// maxRevokeResponse bounds how much of the revocation endpoint's answer
+	// is read, which carries nothing this app uses.
+	maxRevokeResponse = 4096
 )
 
 // errReturnTo reports a return_to the login flow will not send a browser
@@ -90,6 +94,7 @@ type oauthFlow struct {
 	httpClient    *http.Client
 	returnOrigins map[string]bool
 	landing       func(username string) string
+	revokeURL     string
 	secure        bool
 }
 
@@ -129,6 +134,7 @@ func newOAuthFlow(opts OAuthOptions, sessionStore *sessions, verifier Verifier) 
 		},
 		returnOrigins: origins,
 		landing:       opts.Landing,
+		revokeURL:     base + "/oauth/revoke",
 		secure:        strings.HasPrefix(strings.ToLower(opts.PublicURL), "https://"),
 	}
 }
@@ -318,9 +324,7 @@ func (f *oauthFlow) endPreviousSession(req *http.Request) {
 		return
 	}
 
-	f.forgetIdentity(req.Context(), previous.Value)
-
-	err = f.sessions.destroy(req.Context(), previous.Value)
+	err = f.endSession(req.Context(), previous.Value)
 	if err != nil {
 		zap.L().Warn("failed to delete the session a new login replaced", zap.Error(err))
 	}
@@ -465,9 +469,7 @@ func (f *oauthFlow) returnTo(raw string) (string, error) {
 func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 	cookie, err := req.Cookie(f.cookieName(SessionCookie))
 	if err == nil {
-		f.forgetIdentity(req.Context(), cookie.Value)
-
-		destroyErr := f.sessions.destroy(req.Context(), cookie.Value)
+		destroyErr := f.endSession(req.Context(), cookie.Value)
 		if destroyErr != nil {
 			zap.L().Warn("failed to delete a session on logout", zap.Error(destroyErr))
 		}
@@ -479,18 +481,82 @@ func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
 	resp.WriteHeader(http.StatusNoContent)
 }
 
-// forgetIdentity drops a session's token from the identity cache, if there
-// is one, so the identity it vouched for is not still honored for the rest
-// of the cache window.
-func (f *oauthFlow) forgetIdentity(ctx context.Context, sessionID string) {
-	cache, ok := f.verifier.(identityForgetter)
-	if !ok {
+// endSession ends one session for good: here, in the identity cache, and
+// on GitLab.
+//
+// Deleting the row alone would leave the GitLab tokens it held valid until
+// they expire, which for a refresh token is never: a copy of the sessions
+// table taken while the session was live, together with SESSION_SECRET,
+// would still mint fresh access tokens for that user. Revoking them is what
+// makes logging out mean the credential is gone.
+//
+// The token is dropped from the identity cache too, so the identity it
+// vouched for is not still honored for the rest of the cache window.
+func (f *oauthFlow) endSession(ctx context.Context, sessionID string) error {
+	tokens, err := f.sessions.load(ctx, sessionID)
+	if err == nil {
+		if cache, ok := f.verifier.(identityForgetter); ok {
+			cache.forget(tokens.AccessToken)
+		}
+
+		f.revoke(ctx, tokens)
+	}
+
+	return f.sessions.destroy(ctx, sessionID)
+}
+
+// revoke asks GitLab to revoke a session's tokens (RFC 7009).
+//
+// The refresh token is the one revoked when there is one: GitLab keeps both
+// tokens of a grant on one record, so revoking it takes the access token
+// down with it, while revoking only the access token would leave the
+// refresh token able to mint another.
+//
+// It is best effort. A revocation GitLab refuses or never answers is
+// logged, and the session is ended here regardless: keeping it alive
+// because GitLab is unreachable would be the worse outcome.
+func (f *oauthFlow) revoke(ctx context.Context, tokens sessionTokens) {
+	token, hint := tokens.RefreshToken, "refresh_token"
+	if token == "" {
+		token, hint = tokens.AccessToken, "access_token"
+	}
+
+	if token == "" {
 		return
 	}
 
-	tokens, err := f.sessions.load(ctx, sessionID)
-	if err == nil {
-		cache.forget(tokens.AccessToken)
+	form := url.Values{"token": {token}, "token_type_hint": {hint}, "client_id": {f.config.ClientID}}
+	if f.config.ClientSecret != "" {
+		form.Set("client_secret", f.config.ClientSecret)
+	}
+
+	// Detached from the request: a browser that gives up on its logout
+	// must not cut the revocation short.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tokenEndpointTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.revokeURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		zap.L().Warn("failed to build the gitlab token revocation", zap.Error(err))
+
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := f.httpClient.Do(req)
+	if err != nil {
+		zap.L().Warn("failed to revoke an ended session's tokens on gitlab", zap.Error(err))
+
+		return
+	}
+
+	defer resp.Body.Close() //nolint:errcheck // nothing to do about a failed close of a drained body
+
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxRevokeResponse))
+
+	if resp.StatusCode != http.StatusOK {
+		zap.L().Warn("gitlab refused to revoke an ended session's tokens", zap.Int("status", resp.StatusCode))
 	}
 }
 

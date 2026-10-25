@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/config"
@@ -15,18 +16,42 @@ import (
 )
 
 // fakeGitLab answers GitLab's token endpoint: authorization codes and
-// refresh tokens alike, or refuses refreshes when told to.
+// refresh tokens alike, or refuses refreshes when told to. Its revocation
+// endpoint accepts everything.
 func fakeGitLab(t *testing.T, refuseRefresh bool) *httptest.Server {
 	t.Helper()
 
+	server, _ := revocationRecordingGitLab(t, refuseRefresh)
+
+	return server
+}
+
+// revocationRecordingGitLab is fakeGitLab, also reporting every form posted
+// to its revocation endpoint.
+func revocationRecordingGitLab(t *testing.T, refuseRefresh bool) (*httptest.Server, func() []url.Values) {
+	t.Helper()
+
+	var (
+		mu      sync.Mutex
+		revoked []url.Values
+	)
+
 	server := httptest.NewServer(http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
+		_ = req.ParseForm()
+
+		if req.URL.Path == "/oauth/revoke" {
+			mu.Lock()
+			revoked = append(revoked, req.PostForm)
+			mu.Unlock()
+
+			return
+		}
+
 		if req.URL.Path != "/oauth/token" {
 			http.NotFound(resp, req)
 
 			return
 		}
-
-		_ = req.ParseForm()
 
 		resp.Header().Set("Content-Type", "application/json")
 
@@ -47,7 +72,12 @@ func fakeGitLab(t *testing.T, refuseRefresh bool) *httptest.Server {
 
 	t.Cleanup(server.Close)
 
-	return server
+	return server, func() []url.Values {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return append([]url.Values(nil), revoked...)
+	}
 }
 
 // rejectingGitLab answers every token request as GitLab does when the app's
@@ -164,7 +194,7 @@ func TestLogin_WithoutReturnToDropsAnAbandonedLoginsDestination(t *testing.T) {
 }
 
 func TestLogin_AgainEndsThePreviousSession(t *testing.T) {
-	gitlab := fakeGitLab(t, false)
+	gitlab, revoked := revocationRecordingGitLab(t, false)
 	api := flowAPI(t, gitlab.URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}})
 
 	previous, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "old", RefreshToken: "old-refresh"})
@@ -190,6 +220,39 @@ func TestLogin_AgainEndsThePreviousSession(t *testing.T) {
 	_, err = api.sessions.load(t.Context(), previous)
 	if !errors.Is(err, errNoSession) {
 		t.Fatalf("expected the replaced session to be gone, got %v", err)
+	}
+
+	forms := revoked()
+	if len(forms) != 1 || forms[0].Get("token") != "old-refresh" || forms[0].Get("token_type_hint") != "refresh_token" {
+		t.Errorf("expected the replaced session's refresh token revoked on GitLab, got %v", forms)
+	}
+}
+
+// Logging out has to end the GitLab credential the session held, not just
+// the row: an unrevoked refresh token outlives any copy of the table.
+func TestLogout_RevokesTheSessionsTokensOnGitLab(t *testing.T) {
+	gitlab, revoked := revocationRecordingGitLab(t, false)
+	api := flowAPI(t, gitlab.URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 42, Username: "alice"}})
+
+	var sessionID string
+
+	for _, cookie := range login(t, api, "").Result().Cookies() {
+		if cookie.Name == SessionCookie {
+			sessionID = cookie.Value
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, LogoutPath, nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: sessionID})
+	api.Handler().ServeHTTP(httptest.NewRecorder(), req)
+
+	forms := revoked()
+	if len(forms) != 1 {
+		t.Fatalf("expected one revocation, got %v", forms)
+	}
+
+	if forms[0].Get("token") != "refresh-authorization_code" || forms[0].Get("client_id") != "client-id" {
+		t.Errorf("expected the session's refresh token revoked for this client, got %v", forms[0])
 	}
 }
 

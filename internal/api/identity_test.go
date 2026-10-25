@@ -237,7 +237,7 @@ func TestLogout_ForgetsTheCachedIdentity(t *testing.T) {
 	api := mustNew(testConn(t), Options{
 		Verifier:         inner,
 		IdentityCacheTTL: time.Hour,
-		OAuth:            &OAuthOptions{GitLabURL: "https://gitlab.example.com", PublicURL: "https://achievements.example.com", ClientID: "id"},
+		OAuth:            &OAuthOptions{GitLabURL: fakeGitLab(t, false).URL, PublicURL: "https://achievements.example.com", ClientID: "id"},
 	})
 
 	id, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "session-token", RefreshToken: "r"})

@@ -325,8 +325,7 @@ func TestCallback_ClearsFlowCookiesOnFailure(t *testing.T) {
 }
 
 func TestLogout_ClearsTheSessionAndItsCookie(t *testing.T) {
-	conn := testConn(t)
-	api := testOAuthAPI(t, conn, &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
+	api := flowAPI(t, fakeGitLab(t, false).URL, &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
 
 	id, _, err := api.sessions.create(t.Context(), sessionTokens{AccessToken: "token", Expiry: time.Now().Add(time.Hour)})
 	if err != nil {
