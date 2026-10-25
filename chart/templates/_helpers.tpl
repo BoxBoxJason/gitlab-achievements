@@ -170,6 +170,18 @@ entries. An env entry beats envFrom, so a ref overrides existingSecret.
 {{- end }}
 
 {{/*
+Fails on a config.api.auth the app would refuse. The comparisons below, and
+NOTES.txt's warning about an unauthenticated API, match it exactly, so a
+value like "GitLab" would otherwise skip both and only fail once the pod
+starts, in a crash loop.
+*/}}
+{{- define "gitlab-achievements.validateApiAuth" -}}
+{{- if not (has .Values.config.api.auth (list "none" "gitlab")) }}
+{{- fail (printf "config.api.auth must be none or gitlab, got %q" (toString .Values.config.api.auth)) }}
+{{- end }}
+{{- end }}
+
+{{/*
 Fails unless every required credential comes from a ref or existingSecret.
 databaseDsn may instead be left unset to use SQLite on the PVC.
 */}}
