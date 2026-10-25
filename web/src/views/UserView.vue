@@ -18,6 +18,7 @@ import { isMe, session } from '@/composables/session'
 import { useRequest } from '@/composables/useRequest'
 import { groupByCategory, standingsOf, type Standing } from '@/lib/catalog'
 import { formatAbsolute, formatNumber, formatRelative } from '@/lib/format'
+import { profileURL as gitlabProfileURL } from '@/lib/gitlab'
 import { roman } from '@/lib/roman'
 
 const route = useRoute()
@@ -64,7 +65,7 @@ const hidden = computed(
 )
 
 const profileURL = computed(() =>
-  session.instance && user.value?.username ? new URL(user.value.username, session.instance.gitlab_url.replace(/\/?$/, '/')).toString() : '',
+  session.instance && user.value?.username ? gitlabProfileURL(session.instance.gitlab_url, user.value.username) : '',
 )
 </script>
 
