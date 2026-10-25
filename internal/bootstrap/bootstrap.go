@@ -146,13 +146,15 @@ type HourlyReport struct {
 // namespaceFullPath must be the same namespace the ID was resolved from
 // (cfg.AchievementsNamespace), since listing achievements is a GraphQL
 // lookup keyed by full path rather than numeric ID.
+//
+// The definition half runs under the bootstrap lease, the same one Run
+// takes, because it makes the same decisions: an hourly sweep overlapping a
+// backfill Job's bootstrap would otherwise create the same achievement
+// twice. The lease is given up before awards are delivered, which take
+// their own (see ReconcileAwards), so a long delivery doesn't hold up a
+// process waiting to bootstrap.
 func RunHourlyReconciliation(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string) (*HourlyReport, error) {
-	achievements, err := ReconcileAchievements(ctx, write, conn, namespaceID, namespaceFullPath, catalog.V1())
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconcile achievement definitions: %w", err)
-	}
-
-	corrected, err := repairExpTotals(ctx, conn, achievements)
+	achievements, corrected, err := reconcileDefinitions(ctx, write, conn, namespaceID, namespaceFullPath)
 	if err != nil {
 		return nil, err
 	}
@@ -167,4 +169,27 @@ func RunHourlyReconciliation(ctx context.Context, write achievementWriter, conn 
 		Awards:             awards,
 		ExpTotalsCorrected: corrected,
 	}, nil
+}
+
+// reconcileDefinitions is the definition half of RunHourlyReconciliation,
+// run under the bootstrap lease.
+func reconcileDefinitions(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, namespaceFullPath string) (AchievementsReport, int, error) {
+	ctx, release, err := db.AcquireLease(ctx, conn, db.BootstrapLease, db.LeaseOptions{})
+	if err != nil {
+		return AchievementsReport{}, 0, fmt.Errorf("failed to acquire the bootstrap lease: %w", err)
+	}
+
+	defer release()
+
+	achievements, err := ReconcileAchievements(ctx, write, conn, namespaceID, namespaceFullPath, catalog.V1())
+	if err != nil {
+		return AchievementsReport{}, 0, fmt.Errorf("failed to reconcile achievement definitions: %w", err)
+	}
+
+	corrected, err := repairExpTotals(ctx, conn, achievements)
+	if err != nil {
+		return AchievementsReport{}, 0, err
+	}
+
+	return achievements, corrected, nil
 }

@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	// BootstrapLease names the lease the bootstrap sequence takes.
+	// BootstrapLease names the lease the bootstrap sequence takes, and the
+	// hourly re-check of the achievement definitions it creates.
 	BootstrapLease = "bootstrap"
 
 	// AwardsLease names the lease award delivery takes. Delivery decides
