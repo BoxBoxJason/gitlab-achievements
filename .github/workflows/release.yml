@@ -84,20 +84,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The tag reaches the script through the environment, never spliced
+      # into it, and must be a strict semantic version before anything uses
+      # it: the trigger's glob also matches tags like v1.0.0$(cmd), which
+      # are valid git refs.
       - name: Set up version variables
         id: vars
+        env:
+          VERSION: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          VERSION=${{ github.ref_name }}
+          set -euo pipefail
+          SEMVER='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          if [[ ! "$VERSION" =~ $SEMVER ]]; then
+            echo "::error::the release tag is not a semantic version (vMAJOR.MINOR.PATCH[-PRERELEASE])"
+            exit 1
+          fi
           VERSION_NO_PREFIX=${VERSION#v}
-          MAJOR=$(echo "$VERSION_NO_PREFIX" | cut -d. -f1)
-          MINOR=$(echo "$VERSION_NO_PREFIX" | cut -d. -f2)
-          REPO_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "VERSION_NO_PREFIX=$VERSION_NO_PREFIX" >> $GITHUB_ENV
-          echo "MAJOR=$MAJOR" >> $GITHUB_ENV
-          echo "MINOR=$MINOR" >> $GITHUB_ENV
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
-          echo "CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          MAJOR=${BASH_REMATCH[1]}
+          MINOR=${BASH_REMATCH[2]}
+          REPO_NAME=$(tr '[:upper:]' '[:lower:]' <<< "$REPOSITORY")
+          {
+            echo "VERSION=$VERSION"
+            echo "VERSION_NO_PREFIX=$VERSION_NO_PREFIX"
+            echo "MAJOR=$MAJOR"
+            echo "MINOR=$MINOR"
+            echo "REPO_NAME=$REPO_NAME"
+            echo "CREATED=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
