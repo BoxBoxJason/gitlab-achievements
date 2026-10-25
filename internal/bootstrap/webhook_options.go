@@ -24,6 +24,15 @@ import (
 // TestHookOptions_* pins all of this: that add and edit agree, and that no
 // flag either API offers is left unset. That is the guard against the
 // obvious failure here, which is updating one of the four and not the rest.
+//
+// The edits also clear the custom webhook template. Whoever manages hooks on
+// a group or project (its Owner, or a project's Maintainers) can set one on
+// this app's hook, and GitLab then delivers whatever body they wrote,
+// carrying the stored secret, since only a URL change resets it. A template
+// left in place would let them forge activity for anyone until it was
+// noticed; clearing it on every sweep bounds that to the sweep interval.
+// Custom headers, which the edit API cannot clear, are deleted one by one
+// after it (see clearCustomHeaders).
 
 // addGroupHookOptions is the configuration a newly registered group hook
 // gets.
@@ -63,6 +72,7 @@ func editGroupHookOptions(webhookURL, secret string) *gitlab.EditGroupHookOption
 		Name:                      new(gitlabAchievementsWebhookName),
 		URL:                       &webhookURL,
 		Token:                     &secret,
+		CustomWebhookTemplate:     new(""),
 		EnableSSLVerification:     new(true),
 		PushEvents:                new(true),
 		TagPushEvents:             new(true),
@@ -123,6 +133,7 @@ func editProjectHookOptions(webhookURL, secret string) *gitlab.EditProjectHookOp
 		Name:                      new(gitlabAchievementsWebhookName),
 		URL:                       &webhookURL,
 		Token:                     &secret,
+		CustomWebhookTemplate:     new(""),
 		EnableSSLVerification:     new(true),
 		PushEvents:                new(true),
 		TagPushEvents:             new(true),

@@ -111,6 +111,23 @@ func TestHookOptions_CarryTheURLNameAndSecret(t *testing.T) {
 	}
 }
 
+// GitLab keeps a hook's secret across a template edit, so a template left
+// on this app's hook is a hook manager writing deliveries that authenticate
+// as GitLab's. The heal must clear it, which an omitted field would not.
+func TestHookOptions_EditsClearTheCustomWebhookTemplate(t *testing.T) {
+	const url, secret = "https://achievements.example.com/webhooks/gitlab", "s3cr3t"
+
+	group := editGroupHookOptions(url, secret)
+	if group.CustomWebhookTemplate == nil || *group.CustomWebhookTemplate != "" {
+		t.Errorf("expected the group hook edit to clear the custom template, got %v", group.CustomWebhookTemplate)
+	}
+
+	project := editProjectHookOptions(url, secret)
+	if project.CustomWebhookTemplate == nil || *project.CustomWebhookTemplate != "" {
+		t.Errorf("expected the project hook edit to clear the custom template, got %v", project.CustomWebhookTemplate)
+	}
+}
+
 func TestHookOptions_GroupHooksCoverTheEventsOnlyTheyHave(t *testing.T) {
 	// Group and project hooks aren't expected to have identical flag sets:
 	// these three describe things that happen to a group's contents and have

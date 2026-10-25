@@ -61,6 +61,7 @@ type groupHookManager interface {
 	ListGroupHooks(gid any, opt *gitlab.ListGroupHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.GroupHook, error)
 	AddGroupHook(gid any, opt *gitlab.AddGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
 	EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.GroupHook, error)
+	DeleteGroupCustomHeader(gid any, hook int64, key string, options ...gitlab.RequestOptionFunc) error
 	DeleteGroupHook(gid any, hook int64, options ...gitlab.RequestOptionFunc) error
 }
 
@@ -70,6 +71,7 @@ type projectHookManager interface {
 	ListProjectHooks(pid any, opt *gitlab.ListProjectHooksOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.ProjectHook, error)
 	AddProjectHook(pid any, opt *gitlab.AddProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
 	EditProjectHook(pid any, hook int64, opt *gitlab.EditProjectHookOptions, options ...gitlab.RequestOptionFunc) (*gitlab.ProjectHook, error)
+	DeleteProjectCustomHeader(pid any, hook int64, key string, options ...gitlab.RequestOptionFunc) error
 	DeleteProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) error
 }
 

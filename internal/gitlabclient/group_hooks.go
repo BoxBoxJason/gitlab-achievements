@@ -51,6 +51,16 @@ func (c *WriteClient) EditGroupHook(gid any, hook int64, opt *gitlab.EditGroupHo
 	return h, nil
 }
 
+// DeleteGroupCustomHeader removes one custom header from a group webhook.
+func (c *WriteClient) DeleteGroupCustomHeader(gid any, hook int64, key string, options ...gitlab.RequestOptionFunc) error {
+	_, err := c.raw.Groups.DeleteGroupCustomHeader(gid, hook, key, options...)
+	if err != nil {
+		return fmt.Errorf("failed to delete group hook custom header: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteGroupHook removes a group webhook. The wrapped error keeps
 // gitlab.ErrNotFound intact so callers can tell "already gone" apart from a
 // failure to remove it.

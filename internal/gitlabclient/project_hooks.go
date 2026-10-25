@@ -46,6 +46,17 @@ func (c *WriteClient) EditProjectHook(pid any, hook int64, opt *gitlab.EditProje
 	return h, nil
 }
 
+// DeleteProjectCustomHeader removes one custom header from a project
+// webhook.
+func (c *WriteClient) DeleteProjectCustomHeader(pid any, hook int64, key string, options ...gitlab.RequestOptionFunc) error {
+	_, err := c.raw.Projects.DeleteProjectCustomHeader(pid, hook, key, options...)
+	if err != nil {
+		return fmt.Errorf("failed to delete project hook custom header: %w", err)
+	}
+
+	return nil
+}
+
 // DeleteProjectHook removes a project webhook; see DeleteGroupHook on why
 // the error is wrapped rather than replaced.
 func (c *WriteClient) DeleteProjectHook(pid any, hook int64, options ...gitlab.RequestOptionFunc) error {

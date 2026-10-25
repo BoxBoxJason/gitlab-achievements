@@ -170,6 +170,7 @@ func (f *fakeHookManager) EditGroupHook(gid any, hook int64, opt *gitlab.EditGro
 		if existing.ID == hook {
 			f.lastToken = *opt.Token
 			existing.URL = *opt.URL
+			existing.CustomWebhookTemplate = *opt.CustomWebhookTemplate
 
 			return existing, nil
 		}
@@ -226,12 +227,54 @@ func (f *fakeHookManager) EditProjectHook(pid any, hook int64, opt *gitlab.EditP
 		if existing.ID == hook {
 			f.lastToken = *opt.Token
 			existing.URL = *opt.URL
+			existing.CustomWebhookTemplate = *opt.CustomWebhookTemplate
 
 			return existing, nil
 		}
 	}
 
 	return nil, gitlab.ErrNotFound
+}
+
+func (f *fakeHookManager) DeleteGroupCustomHeader(gid any, hook int64, key string, _ ...gitlab.RequestOptionFunc) error {
+	groupID, _ := gid.(int64)
+
+	for _, existing := range f.groupHooks[groupID] {
+		if existing.ID == hook {
+			existing.CustomHeaders = withoutHeader(existing.CustomHeaders, key)
+
+			return nil
+		}
+	}
+
+	return gitlab.ErrNotFound
+}
+
+func (f *fakeHookManager) DeleteProjectCustomHeader(pid any, hook int64, key string, _ ...gitlab.RequestOptionFunc) error {
+	projectID, _ := pid.(int64)
+
+	for _, existing := range f.projectHooks[projectID] {
+		if existing.ID == hook {
+			existing.CustomHeaders = withoutHeader(existing.CustomHeaders, key)
+
+			return nil
+		}
+	}
+
+	return gitlab.ErrNotFound
+}
+
+// withoutHeader drops the custom header named key.
+func withoutHeader(headers []*gitlab.HookCustomHeader, key string) []*gitlab.HookCustomHeader {
+	kept := make([]*gitlab.HookCustomHeader, 0, len(headers))
+
+	for _, header := range headers {
+		if header.Key != key {
+			kept = append(kept, header)
+		}
+	}
+
+	return kept
 }
 
 // DeleteGroupHook drops the hook, reporting gitlab.ErrNotFound when it
@@ -538,6 +581,51 @@ func TestSyncHooks_AppliesTheConfiguredSecret(t *testing.T) {
 
 	if write.lastToken != "s3cr3t" {
 		t.Errorf("expected the hook to carry the configured secret, got %q", write.lastToken)
+	}
+}
+
+// A group Owner or project Maintainer can give this app's hook a custom
+// template, and GitLab then delivers their body with the stored secret.
+// Every heal has to put the delivery shape back, not only the URL and
+// events.
+func TestSyncHooks_ClearsWhatAHookManagerAddedToTheDelivery(t *testing.T) {
+	for _, scope := range []config.HookScope{config.HookScopeGroup, config.HookScopeProject} {
+		conn := testConn(t)
+		read := &fakeTargetLister{groups: []*gitlab.Group{{ID: 1}}, projects: []*gitlab.Project{groupProject(1)}}
+		headers := func() []*gitlab.HookCustomHeader {
+			return []*gitlab.HookCustomHeader{{Key: "X-Gitlab-Event"}, {Key: "X-Extra"}}
+		}
+		write := &fakeHookManager{
+			groupHooks: map[int64][]*gitlab.GroupHook{1: {{
+				ID: 77, URL: testWebhookURL, CustomWebhookTemplate: `{"user_id": 9001}`, CustomHeaders: headers(),
+			}}},
+			projectHooks: map[int64][]*gitlab.ProjectHook{1: {{
+				ID: 78, URL: testWebhookURL, CustomWebhookTemplate: `{"user_id": 9001}`, CustomHeaders: headers(),
+			}}},
+		}
+
+		_, err := syncHooks(t.Context(), read, write, conn, hookCfg(scope), testWebhookURL)
+		if err != nil {
+			t.Fatalf("%s: expected no error, got: %v", scope, err)
+		}
+
+		var template string
+
+		var remaining int
+
+		if scope == config.HookScopeGroup {
+			template, remaining = write.groupHooks[1][0].CustomWebhookTemplate, len(write.groupHooks[1][0].CustomHeaders)
+		} else {
+			template, remaining = write.projectHooks[1][0].CustomWebhookTemplate, len(write.projectHooks[1][0].CustomHeaders)
+		}
+
+		if template != "" {
+			t.Errorf("%s: expected the custom template cleared, got %q", scope, template)
+		}
+
+		if remaining != 0 {
+			t.Errorf("%s: expected every custom header removed, %d left", scope, remaining)
+		}
 	}
 }
 

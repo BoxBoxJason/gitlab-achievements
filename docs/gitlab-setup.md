@@ -76,6 +76,11 @@ openssl rand -hex 32
 
 It goes in `WEBHOOK_SECRET`. Changing it is safe at any time: the hourly sweep re-applies every hook's configuration, so a rotated secret heals across the instance within the hour without re-registering anything.
 
+> [!WARNING]
+> **Who else can shape the deliveries.** The hooks live on groups and projects, and GitLab lets whoever manages a group's hooks (its Owners) or a project's (its Maintainers) edit them. They never see the secret, and changing the hook's URL makes GitLab drop it. But they can give the hook a custom webhook template, and GitLab then sends the body they wrote, with the secret, whenever an event fires. The app cannot tell such a delivery from a real one, so between sweeps that person can credit activity, and through it achievements, to any user.
+>
+> Each sweep clears the template and any custom headers it finds on this app's hooks, and logs a warning for every header it removes. That limits a tampered hook to the sweep interval; it does not stop someone who keeps setting the template again. On an instance where people you don't trust with the leaderboard can create top-level groups, or hold Owner or Maintainer on a hooked project, treat achievements as self-reported. On an instance like that, restrict group creation (**Admin > Settings > General > Account and limit**).
+
 ## 6. Make the app reachable from GitLab
 
 `PUBLIC_URL` is the base URL GitLab delivers webhooks to, so it has to resolve and be reachable **from the GitLab instance**, not just from you. The hooks are registered against it at startup, which is also when a wrong value gets expensive: correcting it means the next sweep re-pointing every hook.

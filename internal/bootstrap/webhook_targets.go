@@ -2,9 +2,11 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
+	"go.uber.org/zap"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/db"
 )
@@ -94,6 +96,13 @@ func (t *groupHookTarget) edit(ctx context.Context, hookID int64, webhookURL, se
 		return 0, fmt.Errorf("group %d: %w", t.groupID, err)
 	}
 
+	err = clearCustomHeaders(t, hook.ID, hook.CustomHeaders, func(key string) error {
+		return t.write.DeleteGroupCustomHeader(t.groupID, hook.ID, key, gitlab.WithContext(ctx))
+	})
+	if err != nil {
+		return 0, fmt.Errorf("group %d hook %d: %w", t.groupID, hook.ID, err)
+	}
+
 	return hook.ID, nil
 }
 
@@ -101,6 +110,36 @@ func (t *groupHookTarget) remove(ctx context.Context, hookID int64) error {
 	err := t.write.DeleteGroupHook(t.groupID, hookID, gitlab.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("group %d: %w", t.groupID, err)
+	}
+
+	return nil
+}
+
+// clearCustomHeaders deletes every custom header a hook carries.
+//
+// This app sets none, so any it finds were added by whoever manages hooks
+// on the target, and change what GitLab sends this app. GitLab's edit API
+// only adds or replaces headers, so each has to go through its own call;
+// the edit's response lists them, so a hook without any costs nothing.
+// Finding one is worth a warning: somebody changed how this app's hook
+// delivers.
+func clearCustomHeaders(target hookTarget, hookID int64, headers []*gitlab.HookCustomHeader, remove func(key string) error) error {
+	for _, header := range headers {
+		if header == nil || header.Key == "" {
+			continue
+		}
+
+		zap.L().Warn("removing a custom header someone added to this app's webhook",
+			zap.String("scope", string(target.scope())),
+			zap.Int64("target_id", target.id()),
+			zap.Int64("hook_id", hookID),
+			zap.String("header", header.Key),
+		)
+
+		err := remove(header.Key)
+		if err != nil && !errors.Is(err, gitlab.ErrNotFound) {
+			return fmt.Errorf("failed to remove custom header %q: %w", header.Key, err)
+		}
 	}
 
 	return nil
@@ -146,6 +185,13 @@ func (t *projectHookTarget) edit(ctx context.Context, hookID int64, webhookURL, 
 	hook, err := t.write.EditProjectHook(t.projectID, hookID, editProjectHookOptions(webhookURL, secret), gitlab.WithContext(ctx))
 	if err != nil {
 		return 0, fmt.Errorf("project %d: %w", t.projectID, err)
+	}
+
+	err = clearCustomHeaders(t, hook.ID, hook.CustomHeaders, func(key string) error {
+		return t.write.DeleteProjectCustomHeader(t.projectID, hook.ID, key, gitlab.WithContext(ctx))
+	})
+	if err != nil {
+		return 0, fmt.Errorf("project %d hook %d: %w", t.projectID, hook.ID, err)
 	}
 
 	return hook.ID, nil
