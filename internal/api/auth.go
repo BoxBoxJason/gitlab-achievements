@@ -15,7 +15,19 @@ import (
 )
 
 // SessionCookie is the cookie the OAuth flow puts a session identifier in.
-const SessionCookie = "gitlab_achievements_session"
+//
+// It carries the __Host- prefix, as do the flow's own cookies, so that only
+// this app's origin can set it: a browser refuses a __Host- cookie that is
+// not Secure, has a Domain, or a Path other than "/". Without it, a sibling
+// subdomain could plant a parent-domain cookie under the same name, which
+// req.Cookie would read first, and pin a visitor to the sibling's own
+// session even after they log in. Behind a plain-http PUBLIC_URL nothing
+// can be Secure, so the names lose the prefix there (see cookieName).
+const SessionCookie = hostPrefix + "gitlab_achievements_session"
+
+// hostPrefix is the cookie name prefix browsers bind to the exact origin
+// that set it.
+const hostPrefix = "__Host-"
 
 // bearerPrefix is the Authorization scheme this app accepts. GitLab honors
 // personal access tokens and OAuth access tokens alike on this header, so
@@ -81,6 +93,8 @@ type authenticator struct {
 	sessions  *sessions
 	refresher Refresher
 	renewals  singleflight.Group
+	// sessionCookie is the name SessionCookie goes by on this deployment.
+	sessionCookie string
 }
 
 // middleware wraps next so that it is only reached by requests carrying a
@@ -166,7 +180,7 @@ func (a *authenticator) credential(req *http.Request) (string, error) {
 		return token, nil
 	}
 
-	cookie, err := req.Cookie(SessionCookie)
+	cookie, err := req.Cookie(a.sessionCookie)
 	if err != nil {
 		return "", errNoCredential
 	}

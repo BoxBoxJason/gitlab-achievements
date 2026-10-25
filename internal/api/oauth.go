@@ -30,13 +30,13 @@ const (
 
 	// stateCookie carries the CSRF nonce across the redirect to GitLab, to
 	// be compared with the state GitLab hands back.
-	stateCookie = "gitlab_achievements_oauth_state"
+	stateCookie = hostPrefix + "gitlab_achievements_oauth_state"
 	// verifierCookie carries the PKCE verifier across the same redirect.
 	// Only the browser that started the flow holds it, which is what stops
 	// an intercepted authorization code from being exchanged by anyone else.
-	verifierCookie = "gitlab_achievements_oauth_verifier"
+	verifierCookie = hostPrefix + "gitlab_achievements_oauth_verifier"
 	// returnCookie carries where to send the browser once it is logged in.
-	returnCookie = "gitlab_achievements_oauth_return"
+	returnCookie = hostPrefix + "gitlab_achievements_oauth_return"
 
 	// returnToParam is the login query parameter naming where to land.
 	returnToParam = "return_to"
@@ -209,7 +209,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	verifier, err := req.Cookie(verifierCookie)
+	verifier, err := req.Cookie(f.cookieName(verifierCookie))
 	if err != nil {
 		f.clearFlowCookies(resp)
 		writeError(resp, http.StatusBadRequest, "login expired, start again")
@@ -236,7 +236,7 @@ func (f *oauthFlow) handleCallback(resp http.ResponseWriter, req *http.Request) 
 // is: a nonce that can be discovered a byte at a time by measuring the
 // response is not a nonce.
 func (f *oauthFlow) validateCallback(req *http.Request) (string, error) {
-	state, err := req.Cookie(stateCookie)
+	state, err := req.Cookie(f.cookieName(stateCookie))
 	if err != nil {
 		return "", errors.New("no login in progress for this browser")
 	}
@@ -313,7 +313,7 @@ func (f *oauthFlow) establish(resp http.ResponseWriter, req *http.Request, token
 // GitLab credential, for the rest of its lifetime with no cookie pointing
 // at it any more.
 func (f *oauthFlow) endPreviousSession(req *http.Request) {
-	previous, err := req.Cookie(SessionCookie)
+	previous, err := req.Cookie(f.cookieName(SessionCookie))
 	if err != nil {
 		return
 	}
@@ -331,7 +331,7 @@ func (f *oauthFlow) endPreviousSession(req *http.Request) {
 // It is checked again rather than trusted: the cookie came back from the
 // browser, and only what handleLogin would have accepted is used.
 func (f *oauthFlow) stashedReturnTo(req *http.Request) string {
-	cookie, err := req.Cookie(returnCookie)
+	cookie, err := req.Cookie(f.cookieName(returnCookie))
 	if err != nil {
 		return ""
 	}
@@ -463,7 +463,7 @@ func (f *oauthFlow) returnTo(raw string) (string, error) {
 // It is a POST because it changes state, which keeps a link or a prefetch
 // from logging somebody out.
 func (f *oauthFlow) handleLogout(resp http.ResponseWriter, req *http.Request) {
-	cookie, err := req.Cookie(SessionCookie)
+	cookie, err := req.Cookie(f.cookieName(SessionCookie))
 	if err == nil {
 		f.forgetIdentity(req.Context(), cookie.Value)
 
@@ -497,7 +497,7 @@ func (f *oauthFlow) forgetIdentity(ctx context.Context, sessionID string) {
 // setFlowCookie stores one short-lived value for the duration of a login.
 func (f *oauthFlow) setFlowCookie(resp http.ResponseWriter, name, value string) {
 	cookie := f.cookie(name, value, int(flowTTL.Seconds())) //nolint:gosec // attributes are set by f.cookie
-	cookie.Path = OAuthPathPrefix
+	cookie.Path = f.flowCookiePath()
 
 	http.SetCookie(resp, cookie)
 }
@@ -514,9 +514,31 @@ func (f *oauthFlow) clearFlowCookies(resp http.ResponseWriter) {
 // clearFlowCookie drops one of the login's temporary cookies.
 func (f *oauthFlow) clearFlowCookie(resp http.ResponseWriter, name string) {
 	cookie := f.cookie(name, "", -1) //nolint:gosec // attributes are set by f.cookie
-	cookie.Path = OAuthPathPrefix
+	cookie.Path = f.flowCookiePath()
 
 	http.SetCookie(resp, cookie)
+}
+
+// flowCookiePath narrows a login cookie to the login routes, where the
+// browser needs to send it, except under the __Host- prefix, which only
+// allows Path=/.
+func (f *oauthFlow) flowCookiePath() string {
+	if f.secure {
+		return "/"
+	}
+
+	return OAuthPathPrefix
+}
+
+// cookieName is what one of this flow's cookies is called on this
+// deployment: the __Host- name, unless PublicURL is plain http, where a
+// browser would refuse the prefix for want of Secure.
+func (f *oauthFlow) cookieName(name string) string {
+	if f.secure {
+		return name
+	}
+
+	return strings.TrimPrefix(name, hostPrefix)
 }
 
 // cookie builds one of this flow's cookies.
@@ -527,7 +549,7 @@ func (f *oauthFlow) clearFlowCookie(resp http.ResponseWriter, name string) {
 // requests.
 func (f *oauthFlow) cookie(name, value string, maxAge int) *http.Cookie {
 	return &http.Cookie{ //nolint:gosec // HttpOnly/Secure/SameSite are all set below
-		Name:     name,
+		Name:     f.cookieName(name),
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,

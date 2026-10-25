@@ -117,11 +117,12 @@ func New(conn *gorm.DB, opts Options) (*API, error) {
 
 		verifier = newCachingVerifier(verifier, opts.IdentityCacheTTL)
 
-		api.auth = &authenticator{verifier: verifier, sessions: sessionStore}
+		api.auth = &authenticator{verifier: verifier, sessions: sessionStore, sessionCookie: SessionCookie}
 
 		if opts.OAuth != nil {
 			api.oauth = newOAuthFlow(*opts.OAuth, sessionStore, verifier)
 			api.auth.refresher = api.oauth
+			api.auth.sessionCookie = api.oauth.cookieName(SessionCookie)
 		}
 	}
 

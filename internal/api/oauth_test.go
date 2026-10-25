@@ -225,6 +225,31 @@ func TestLogin_DoesNotMarkCookiesSecureOnAPlainHTTPDeployment(t *testing.T) {
 		if cookie.Secure {
 			t.Errorf("expected %s not to be Secure on an http deployment", cookie.Name)
 		}
+
+		// A browser refuses a __Host- cookie that isn't Secure.
+		if strings.HasPrefix(cookie.Name, hostPrefix) {
+			t.Errorf("expected %s to drop the __Host- prefix on an http deployment", cookie.Name)
+		}
+	}
+}
+
+// Behind https, every cookie is bound to this app's exact origin, so a
+// sibling subdomain cannot plant one of the same name for it to read.
+func TestLogin_BindsCookiesToTheOriginBehindHTTPS(t *testing.T) {
+	api := testOAuthAPI(t, testConn(t), &stubVerifier{identity: &gitlabclient.Identity{ID: 1}})
+
+	rec := get(t, api, LoginPath)
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected the login to set cookies")
+	}
+
+	for _, cookie := range cookies {
+		if !strings.HasPrefix(cookie.Name, hostPrefix) || cookie.Path != "/" || cookie.Domain != "" || !cookie.Secure {
+			t.Errorf("expected %s to meet the __Host- rules, got path=%q domain=%q secure=%v",
+				cookie.Name, cookie.Path, cookie.Domain, cookie.Secure)
+		}
 	}
 }
 
