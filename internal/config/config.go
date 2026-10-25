@@ -34,6 +34,9 @@ const (
 	maxAPIAuthCacheTTL = time.Hour
 	// minSessionSecretLength is the shortest session secret accepted.
 	minSessionSecretLength = 32
+	// placeholderPassword is the database password the example
+	// configurations ship with.
+	placeholderPassword = "CHANGEME"
 	// minWebhookSecretLength is the shortest webhook secret accepted. It is
 	// the only credential on POST /webhooks/gitlab, shared by every hook,
 	// and whoever holds it can forge any activity, so it gets the same
@@ -424,6 +427,16 @@ func (c *Config) validateCredentials() []error {
 
 	if c.GitLabReadToken != "" && c.GitLabReadToken == c.GitLabWriteToken {
 		errs = append(errs, errors.New("gitlab-read-token and gitlab-write-token must not be the same credential"))
+	}
+
+	// The shipped examples carry this placeholder in both DATABASE_DSN and
+	// POSTGRES_PASSWORD, and docker-compose accepts it, so a stack started
+	// from them unedited runs on a published password. Refused here, since
+	// the DSN has to match POSTGRES_PASSWORD and so carries it too. The DSN
+	// itself is not quoted: it holds the password.
+	if strings.Contains(c.DatabaseDSN, ":"+placeholderPassword+"@") {
+		errs = append(errs, fmt.Errorf("database-dsn still uses the example password %q; set a real one "+
+			"(and the same in POSTGRES_PASSWORD when using docker-compose)", placeholderPassword))
 	}
 
 	return errs

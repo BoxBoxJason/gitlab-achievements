@@ -147,6 +147,18 @@ func TestInsecureURLs(t *testing.T) {
 	}
 }
 
+// The examples ship CHANGEME as the database password, which compose accepts;
+// a stack started from them unedited must not come up on it.
+func TestValidate_RefusesTheExamplePassword(t *testing.T) {
+	cfg := validConfig()
+	cfg.DatabaseDSN = "postgres://achievements:CHANGEME@db:5432/achievements?sslmode=disable"
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "example password") {
+		t.Fatalf("expected the example password to be refused, got: %v", err)
+	}
+}
+
 func TestValidate_SameReadAndWriteToken(t *testing.T) {
 	cfg := validConfig()
 	cfg.GitLabWriteToken = cfg.GitLabReadToken
