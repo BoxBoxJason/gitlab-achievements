@@ -165,8 +165,10 @@ func mergeEvent(action string) *gitlab.MergeEvent {
 		User: &gitlab.EventUser{ID: 10, Username: "alice"},
 		ObjectAttributes: gitlab.MergeEventObjectAttributes{
 			ID: 55, TargetProjectID: 1, Action: action,
-			CreatedAt: "2026-03-01 09:00:00 UTC",
-			UpdatedAt: "2026-03-02 10:30:00 UTC",
+			// Each within maxActionSkew of receivedAt, and further apart
+			// than fastMergeWindow, so a merge is not a fast one.
+			CreatedAt: "2026-03-04 11:25:00 UTC",
+			UpdatedAt: "2026-03-04 12:30:00 UTC",
 		},
 	}
 }
@@ -237,7 +239,7 @@ func TestNormalize_MergeRequestIsAttributedToWhoActedNotWhoAuthored(t *testing.T
 func TestNormalize_MergeRequestOpenUsesItsCreationTime(t *testing.T) {
 	events := normalize(mergeEvent("open"), receivedAt)
 
-	want := time.Date(2026, time.March, 1, 9, 0, 0, 0, time.UTC)
+	want := time.Date(2026, time.March, 4, 11, 25, 0, 0, time.UTC)
 	if !events[0].OccurredAt.Equal(want) {
 		t.Errorf("expected the merge request's creation time %v, got %v", want, events[0].OccurredAt)
 	}
@@ -246,9 +248,67 @@ func TestNormalize_MergeRequestOpenUsesItsCreationTime(t *testing.T) {
 func TestNormalize_MergeRequestMergeUsesItsUpdateTime(t *testing.T) {
 	events := normalize(mergeEvent("merge"), receivedAt)
 
-	want := time.Date(2026, time.March, 2, 10, 30, 0, 0, time.UTC)
+	want := time.Date(2026, time.March, 4, 12, 30, 0, 0, time.UTC)
 	if !events[0].OccurredAt.Equal(want) {
 		t.Errorf("expected the merge time %v, got %v", want, events[0].OccurredAt)
+	}
+}
+
+// An Owner can backdate an issue or a comment through GitLab's API, and the
+// hook reports the date they chose. Taken as is, a burst of them would be a
+// streak of late nights.
+func TestNormalize_ABackdatedActionIsDatedOnReceipt(t *testing.T) {
+	backdated := "2023-03-01T02:15:00+02:00"
+
+	issue := normalize(&gitlab.IssueEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"},
+		ObjectAttributes: gitlab.IssueEventObjectAttributes{
+			ID: 88, ProjectID: 1, Action: actionOpen, CreatedAt: backdated,
+		},
+	}, receivedAt)
+
+	comment := normalize(&gitlab.IssueCommentEvent{
+		User: &gitlab.User{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.IssueCommentEventObjectAttributes{
+			ID: 3, AuthorID: 10, ProjectID: 1, CreatedAt: backdated,
+		},
+	}, receivedAt)
+
+	closed := normalize(&gitlab.IssueEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"},
+		ObjectAttributes: gitlab.IssueEventObjectAttributes{
+			ID: 88, ProjectID: 1, Action: actionClose, UpdatedAt: "2031-01-01T02:15:00Z",
+		},
+	}, receivedAt)
+
+	for name, events := range map[string][]activity.Event{"issue": issue, "comment": comment, "closed issue": closed} {
+		if len(events) != 1 {
+			t.Fatalf("%s: expected one activity, got %v", name, kindsOf(events))
+		}
+
+		if !events[0].OccurredAt.Equal(receivedAt) {
+			t.Errorf("%s: expected a timestamp far from the delivery replaced by it, got %v", name, events[0].OccurredAt)
+		}
+	}
+
+	// The instance's clock is still the one the day criteria read.
+	if _, offset := comment[0].OccurredAt.Zone(); offset != 2*60*60 {
+		t.Errorf("expected the payload's offset kept, got %d", offset)
+	}
+}
+
+func TestNormalize_AnActionDeliveredLateKeepsItsOwnTime(t *testing.T) {
+	written := receivedAt.Add(-40 * time.Minute)
+
+	events := normalize(&gitlab.IssueCommentEvent{
+		User: &gitlab.User{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.IssueCommentEventObjectAttributes{
+			ID: 3, AuthorID: 10, ProjectID: 1, CreatedAt: written.Format(time.RFC3339),
+		},
+	}, receivedAt)
+
+	if len(events) != 1 || !events[0].OccurredAt.Equal(written) {
+		t.Fatalf("expected a comment delivered within the skew dated when written, got %v", events)
 	}
 }
 

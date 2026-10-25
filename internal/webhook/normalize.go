@@ -273,7 +273,7 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 	}
 
 	base := activity.Event{
-		OccurredAt:     parseEventTime(occurredAt, receivedAt),
+		OccurredAt:     parseActionTime(occurredAt, receivedAt),
 		Kind:           kind,
 		DedupKey:       key,
 		ActorUsername:  event.User.Username,
@@ -373,7 +373,7 @@ func normalizeIssue(event *gitlab.IssueEvent, receivedAt time.Time) []activity.E
 	}
 
 	return []activity.Event{{
-		OccurredAt:     parseEventTime(occurredAt, receivedAt),
+		OccurredAt:     parseActionTime(occurredAt, receivedAt),
 		Kind:           kind,
 		DedupKey:       fmt.Sprintf("issue:%d:%s", attrs.ID, suffix),
 		ActorUsername:  event.User.Username,
@@ -457,7 +457,7 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 	}
 
 	return []activity.Event{{
-		OccurredAt:     parseEventTime(comment.createdAt, receivedAt),
+		OccurredAt:     parseActionTime(comment.createdAt, receivedAt),
 		Kind:           activity.KindComment,
 		DedupKey:       fmt.Sprintf("note:%d", comment.id),
 		ActorUsername:  comment.username,
@@ -713,6 +713,46 @@ func parseEventTime(raw string, fallback time.Time) time.Time {
 	parsed, ok := parseTimestamp(raw)
 	if !ok {
 		return fallback
+	}
+
+	return parsed
+}
+
+// maxActionSkew is how far an action's own timestamp may sit from the
+// delivery reporting it before the delivery time is used instead.
+//
+// GitLab delivers a hook moments after the action, and an hour leaves room
+// for a backed-up Sidekiq queue. Past that, the timestamp is not when the
+// action happened.
+const maxActionSkew = time.Hour
+
+// parseActionTime reads the timestamp of the action a delivery reports
+// (an issue or merge request being opened, merged, or closed, a comment
+// being written), falling back to receivedAt like parseEventTime does, and
+// also when the timestamp is further than maxActionSkew from it.
+//
+// That bound is what parseEventTime does not need for a pipeline or job,
+// whose creation time is legitimately hours older than the delivery that
+// reports its outcome. These timestamps are different: GitLab lets an
+// administrator or a project or group Owner choose an issue's or comment's
+// created_at, and an issue's updated_at, through the API, and the hook
+// payload reports what they chose. Taken as is, a few backdated comments
+// sent in seconds would be a streak of consecutive late nights, with the
+// achievements that go with it. The day criteria are why pushes are dated
+// on receipt; these get the same treatment once they stop looking like the
+// moment the action happened.
+//
+// The offset the payload reported is kept, for the same reason
+// parseEventTime keeps it.
+func parseActionTime(raw string, receivedAt time.Time) time.Time {
+	parsed, ok := parseTimestamp(raw)
+	if !ok {
+		return receivedAt
+	}
+
+	skew := parsed.Sub(receivedAt)
+	if skew > maxActionSkew || skew < -maxActionSkew {
+		return receivedAt.In(parsed.Location())
 	}
 
 	return parsed
