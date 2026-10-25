@@ -10,8 +10,39 @@ permissions:
   packages: write
 
 jobs:
+  # Nothing is published from a tag whose code doesn't pass its own tests.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: true
+
+      - name: Test the Go code
+        run: go test ./...
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Test the frontend
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
   release:
     name: Create Release
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,7 +66,9 @@ jobs:
         with:
           body: ${{ steps.git-cliff.outputs.content }}
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          # Any semver prerelease suffix, the same rule release-oci uses to
+          # keep a prerelease off the floating image tags.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -76,7 +109,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # After the release, so an image is never published for a release that
+  # failed to be created.
   release-oci:
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -103,7 +139,20 @@ jobs:
           VERSION_NO_PREFIX=${VERSION#v}
           MAJOR=${BASH_REMATCH[1]}
           MINOR=${BASH_REMATCH[2]}
+          PRERELEASE=${BASH_REMATCH[4]}
           REPO_NAME=$(tr '[:upper:]' '[:lower:]' <<< "$REPOSITORY")
+          # A prerelease gets its exact tag only: :latest, :MAJOR and
+          # :MAJOR.MINOR are what people track, and an RC must not move them.
+          {
+            echo "tags<<EOF"
+            echo "ghcr.io/$REPO_NAME:$VERSION_NO_PREFIX"
+            if [[ -z "$PRERELEASE" ]]; then
+              echo "ghcr.io/$REPO_NAME:$MAJOR.$MINOR"
+              echo "ghcr.io/$REPO_NAME:$MAJOR"
+              echo "ghcr.io/$REPO_NAME:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "VERSION=$VERSION"
             echo "VERSION_NO_PREFIX=$VERSION_NO_PREFIX"
@@ -139,8 +188,4 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
             org.opencontainers.image.vendor=${{ github.repository_owner}}
-          tags: |
-            ghcr.io/${{ env.REPO_NAME }}:${{ env.VERSION_NO_PREFIX }}
-            ghcr.io/${{ env.REPO_NAME }}:${{ env.MAJOR }}.${{ env.MINOR }}
-            ghcr.io/${{ env.REPO_NAME }}:${{ env.MAJOR }}
-            ghcr.io/${{ env.REPO_NAME }}:latest
+          tags: ${{ steps.vars.outputs.tags }}
