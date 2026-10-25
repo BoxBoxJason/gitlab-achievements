@@ -43,9 +43,22 @@ type Options struct {
 }
 
 // Handler serves the frontend built into dir.
+//
+// The directory is opened as an os.Root rather than walked with os.DirFS,
+// which follows symlinks wherever they lead: a link in the build pointing
+// outside it (a stray one from the toolchain, or one somebody planted)
+// would otherwise serve whatever it points at. Through a root, a path that
+// escapes the directory fails to open, and is a 404.
 func Handler(dir string) (http.Handler, error) {
-	site, err := HandlerFS(os.DirFS(dir), Options{})
+	root, err := os.OpenRoot(dir)
 	if err != nil {
+		return nil, fmt.Errorf("frontend directory %q: %w", dir, err)
+	}
+
+	site, err := HandlerFS(root.FS(), Options{})
+	if err != nil {
+		_ = root.Close()
+
 		return nil, fmt.Errorf("frontend directory %q: %w", dir, err)
 	}
 
@@ -122,12 +135,29 @@ const (
 // like /users/first.last (GitLab usernames often do), reach the app's
 // router, while a missing script or stylesheet, which the browser does not
 // fetch as a page, is still a 404 rather than index.html served as code.
+//
+// Nothing under a name starting with a dot is ever served as a file. A
+// build has no use for them, and they are where an .env, a .git directory
+// or an editor's leftovers end up when a directory is copied in whole.
 func (h *handler) resolve(requestPath string, navigation bool) int {
 	name := strings.TrimPrefix(path.Clean("/"+requestPath), "/")
 	if name == "" || name == indexFile {
 		return servedIndex
 	}
 
+	if hidden(name) {
+		if navigation {
+			return servedIndex
+		}
+
+		return servedNothing
+	}
+
+	return h.resolveName(name, navigation)
+}
+
+// resolveName is resolve for a name that may be served as a file.
+func (h *handler) resolveName(name string, navigation bool) int {
 	info, err := fs.Stat(h.root, name)
 
 	switch {
@@ -138,6 +168,17 @@ func (h *handler) resolve(requestPath string, navigation bool) int {
 	default:
 		return servedNothing
 	}
+}
+
+// hidden reports whether any segment of name starts with a dot.
+func hidden(name string) bool {
+	for segment := range strings.SplitSeq(name, "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // immutable reports whether requestPath is inside Options.ImmutableDir.

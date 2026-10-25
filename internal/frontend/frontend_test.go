@@ -76,6 +76,49 @@ func TestHandler_MissingAssetsAre404(t *testing.T) {
 	}
 }
 
+// TestHandler_StaysInsideItsDirectory covers what an operator's directory
+// may hold besides the build: a symlink leading out of it, and dotfiles
+// such as an .env copied in along with everything else.
+func TestHandler_StaysInsideItsDirectory(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("outside the root"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	dir := t.TempDir()
+
+	for name, body := range map[string]string{
+		"index.html":  "<!doctype html><title>Rankings</title>",
+		".env":        "SECRET=1",
+		".git/config": "[core]",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	handler, err := frontend.Handler(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, path := range []string{"/link.txt", "/.env", "/.git/config"} {
+		rec := fetch(handler, path)
+		if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "outside") || strings.Contains(rec.Body.String(), "SECRET") {
+			t.Errorf("GET %s: expected 404, got %d %q", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestHandler_NavigationToADottedRouteGetsTheIndex(t *testing.T) {
 	handler := site(t)
 

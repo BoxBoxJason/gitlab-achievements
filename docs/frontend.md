@@ -48,6 +48,7 @@ make build/all  # the frontend, then the binary embedding it
 - Files are served as they are; `index.html` is sent with `Cache-Control: no-cache` so a new build is picked up on the next load.
 - Any other path with no file extension (`/users/alice`), or any path a browser navigates to as a page (`/users/first.last`), is answered with `index.html`, so client-side routing works on a deep link or a reload. A missing asset (`/assets/missing.js`) is a real `404`.
 - Directories are never listed. Only `GET` and `HEAD` are answered.
+- Nothing outside the directory is served: a symlink leading out of it is a `404`, and so is any path with a segment starting with a dot (`.env`, `.git/`).
 - Responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. No Content Security Policy is set, because a sensible one depends on your frontend. Set it in your build or at the ingress.
 - The frontend can never shadow `/api/`, `/oauth/`, `/webhooks/gitlab`, `/healthz` or `/readyz`. Those always win, so do not give client-side routes those prefixes.
 
