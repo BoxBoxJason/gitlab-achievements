@@ -376,6 +376,22 @@ func TestLoginLanding_FollowsTheServedFrontend(t *testing.T) {
 	}
 }
 
+// FRONTEND_DIR is served under the built-in frontend's policy unless the
+// operator names another, or turns it off.
+func TestFrontendDirPolicy(t *testing.T) {
+	gitlabURL := "https://gitlab.example.com"
+
+	for csp, want := range map[string]string{
+		"":                         builtinPolicy(gitlabURL),
+		config.FrontendCSPDisabled: "",
+		"default-src 'none'":       "default-src 'none'",
+	} {
+		if got := frontendDirPolicy(&config.Config{GitLabURL: gitlabURL, FrontendCSP: csp}); got != want {
+			t.Errorf("FRONTEND_CSP=%q: got %q, want %q", csp, got, want)
+		}
+	}
+}
+
 func TestBuiltinPolicy_AdmitsAvatarsFromWhereGitLabKeepsThem(t *testing.T) {
 	policy := builtinPolicy("https://GitLab.example.com/some/path")
 

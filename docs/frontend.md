@@ -49,7 +49,7 @@ make build/all  # the frontend, then the binary embedding it
 - Any other path with no file extension (`/users/alice`), or any path a browser navigates to as a page (`/users/first.last`), is answered with `index.html`, so client-side routing works on a deep link or a reload. A missing asset (`/assets/missing.js`) is a real `404`.
 - Directories are never listed. Only `GET` and `HEAD` are answered.
 - Nothing outside the directory is served: a symlink leading out of it is a `404`, and so is any path with a segment starting with a dot (`.env`, `.git/`).
-- Responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. No Content Security Policy is set, because a sensible one depends on your frontend. Set it in your build or at the ingress.
+- Responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. They also carry the built-in frontend's Content Security Policy (everything from this origin, images also from the GitLab instance and any `https:` source), which a build of the same frontend runs under unchanged. A frontend that needs more sets its own in `FRONTEND_CSP`, or `FRONTEND_CSP=off` to send none and set it at the ingress instead.
 - The frontend can never shadow `/api/`, `/oauth/`, `/webhooks/gitlab`, `/healthz` or `/readyz`. Those always win, so do not give client-side routes those prefixes.
 
 The app refuses to start if `FRONTEND_DIR` has no `index.html`, rather than serving 404s at `/`.

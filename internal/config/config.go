@@ -39,6 +39,9 @@ const (
 	// and whoever holds it can forge any activity, so it gets the same
 	// floor as the session secret.
 	minWebhookSecretLength = 32
+	// FrontendCSPDisabled is the frontend-csp value that sends no Content
+	// Security Policy with FRONTEND_DIR.
+	FrontendCSPDisabled = "off"
 	// MetricsDisabled is the metrics-addr value that serves no metrics.
 	MetricsDisabled = "off"
 	// DefaultLogLevel is used when no log level is configured.
@@ -224,6 +227,10 @@ type Config struct {
 	// FrontendDir is a directory of built static files served at "/", so a
 	// frontend shares the API's origin.
 	FrontendDir string
+	// FrontendCSP is the Content Security Policy FrontendDir is served
+	// under: empty for the built-in frontend's own, FrontendCSPDisabled for
+	// none at all.
+	FrontendCSP string
 	// BackfillMode selects whether the serving process walks the
 	// instance's history itself; see BackfillMode's constants.
 	BackfillMode string

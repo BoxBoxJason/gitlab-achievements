@@ -33,7 +33,7 @@ func site(t *testing.T) http.Handler {
 		}
 	}
 
-	handler, err := frontend.Handler(dir)
+	handler, err := frontend.Handler(dir, frontend.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestHandler_StaysInsideItsDirectory(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	handler, err := frontend.Handler(dir)
+	handler, err := frontend.Handler(dir, frontend.Options{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestHandler_IndexIsNeverCachedAndHeadersAreSet(t *testing.T) {
 }
 
 func TestHandler_RequiresAnIndex(t *testing.T) {
-	if _, err := frontend.Handler(t.TempDir()); err == nil {
+	if _, err := frontend.Handler(t.TempDir(), frontend.Options{}); err == nil {
 		t.Fatal("expected a directory with no index.html to be refused")
 	}
 }

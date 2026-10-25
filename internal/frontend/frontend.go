@@ -29,9 +29,8 @@ import (
 // indexFile is the page every client-side route is answered with.
 const indexFile = "index.html"
 
-// Options tunes how a frontend is served, for a frontend whose build is
-// known. A directory of somebody else's build is served with the zero
-// value, which assumes nothing about it.
+// Options tunes how a frontend is served. The zero value assumes nothing
+// about the build.
 type Options struct {
 	// ContentSecurityPolicy is sent with every response when set.
 	ContentSecurityPolicy string
@@ -42,20 +41,20 @@ type Options struct {
 	ImmutableDir string
 }
 
-// Handler serves the frontend built into dir.
+// Handler serves the frontend built into dir, under opts.
 //
 // The directory is opened as an os.Root rather than walked with os.DirFS,
 // which follows symlinks wherever they lead: a link in the build pointing
 // outside it (a stray one from the toolchain, or one somebody planted)
 // would otherwise serve whatever it points at. Through a root, a path that
 // escapes the directory fails to open, and is a 404.
-func Handler(dir string) (http.Handler, error) {
+func Handler(dir string, opts Options) (http.Handler, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("frontend directory %q: %w", dir, err)
 	}
 
-	site, err := HandlerFS(root.FS(), Options{})
+	site, err := HandlerFS(root.FS(), opts)
 	if err != nil {
 		_ = root.Close()
 
@@ -210,7 +209,7 @@ func (h *handler) serveIndex(resp http.ResponseWriter, req *http.Request) {
 //
 // They are the conservative ones that suit any static frontend. A Content
 // Security Policy is not among them because a sensible one depends on the
-// frontend itself; Options carries one for a frontend whose build is known.
+// frontend itself; Options carries one.
 func setSecurityHeaders(header http.Header) {
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "strict-origin-when-cross-origin")

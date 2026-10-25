@@ -178,6 +178,7 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.APIAllowedGroup, "api-allowed-group", os.Getenv("API_ALLOWED_GROUP"), "Full path of a GitLab group; only its members (and instance admins) may use the API")
 	flags.StringSliceVar(&cfg.OAuthReturnOrigins, "oauth-return-origins", envListOrDefault("OAUTH_RETURN_ORIGINS"), "Origins besides --public-url's that a login may return to, comma-separated, e.g. https://rankings.example.com")
 	flags.StringVar(&cfg.FrontendDir, "frontend-dir", os.Getenv("FRONTEND_DIR"), "Directory of a built static frontend to serve at /, on the same origin as the API")
+	flags.StringVar(&cfg.FrontendCSP, "frontend-csp", os.Getenv("FRONTEND_CSP"), "Content Security Policy for --frontend-dir; empty uses the built-in frontend's, \"off\" sends none")
 }
 
 // secretFlag registers a flag whose value is a credential, taking its
@@ -646,7 +647,7 @@ func buildServer(
 // fails the start rather than serving 404s at "/".
 func buildFrontend(cfg *config.Config) (http.Handler, error) {
 	if cfg.FrontendDir != "" {
-		site, err := frontend.Handler(cfg.FrontendDir)
+		site, err := frontend.Handler(cfg.FrontendDir, frontend.Options{ContentSecurityPolicy: frontendDirPolicy(cfg)})
 		if err != nil {
 			return nil, fmt.Errorf("failed to serve the frontend: %w", err)
 		}
@@ -673,6 +674,22 @@ func buildFrontend(cfg *config.Config) (http.Handler, error) {
 	zap.L().Info("serving the built-in frontend")
 
 	return site, nil
+}
+
+// frontendDirPolicy is the Content Security Policy FRONTEND_DIR is served
+// under. Unless the operator names one, it is the built-in frontend's:
+// what FRONTEND_DIR serves is most often a build of that same frontend,
+// and a frontend that needs more says so with FRONTEND_CSP rather than
+// running without a policy by default.
+func frontendDirPolicy(cfg *config.Config) string {
+	switch cfg.FrontendCSP {
+	case "":
+		return builtinPolicy(cfg.GitLabURL)
+	case config.FrontendCSPDisabled:
+		return ""
+	default:
+		return cfg.FrontendCSP
+	}
 }
 
 // builtinPolicy is the Content Security Policy the built-in frontend runs

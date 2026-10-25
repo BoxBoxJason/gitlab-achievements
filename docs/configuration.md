@@ -50,6 +50,7 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | `--api-allowed-group` | `API_ALLOWED_GROUP` | *(unset)* | Full path of a group; only its members and instance admins may use the API. Needs `--api-auth gitlab` |
 | `--oauth-return-origins` | `OAUTH_RETURN_ORIGINS` | *(unset)* | Origins besides `--public-url`'s that a login may return to, comma-separated, e.g. `https://rankings.example.com` |
 | `--frontend-dir` | `FRONTEND_DIR` | *(unset)* | Directory of a built static frontend served at `/` in place of the built-in one. See [The frontend](frontend.md#serving-a-different-frontend) |
+| `--frontend-csp` | `FRONTEND_CSP` | *(the built-in frontend's)* | Content Security Policy sent with `FRONTEND_DIR`; `off` sends none |
 
 ## Subcommands
 
