@@ -157,7 +157,7 @@ $ curl -s -H "Authorization: Bearer $GITLAB_TOKEN" \
     https://achievements.example.com/api/v1/leaderboard
 ```
 
-Browsers can log in at `/oauth/login` instead. That runs the standard authorization-code flow with PKCE against your instance and leaves an `HttpOnly`, `SameSite=Lax` session cookie. `POST /oauth/logout` ends it.
+Browsers can log in at `/oauth/login` instead. That runs the standard authorization-code flow with PKCE against your instance and leaves an `HttpOnly`, `SameSite=Lax` session cookie. Behind an `https` `PUBLIC_URL` it is named with the `__Host-` prefix, so only this app's own origin can set it. `POST /oauth/logout` ends it and revokes the session's GitLab tokens, as does logging in again over an existing session.
 
 Unless `OAUTH_CLIENT_ID` names an application you registered by hand, the app registers a public OAuth application for itself on startup, using the instance-admin write token it already holds. On every later start it adopts that same application rather than creating another. A public client has no secret to store; PKCE is what secures the exchange. Pass `OAUTH_CLIENT_SECRET` alongside a client ID to run as a confidential client.
 
