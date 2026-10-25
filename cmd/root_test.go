@@ -29,7 +29,7 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 		"--gitlab-write-token", "write-token",
 		"--achievements-namespace", "achievements",
 		"--database-dsn", "postgres://localhost/achievements",
-		"--webhook-secret", "s3cr3t",
+		"--webhook-secret", "s3cr3t-s3cr3t-s3cr3t-s3cr3t-s3cr3t",
 		"--public-url", "https://achievements.example.com",
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestRun_BootstrapFailure(t *testing.T) {
 		GitLabWriteToken:      "write-token",
 		AchievementsNamespace: "achievements",
 		DatabaseDSN:           "sqlite://:memory:",
-		WebhookSecret:         "s3cr3t",
+		WebhookSecret:         "s3cr3t-s3cr3t-s3cr3t-s3cr3t-s3cr3t",
 		PublicURL:             "https://achievements.example.com",
 		SessionLifetime:       config.DefaultSessionLifetime,
 	}

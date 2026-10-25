@@ -34,6 +34,11 @@ const (
 	maxAPIAuthCacheTTL = time.Hour
 	// minSessionSecretLength is the shortest session secret accepted.
 	minSessionSecretLength = 32
+	// minWebhookSecretLength is the shortest webhook secret accepted. It is
+	// the only credential on POST /webhooks/gitlab, shared by every hook,
+	// and whoever holds it can forge any activity, so it gets the same
+	// floor as the session secret.
+	minWebhookSecretLength = 32
 	// MetricsDisabled is the metrics-addr value that serves no metrics.
 	MetricsDisabled = "off"
 	// DefaultLogLevel is used when no log level is configured.
@@ -294,10 +299,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.GitLabReadToken != "" && c.GitLabReadToken == c.GitLabWriteToken {
-		errs = append(errs, errors.New("gitlab-read-token and gitlab-write-token must not be the same credential"))
-	}
-
+	errs = append(errs, c.validateCredentials()...)
 	errs = append(errs, c.validateHookScope()...)
 	errs = append(errs, c.validateBackfill()...)
 	errs = append(errs, c.validateReconcile()...)
@@ -383,6 +385,22 @@ func (c *Config) validateAPI() []error {
 	}
 
 	return append(errs, c.validateSessions()...)
+}
+
+// validateCredentials checks the secrets beyond their being set at all.
+func (c *Config) validateCredentials() []error {
+	var errs []error
+
+	if strings.TrimSpace(c.WebhookSecret) != "" && len(c.WebhookSecret) < minWebhookSecretLength {
+		errs = append(errs, fmt.Errorf("webhook-secret must be at least %d characters; generate one with "+
+			"`openssl rand -hex 32`", minWebhookSecretLength))
+	}
+
+	if c.GitLabReadToken != "" && c.GitLabReadToken == c.GitLabWriteToken {
+		errs = append(errs, errors.New("gitlab-read-token and gitlab-write-token must not be the same credential"))
+	}
+
+	return errs
 }
 
 // validateSessions checks the browser session knobs.

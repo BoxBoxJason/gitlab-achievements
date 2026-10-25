@@ -14,7 +14,7 @@ The app refuses to start without these six.
 | `--gitlab-read-token` | `GITLAB_READ_TOKEN` | Token with `read_api` scope, used for all data fetching |
 | `--gitlab-write-token` | `GITLAB_WRITE_TOKEN` | Token with `api` scope on an instance-admin account, used to manage webhooks and achievements. Must differ from the read token |
 | `--achievements-namespace` | `ACHIEVEMENTS_NAMESPACE` | Full path of the group owning the achievement definitions, e.g. `achievements` |
-| `--webhook-secret` | `WEBHOOK_SECRET` | Shared secret GitLab presents on every delivery |
+| `--webhook-secret` | `WEBHOOK_SECRET` | Shared secret GitLab presents on every delivery, at least 32 characters, e.g. from `openssl rand -hex 32` |
 | `--public-url` | `PUBLIC_URL` | Base URL GitLab reaches this app at. Trailing slashes are stripped; the webhook path is appended |
 
 `--database-dsn` / `DATABASE_DSN` is not in this list: left unset, it defaults to a local SQLite file, see [Databases](#databases).

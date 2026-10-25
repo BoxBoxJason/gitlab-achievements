@@ -13,7 +13,7 @@ func validConfig() *Config {
 		GitLabWriteToken:      "write-token",
 		AchievementsNamespace: "achievements",
 		DatabaseDSN:           "postgres://user:pass@localhost:5432/achievements",
-		WebhookSecret:         "s3cr3t",
+		WebhookSecret:         strings.Repeat("w", minWebhookSecretLength),
 		PublicURL:             "https://achievements.example.com",
 		SessionLifetime:       DefaultSessionLifetime,
 		SessionSecret:         strings.Repeat("k", minSessionSecretLength),
@@ -118,6 +118,18 @@ func TestValidate_StripsTrailingSlashFromPublicURL(t *testing.T) {
 
 	if cfg.PublicURL != "https://achievements.example.com" {
 		t.Errorf("expected trailing slashes to be stripped, got %q", cfg.PublicURL)
+	}
+}
+
+// The webhook secret is the only credential on the ingestion endpoint, so a
+// short one is refused the way a short session secret is.
+func TestValidate_ShortWebhookSecret(t *testing.T) {
+	cfg := validConfig()
+	cfg.WebhookSecret = strings.Repeat("w", minWebhookSecretLength-1)
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "webhook-secret must be at least") {
+		t.Fatalf("expected a short webhook secret to be refused, got: %v", err)
 	}
 }
 
