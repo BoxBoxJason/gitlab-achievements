@@ -68,7 +68,7 @@ Event-driven achievement awarder for self-hosted GitLab instances
 | livenessProbe.failureThreshold | int | `3` | Failed probes before the container is restarted. |
 | livenessProbe.periodSeconds | int | `10` | Seconds between probes. |
 | livenessProbe.timeoutSeconds | int | `3` | Seconds before a probe times out. |
-| metrics.enabled | bool | `true` | Serve Prometheus metrics on a port of their own, so the Ingress never exposes them. See docs/metrics.md. |
+| metrics.enabled | bool | `true` | Serve Prometheus metrics on a port of their own, on a ClusterIP Service of their own, so neither the Ingress nor a LoadBalancer/NodePort app Service ever exposes them. See docs/metrics.md. |
 | metrics.port | int | `9464` | Port the metrics are served on. |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor; requires the Prometheus Operator's CRDs. |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval. |

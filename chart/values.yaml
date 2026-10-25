@@ -151,8 +151,8 @@ service:
   annotations: {}
 
 metrics:
-  # -- Serve Prometheus metrics on a port of their own, so the Ingress never exposes them.
-  # See docs/metrics.md.
+  # -- Serve Prometheus metrics on a port of their own, on a ClusterIP Service of their own, so neither
+  # the Ingress nor a LoadBalancer/NodePort app Service ever exposes them. See docs/metrics.md.
   enabled: true
   # -- Port the metrics are served on.
   port: 9464

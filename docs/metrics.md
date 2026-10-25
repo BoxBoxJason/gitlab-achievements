@@ -6,7 +6,7 @@ The listener starts before bootstrap, so a first start that spends minutes regis
 
 The one-shot subcommands (`backfill`, `reconcile`, `uninstall`) serve no metrics. They exit when they are done, and their result is in their exit code and logs.
 
-On Kubernetes the chart exposes the port as `metrics` on the Service and can create a `ServiceMonitor` for the Prometheus Operator:
+On Kubernetes the chart exposes the port as `metrics` on a ClusterIP Service of its own, `<release>-metrics`, so publishing the app with a `LoadBalancer` or `NodePort` Service never publishes the metrics with it. It can also create a `ServiceMonitor` for the Prometheus Operator:
 
 ```yaml
 metrics:
