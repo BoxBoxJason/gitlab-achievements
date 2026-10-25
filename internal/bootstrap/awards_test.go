@@ -500,6 +500,44 @@ func TestReconcileAwards_DoesNotRevokeAnAwardTheUserDoesNotHold(t *testing.T) {
 	}
 }
 
+// TestReconcileAwards_RevokesAnUnrecordedTierItSupersedes covers a pass that
+// crashed between awarding a tier and recording its ID: once a higher tier
+// supersedes it, GitLab's record is what says it is there to take back off.
+func TestReconcileAwards_RevokesAnUnrecordedTierItSupersedes(t *testing.T) {
+	conn := testConn(t)
+	write := &fakeAchievementWriter{}
+
+	user := seedUser(t, conn, write, "mallory", 111)
+	tierOne := seedTier(t, conn, "commits", 1, 11)
+	tierTwo := seedTier(t, conn, "commits", 2, 12)
+
+	unrecorded := write.grantAward(tierOne.GitLabAchievementID, user.GitLabUserID)
+
+	lower := seedAward(t, conn, user, tierOne, appdb.AwardStatusPending)
+	seedAward(t, conn, user, tierTwo, appdb.AwardStatusPending)
+
+	report, err := ReconcileAwards(t.Context(), write, conn)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if report.Superseded != 1 || report.Confirmed != 1 {
+		t.Fatalf("expected the lower tier superseded and the higher one delivered, got %+v", report)
+	}
+
+	if unrecorded.RevokedAt == nil || write.revokeCalls != 1 {
+		t.Errorf("expected the unrecorded award to be revoked once, got revokeCalls=%d", write.revokeCalls)
+	}
+
+	if write.listAwardsCalls != 1 {
+		t.Errorf("expected the holdings to be listed once for both tiers, got %d", write.listAwardsCalls)
+	}
+
+	if got := reloadAward(t, conn, lower.ID).Status; got != appdb.AwardStatusSuperseded {
+		t.Errorf("expected the lower tier to be superseded, got %q", got)
+	}
+}
+
 func TestReconcileAwards_LeavesSupersededAwardsSettled(t *testing.T) {
 	conn := testConn(t)
 	write := &fakeAchievementWriter{}

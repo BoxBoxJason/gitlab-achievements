@@ -301,10 +301,15 @@ func transitionAward(conn *gorm.DB, award *db.Award, updates map[string]any) err
 // not they had accepted it. The local row survives it, so the tier stays
 // earned and keeps paying its EXP.
 //
-// A tier that never reached GitLab is recorded without a call at all, which
-// is the case that spares a first backfill most of its work: a user with
-// years of history reaches most of a stack in one pass and only its top
-// tier is ever awarded.
+// A tier that never reached GitLab is recorded without a call of its own,
+// which is the case that spares a first backfill most of its work: a user
+// with years of history reaches most of a stack in one pass and only its
+// top tier is ever awarded. "Never reached" is checked against GitLab's
+// record rather than assumed from the missing ID, because a tier awarded
+// by a pass that crashed before recording it has no ID here either, and
+// would otherwise stay on the profile untracked once superseded. The
+// listing is the one delivering the top tier reads anyway, so the check
+// costs nothing extra in the common case.
 //
 // A tier already superseded is not superseded again. That is a shortcut
 // past work that is done, not a refusal to look: should the tier become the
@@ -322,21 +327,19 @@ func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award 
 		return nil
 	}
 
-	if award.GitLabUserAchievementID != 0 {
-		live, err := held.holds(ctx, award.GitLabUserAchievementID)
+	live, err := heldUnderAward(ctx, held, award)
+	if err != nil {
+		return recordAwardFailure(conn, award, report, err)
+	}
+
+	if live != 0 {
+		err = held.revoke(ctx, live)
 		if err != nil {
 			return recordAwardFailure(conn, award, report, err)
 		}
-
-		if live {
-			err = held.revoke(ctx, award.GitLabUserAchievementID)
-			if err != nil {
-				return recordAwardFailure(conn, award, report, err)
-			}
-		}
 	}
 
-	err := transitionAward(conn, award, map[string]any{
+	err = transitionAward(conn, award, map[string]any{
 		awardStatusColumn:  db.AwardStatusSuperseded,
 		"shown_on_profile": false,
 	})
@@ -351,6 +354,30 @@ func supersedeAward(ctx context.Context, conn *gorm.DB, held *heldAwards, award 
 	report.Superseded++
 
 	return nil
+}
+
+// heldUnderAward returns the ID of the live GitLab award a superseded tier
+// still stands for, or 0 when GitLab holds none for this user.
+//
+// A recorded ID is only trusted while the user's own listing still shows it
+// (see heldAwards.holds). A tier with no ID is matched by achievement
+// instead, which is how an award whose recording crashed is found again.
+func heldUnderAward(ctx context.Context, held *heldAwards, award *db.Award) (int64, error) {
+	if award.GitLabUserAchievementID != 0 {
+		live, err := held.holds(ctx, award.GitLabUserAchievementID)
+		if err != nil || !live {
+			return 0, err
+		}
+
+		return award.GitLabUserAchievementID, nil
+	}
+
+	existing, err := held.find(ctx, award.AchievementDefinition.GitLabAchievementID)
+	if err != nil || existing == nil {
+		return 0, err
+	}
+
+	return existing.ID, nil
 }
 
 // recordAwardDelivered persists what GitLab answered with: the ID the award
