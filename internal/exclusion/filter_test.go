@@ -275,3 +275,26 @@ func TestFilter_CheckSkipsLookupForListedUser(t *testing.T) {
 		t.Fatalf("expected a listed user to be excluded without asking gitlab, got %q after %d lookups (%v)", reason, lookup.calls, err)
 	}
 }
+
+// TestFilter_Check_AppliesUsernameRulesWhateverTheID covers a payload naming
+// an actor ID no GitLab user has: there is no row to consult, but the
+// username rules must still hold rather than wave the activity through.
+func TestFilter_Check_AppliesUsernameRulesWhateverTheID(t *testing.T) {
+	conn := openDB(t)
+	filter := exclusion.NewFilter(conn, mustPolicy(t, true, []string{"renovate"}, ""), nil, true)
+
+	for username, want := range map[string]exclusion.Reason{
+		"renovate":           exclusion.Configured,
+		"project_4_bot_beef": exclusion.Bot,
+		"alice":              exclusion.Included,
+	} {
+		got, err := filter.Check(t.Context(), -7, username)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got != want {
+			t.Errorf("%s: expected %q, got %q", username, want, got)
+		}
+	}
+}

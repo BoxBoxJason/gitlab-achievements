@@ -57,7 +57,10 @@ func (f *Filter) AllowsOptOut() bool {
 // stall every activity behind a GitLab outage.
 func (f *Filter) Check(ctx context.Context, gitlabUserID int64, username string) (Reason, error) {
 	if gitlabUserID <= 0 {
-		return Included, nil
+		// No GitLab user has such an ID, so there is no row to read or
+		// write, but the username rules still apply to whatever the
+		// activity claims to be: an ID is not a way past them.
+		return f.policy.Decide(Subject{Username: username}), nil
 	}
 
 	user, err := f.load(ctx, gitlabUserID)

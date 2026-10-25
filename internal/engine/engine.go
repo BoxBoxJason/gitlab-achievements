@@ -110,10 +110,15 @@ func (e *Engine) Stats() Stats {
 // backfill re-walking a page, a redelivered hook) is a no-op.
 func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 	criteria := criteriaFor(event.Kind)
-	if len(criteria) == 0 {
+	if len(criteria) == 0 || event.ActorID <= 0 {
 		// Deliberately not recorded as processed: a future engine that
 		// maps this kind onto a criteria should still see the event on a
 		// re-run rather than find it marked done and skip it forever.
+		//
+		// An actor ID that is not positive names no GitLab user. The
+		// producers already drop activity with no actor (ID 0), and a
+		// negative one can only come from a forged payload; counting it
+		// would make up a participant nothing could ever match or exclude.
 		e.skipped.Add(1)
 		metrics.EngineEvent("untracked")
 

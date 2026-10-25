@@ -106,3 +106,27 @@ func TestProcess_CountsNothingForAnOptOutRacingTheFilter(t *testing.T) {
 		t.Errorf("expected the activity to be skipped, got %+v", stats)
 	}
 }
+
+// TestProcess_IgnoresActivityWithoutAGitLabActor covers a forged payload
+// carrying a negative actor ID: no GitLab user has one, so nothing it does
+// may create a participant.
+func TestProcess_IgnoresActivityWithoutAGitLabActor(t *testing.T) {
+	conn := testConn(t)
+	eng := New(conn)
+
+	event := commitEvent("project_event:1:commit", 3)
+	event.ActorID = -1
+
+	if err := eng.Process(t.Context(), event); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var users int64
+	if err := conn.Model(&appdb.User{}).Count(&users).Error; err != nil {
+		t.Fatalf("failed to count users: %v", err)
+	}
+
+	if users != 0 {
+		t.Errorf("expected no user created for a negative actor ID, got %d", users)
+	}
+}
