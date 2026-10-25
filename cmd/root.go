@@ -511,7 +511,19 @@ func buildAPI(
 		return newAPI(conn, opts)
 	}
 
-	verifier, err := gitlabclient.NewTokenVerifier(cfg.GitLabURL)
+	// The verifier needs the application first: it refuses OAuth tokens any
+	// other application was issued.
+	clientID := cfg.OAuthClientID
+	if clientID == "" {
+		var err error
+
+		clientID, err = bootstrap.EnsureOAuthApplication(ctx, writeClient, conn, cfg.PublicURL+api.CallbackPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve the oauth application for the read api: %w", err)
+		}
+	}
+
+	verifier, err := gitlabclient.NewTokenVerifier(cfg.GitLabURL, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build gitlab token verifier: %w", err)
 	}
@@ -522,14 +534,6 @@ func buildAPI(
 		opts.IsMember, err = membershipChecker(ctx, readClient, cfg.APIAllowedGroup)
 		if err != nil {
 			return nil, err
-		}
-	}
-
-	clientID := cfg.OAuthClientID
-	if clientID == "" {
-		clientID, err = bootstrap.EnsureOAuthApplication(ctx, writeClient, conn, cfg.PublicURL+api.CallbackPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve the oauth application for the read api: %w", err)
 		}
 	}
 

@@ -49,27 +49,41 @@ type Identity struct {
 // code path can accidentally use a visitor's credential to act on the
 // instance.
 //
-// A verifier accepts any token type GitLab honors on the Authorization
-// header: a personal access token, or an OAuth access token issued by the
-// application this app registers.
+// A verifier accepts a personal access token, or an OAuth access token
+// issued by the application this app registers. GitLab itself honors an
+// OAuth token from any application on /api/v4/user, so that alone would
+// let any other relying party on the instance (a "Sign in with GitLab"
+// service, or an application some user created and the victim authorized)
+// replay its users' tokens here and act as them. The issuing application is
+// therefore checked first, through /oauth/token/info.
 type TokenVerifier struct {
-	http    *http.Client
-	baseURL string
+	http     *http.Client
+	baseURL  string
+	clientID string
 }
 
-// NewTokenVerifier builds a TokenVerifier for the instance at baseURL.
+// NewTokenVerifier builds a TokenVerifier for the instance at baseURL,
+// accepting OAuth access tokens only when the application clientID names
+// issued them.
 //
 // It holds one http.Client for the life of the process rather than building
 // one per request, so verification reuses connections instead of paying a
 // new TLS handshake on every authenticated API call.
-func NewTokenVerifier(baseURL string) (*TokenVerifier, error) {
+func NewTokenVerifier(baseURL, clientID string) (*TokenVerifier, error) {
 	trimmed := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if trimmed == "" {
 		return nil, errors.New("failed to build gitlab token verifier: base URL is empty")
 	}
 
+	// Without a client ID every OAuth token would be some other
+	// application's; refusing to build is clearer than refusing them all.
+	if strings.TrimSpace(clientID) == "" {
+		return nil, errors.New("failed to build gitlab token verifier: oauth client ID is empty")
+	}
+
 	return &TokenVerifier{
-		baseURL: trimmed,
+		baseURL:  trimmed,
+		clientID: clientID,
 		http: &http.Client{
 			Timeout:   verifyTimeout,
 			Transport: metrics.Transport("verify", http.DefaultTransport),
@@ -88,15 +102,12 @@ func (v *TokenVerifier) Verify(ctx context.Context, token string) (*Identity, er
 		return nil, fmt.Errorf("%w: no credential presented", ErrInvalidToken)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+"/api/v4/user", nil)
+	err := v.checkApplication(ctx, token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build gitlab identity request: %w", err)
+		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := v.http.Do(req)
+	resp, err := v.get(ctx, "/api/v4/user", token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify token against gitlab: %w", err)
 	}
@@ -104,6 +115,69 @@ func (v *TokenVerifier) Verify(ctx context.Context, token string) (*Identity, er
 	defer resp.Body.Close() //nolint:errcheck // nothing actionable on a response body close
 
 	return decodeIdentity(resp)
+}
+
+// checkApplication refuses an OAuth access token issued to any application
+// but this app's.
+//
+// GitLab's token info endpoint only knows OAuth access tokens: it answers
+// 401 for anything else, a personal access token included, and those go on
+// to be checked as usual. (A dead OAuth token gets the same 401 here, and
+// /api/v4/user refuses it next.)
+func (v *TokenVerifier) checkApplication(ctx context.Context, token string) error {
+	resp, err := v.get(ctx, "/oauth/token/info", token)
+	if err != nil {
+		return fmt.Errorf("failed to look up the token's oauth application on gitlab: %w", err)
+	}
+
+	defer resp.Body.Close() //nolint:errcheck // nothing actionable on a response body close
+
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		return nil
+	case resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("gitlab returned status %d looking up a token's oauth application", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxIdentityBytes))
+	if err != nil {
+		return fmt.Errorf("failed to read gitlab token info response: %w", err)
+	}
+
+	var info struct {
+		Application struct {
+			UID string `json:"uid"`
+		} `json:"application"`
+	}
+
+	err = json.Unmarshal(body, &info)
+	if err != nil {
+		return fmt.Errorf("failed to decode gitlab token info response: %w", err)
+	}
+
+	if info.Application.UID != v.clientID {
+		return fmt.Errorf("%w: it was issued to another oauth application", ErrInvalidToken)
+	}
+
+	return nil
+}
+
+// get sends an authenticated GET for path with token as the bearer.
+func (v *TokenVerifier) get(ctx context.Context, path, token string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build gitlab request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := v.http.Do(req)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // callers say which lookup failed
+	}
+
+	return resp, nil
 }
 
 // decodeIdentity turns GitLab's answer into an Identity, mapping a refusal

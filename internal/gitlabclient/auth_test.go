@@ -9,14 +9,45 @@ import (
 	"github.com/boxboxjason/gitlab-achievements/internal/gitlabclient"
 )
 
+// clientID is the OAuth application the verifiers under test belong to.
+const clientID = "this-app-client-id"
+
 // identityServer stands in for a GitLab instance's /api/v4/user endpoint.
+// Its token info endpoint knows none of the tokens, as for a personal
+// access token.
 func identityServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 
-	srv := httptest.NewServer(handler)
+	return oauthServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}, handler)
+}
+
+// oauthServer stands in for a GitLab instance answering /oauth/token/info
+// with tokenInfo and everything else with handler.
+func oauthServer(t *testing.T, tokenInfo, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth/token/info" {
+			tokenInfo(w, r)
+
+			return
+		}
+
+		handler(w, r)
+	}))
 	t.Cleanup(srv.Close)
 
 	return srv
+}
+
+// issuedTo answers token info for an OAuth token application uid issued.
+func issuedTo(uid string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"resource_owner_id": 42, "scope": ["read_user"], "application": {"uid": "` + uid + `"}}`)) //nolint:errcheck // test server
+	}
 }
 
 func TestVerify_ResolvesTheIdentityBehindAToken(t *testing.T) {
@@ -33,7 +64,7 @@ func TestVerify_ResolvesTheIdentityBehindAToken(t *testing.T) {
 		w.Write([]byte(`{"id": 42, "username": "alice", "is_admin": true}`)) //nolint:errcheck // test server
 	})
 
-	verifier, err := gitlabclient.NewTokenVerifier(srv.URL)
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -56,7 +87,7 @@ func TestVerify_ReportsARefusedTokenDistinctly(t *testing.T) {
 			w.WriteHeader(status)
 		})
 
-		verifier, err := gitlabclient.NewTokenVerifier(srv.URL)
+		verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
@@ -73,7 +104,7 @@ func TestVerify_DoesNotReportAServerErrorAsARefusal(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	verifier, err := gitlabclient.NewTokenVerifier(srv.URL)
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -95,7 +126,7 @@ func TestVerify_RejectsAResponseWithNoUserID(t *testing.T) {
 		w.Write([]byte(`{"username": "nobody"}`)) //nolint:errcheck // test server
 	})
 
-	verifier, err := gitlabclient.NewTokenVerifier(srv.URL)
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -115,7 +146,7 @@ func TestVerify_RejectsAnEmptyTokenWithoutCallingGitLab(t *testing.T) {
 		w.Write([]byte(`{"id": 1}`)) //nolint:errcheck // test server
 	})
 
-	verifier, err := gitlabclient.NewTokenVerifier(srv.URL)
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -132,7 +163,7 @@ func TestVerify_RejectsAnEmptyTokenWithoutCallingGitLab(t *testing.T) {
 
 func TestVerify_ReportsAnUnreachableInstance(t *testing.T) {
 	// A port nothing is listening on, so the request fails at the transport.
-	verifier, err := gitlabclient.NewTokenVerifier("http://127.0.0.1:1")
+	verifier, err := gitlabclient.NewTokenVerifier("http://127.0.0.1:1", clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -147,8 +178,85 @@ func TestVerify_ReportsAnUnreachableInstance(t *testing.T) {
 	}
 }
 
+func TestVerify_AcceptsAnOAuthTokenThisAppIssued(t *testing.T) {
+	srv := oauthServer(t, issuedTo(clientID), func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"id": 42, "username": "alice"}`)) //nolint:errcheck // test server
+	})
+
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	identity, err := verifier.Verify(t.Context(), "our-oauth-token")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if identity.ID != 42 {
+		t.Errorf("unexpected identity: %+v", identity)
+	}
+}
+
+// GitLab honors an OAuth token from any application on /api/v4/user, so
+// one issued to some other relying party has to be refused here or that
+// party could act as its users on this API.
+func TestVerify_RefusesAnOAuthTokenAnotherApplicationIssued(t *testing.T) {
+	var identityAsked bool
+
+	srv := oauthServer(t, issuedTo("other-app-uid"), func(w http.ResponseWriter, _ *http.Request) {
+		identityAsked = true
+
+		w.Write([]byte(`{"id": 42, "username": "alice"}`)) //nolint:errcheck // test server
+	})
+
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	_, err = verifier.Verify(t.Context(), "other-app-oauth-token")
+	if !errors.Is(err, gitlabclient.ErrInvalidToken) {
+		t.Errorf("expected another application's token to be refused, got: %v", err)
+	}
+
+	if identityAsked {
+		t.Error("expected the identity not to be looked up for a refused token")
+	}
+}
+
+// Not knowing which application issued a token is not a verdict on it, so
+// a token info outage must not read as a bad token either.
+func TestVerify_DoesNotReportATokenInfoOutageAsARefusal(t *testing.T) {
+	srv := oauthServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}, func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"id": 42}`)) //nolint:errcheck // test server
+	})
+
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL, clientID)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	_, err = verifier.Verify(t.Context(), "token")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+
+	if errors.Is(err, gitlabclient.ErrInvalidToken) {
+		t.Errorf("expected a token info outage not to look like a bad token, got: %v", err)
+	}
+}
+
+func TestNewTokenVerifier_RejectsAnEmptyClientID(t *testing.T) {
+	if _, err := gitlabclient.NewTokenVerifier("https://gitlab.example.com", " "); err == nil {
+		t.Error("expected an error for an empty client ID")
+	}
+}
+
 func TestNewTokenVerifier_RejectsAnEmptyBaseURL(t *testing.T) {
-	if _, err := gitlabclient.NewTokenVerifier("  "); err == nil {
+	if _, err := gitlabclient.NewTokenVerifier("  ", clientID); err == nil {
 		t.Error("expected an error for an empty base URL")
 	}
 }
@@ -164,7 +272,7 @@ func TestNewTokenVerifier_TrimsATrailingSlash(t *testing.T) {
 		w.Write([]byte(`{"id": 1}`)) //nolint:errcheck // test server
 	})
 
-	verifier, err := gitlabclient.NewTokenVerifier(srv.URL + "/")
+	verifier, err := gitlabclient.NewTokenVerifier(srv.URL+"/", clientID)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

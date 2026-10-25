@@ -150,7 +150,7 @@ The icon is the one route under `/api/v1/` served without authentication, even w
 
 Off by default (`API_AUTH=none`), which is the posture `/healthz` already has, so upgrading does not lock anything and a deployment on a private network can opt out on purpose.
 
-Set `API_AUTH=gitlab` and the mirrored instance becomes the identity provider. A caller presents any GitLab token, a personal access token or an OAuth access token, as `Authorization: Bearer <token>`, and it is checked against `GET /api/v4/user` before anything is served:
+Set `API_AUTH=gitlab` and the mirrored instance becomes the identity provider. A caller presents a GitLab personal access token, or an OAuth access token this app's own OAuth application issued, as `Authorization: Bearer <token>`, and it is checked against `GET /api/v4/user` before anything is served. OAuth tokens issued to any other application on the instance are refused with `401`, even though GitLab itself would accept them: otherwise every other service that signs people in with GitLab could replay their tokens here and act as them:
 
 ```console
 $ curl -s -H "Authorization: Bearer $GITLAB_TOKEN" \
