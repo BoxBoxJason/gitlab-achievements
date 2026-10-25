@@ -8,7 +8,9 @@ name: gitlab-achievements
 
 services:
   app:
-    image: ghcr.io/boxboxjason/gitlab-achievements:${IMAGE_TAG:-latest}
+    # A release tag, required rather than defaulting to latest, so that an
+    # upgrade is something chosen rather than whatever the next pull brings.
+    image: ghcr.io/boxboxjason/gitlab-achievements:${IMAGE_TAG:?set IMAGE_TAG in .env to a release, e.g. 0.5.0}
     restart: unless-stopped
     depends_on:
       db:

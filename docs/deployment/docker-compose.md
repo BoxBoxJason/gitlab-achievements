@@ -59,7 +59,7 @@ docker compose pull && docker compose up -d   # upgrade
 docker compose down                           # stop, keeping the database volume
 ```
 
-Rotating a token is an edit to `.env` and a `restart`; nothing on GitLab's side has to be redone. Upgrading pulls a new image and recreates the container, which re-runs bootstrap and the schema migrations. Pin `IMAGE_TAG` to a release rather than tracking `latest`, so an upgrade is something you choose.
+Rotating a token is an edit to `.env` and a `restart`; nothing on GitLab's side has to be redone. Upgrading pulls a new image and recreates the container, which re-runs bootstrap and the schema migrations. `IMAGE_TAG` names the release and is required, so an upgrade is something you choose: change it and run `docker compose up -d`.
 
 `docker compose down` leaves the `pgdata` volume in place. `down -v` deletes it, and with it every user's EXP and the record of which awards were already delivered. Back that volume up if the numbers matter:
 
