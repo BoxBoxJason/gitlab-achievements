@@ -131,6 +131,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      # The npm counterpart of govulncheck: known advisories against the
+      # locked dependency tree, dev ones included, since they run the build
+      # that produces what the binary embeds.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
       # The build runs the type check as well (vue-tsc -b), so the two jobs
       # it would otherwise be are one.
       - name: Test
