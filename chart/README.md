@@ -1,6 +1,6 @@
 # gitlab-achievements-chart
 
-![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.0](https://img.shields.io/badge/AppVersion-0.5.0-informational?style=flat-square)
+![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.6.0](https://img.shields.io/badge/AppVersion-0.6.0-informational?style=flat-square)
 
 Event-driven achievement awarder for self-hosted GitLab instances
 
@@ -54,6 +54,8 @@ Event-driven achievement awarder for self-hosted GitLab instances
 | config.reconcile.interval | string | `"24h"` | How often recent activity is re-read. |
 | config.reconcile.lookback | string | `"48h"` | How far back each pass reaches. Must exceed the interval so consecutive windows overlap; the app refuses to start otherwise. |
 | config.reconcile.mode | string | `"auto"` | Periodic re-read of recent activity, healing webhook deliveries GitLab never made. auto runs it in the serving pod; off disables it, for when you schedule `gitlab-achievements reconcile` from outside the chart. |
+| extraVolumeMounts | list | `[]` | Extra volume mounts added to the app container of the Deployment and of the Jobs. To trust a private CA, mount it and point `SSL_CERT_DIR` at it through `config.extraEnv`: Go then trusts it in addition to the image's bundle (`SSL_CERT_FILE` would replace the bundle). |
+| extraVolumes | list | `[]` | Extra volumes added to the pod of the Deployment and of the backfill and uninstall Jobs, e.g. a ConfigMap holding a private CA. Standard Kubernetes volume entries. |
 | fullnameOverride | string | `""` | Overrides the full object name prefix; empty derives it from the release name. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/boxboxjason/gitlab-achievements"` | Container image repository. |

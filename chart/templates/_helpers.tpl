@@ -231,12 +231,18 @@ the database DSN points elsewhere.
   persistentVolumeClaim:
     claimName: {{ include "gitlab-achievements.pvcName" . }}
 {{- end }}
+{{- with .Values.extraVolumes }}
+{{ toYaml . }}
+{{- end }}
 {{- end }}
 
 {{- define "gitlab-achievements.volumeMounts" -}}
 {{- if .Values.persistence.enabled -}}
 - name: data
   mountPath: {{ .Values.persistence.mountPath }}
+{{- end }}
+{{- with .Values.extraVolumeMounts }}
+{{ toYaml . }}
 {{- end }}
 {{- end }}
 

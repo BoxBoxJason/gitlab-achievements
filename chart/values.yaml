@@ -101,6 +101,20 @@ config:
   #  - name: GOMEMLIMIT
   #    value: "400MiB"
 
+# -- Extra volumes added to the pod of the Deployment and of the backfill and uninstall Jobs,
+# e.g. a ConfigMap holding a private CA. Standard Kubernetes volume entries.
+extraVolumes: []
+#  - name: custom-ca
+#    configMap:
+#      name: custom-ca
+# -- Extra volume mounts added to the app container of the Deployment and of the Jobs.
+# To trust a private CA, mount it and point `SSL_CERT_DIR` at it through `config.extraEnv`:
+# Go then trusts it in addition to the image's bundle (`SSL_CERT_FILE` would replace the bundle).
+extraVolumeMounts: []
+#  - name: custom-ca
+#    mountPath: /etc/custom-ca
+#    readOnly: true
+
 secrets:
   # -- Name of a Secret loaded with envFrom. Keys must be GITLAB_READ_TOKEN, GITLAB_WRITE_TOKEN,
   # WEBHOOK_SECRET, DATABASE_DSN, and OAUTH_CLIENT_SECRET / SESSION_SECRET if used.
