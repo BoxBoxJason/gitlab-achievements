@@ -156,6 +156,10 @@ persistence:
   # -- Directory the volume is mounted at. The default SQLite DSN points inside it.
   mountPath: /data
 
+deployment:
+  # -- Annotations for the deployment
+  annotations: {}
+
 service:
   # -- Service type.
   type: ClusterIP
