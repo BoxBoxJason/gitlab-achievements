@@ -12,7 +12,7 @@ metadata:
     {{- include "gitlab-achievements.labels" . | nindent 4 }}
   {{- with .Values.deployment.annotations }}
   annotations:
-    {{ . | nindent 4 }}
+    {{ toYaml . | nindent 4 }}
   {{- end }}
 spec:
   replicas: {{ .Values.replicaCount }}
