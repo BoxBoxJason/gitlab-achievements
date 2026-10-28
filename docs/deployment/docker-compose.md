@@ -44,7 +44,7 @@ services:
 
 ## Putting TLS in front
 
-The app is published on `127.0.0.1:8080` by default and speaks plain HTTP. That is not what GitLab should be delivering to: `PUBLIC_URL` needs to be an address your instance can reach, with a certificate it trusts.
+The app is published on `127.0.0.1:8080` by default and speaks plain HTTP. That is not what GitLab should be delivering to: `WEBHOOK_URL` needs to be an address your instance can reach, with a certificate it trusts. If unset, it defaults to `PUBLIC_URL`.
 
 Run a reverse proxy (Caddy, nginx, Traefik) on the same host, terminating TLS for `achievements.example.com` and proxying to `127.0.0.1:8080`. Everything is one origin, since the webhook endpoint, the read API and the probes all share the port, so a single `proxy_pass` covers it.
 

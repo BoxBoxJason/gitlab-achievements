@@ -158,7 +158,8 @@ func bindFlags(rootCmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.AchievementsNamespace, "achievements-namespace", os.Getenv("ACHIEVEMENTS_NAMESPACE"), "Full path of the namespace that owns the achievement definitions")
 	secretFlag(flags, &cfg.DatabaseDSN, "database-dsn", "DATABASE_DSN", fmt.Sprintf("Database connection string (postgres://, sqlite://, mysql://, or sqlserver://); defaults to %q", config.DefaultDatabaseDSN))
 	secretFlag(flags, &cfg.WebhookSecret, "webhook-secret", "WEBHOOK_SECRET", "Secret token used to validate incoming GitLab webhook deliveries")
-	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used to register its GitLab webhooks")
+	flags.StringVar(&cfg.PublicURL, "public-url", os.Getenv("PUBLIC_URL"), "Externally reachable base URL of this app, used for GitLab OAuth redirects")
+	flags.StringVar(&cfg.WebhookURL, "webhook-url", os.Getenv("WEBHOOK_URL"), "Base URL GitLab uses to deliver webhooks; defaults to --public-url")
 	flags.StringVar(&cfg.ListenAddr, "listen-addr", envOrDefault("LISTEN_ADDR", config.DefaultListenAddr), "Address the HTTP server listens on")
 	flags.StringVar(&cfg.MetricsAddr, "metrics-addr", envOrDefault("METRICS_ADDR", config.DefaultMetricsAddr), "Address Prometheus metrics are served on, apart from --listen-addr; \"off\" serves none")
 	flags.StringVar(&cfg.LogLevel, "log-level", envOrDefault("LOG_LEVEL", config.DefaultLogLevel), "Log level (debug, info, warn, error)")
@@ -347,7 +348,7 @@ func run(cfg *config.Config) error {
 
 	zap.L().Info("database connected and migrated")
 
-	webhookURL := cfg.PublicURL + httpserver.WebhookPath
+	webhookURL := cfg.WebhookURL + httpserver.WebhookPath
 
 	// Captured before bootstrap registers any hooks, and used as the
 	// ceiling on what the historical walk counts. See backfill.Options.Until

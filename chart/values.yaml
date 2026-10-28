@@ -32,9 +32,11 @@ config:
   gitlabUrl: ""
   # -- Full path of the namespace that owns the achievement definitions.
   achievementsNamespace: ""
-  # -- Externally reachable base URL of this app. GitLab's webhooks are registered
-  # against it, so the instance must be able to resolve and reach it.
+  # -- Externally reachable base URL of this app, used for GitLab OAuth redirects.
   publicUrl: ""
+  # -- Base URL GitLab uses to deliver webhooks. Empty defaults to publicUrl;
+  # set this to a cluster-internal Service URL when GitLab can reach the cluster.
+  webhookUrl: ""
   # -- Log level: debug, info, warn or error.
   logLevel: info
   # -- Webhook scope: auto, group or project. auto picks group hooks where the license allows.

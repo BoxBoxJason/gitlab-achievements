@@ -83,7 +83,7 @@ It goes in `WEBHOOK_SECRET`. Changing it is safe at any time: the hourly sweep r
 
 ## 6. Make the app reachable from GitLab
 
-`PUBLIC_URL` is the base URL GitLab delivers webhooks to, so it has to resolve and be reachable **from the GitLab instance**, not just from you. The hooks are registered against it at startup, which is also when a wrong value gets expensive: correcting it means the next sweep re-pointing every hook.
+`WEBHOOK_URL` is the base URL GitLab delivers webhooks to, so it has to resolve and be reachable **from the GitLab instance**, not just from you. If it is unset, it defaults to `PUBLIC_URL`. The hooks are registered against it at startup, which is also when a wrong value gets expensive: correcting it means the next sweep re-pointing every hook.
 
 Two settings commonly get in the way, both under **Admin, Settings, Network, Outbound requests**:
 
@@ -109,7 +109,7 @@ curl -sf https://achievements.example.com/readyz && echo ready
 Then check GitLab's side:
 
 - The achievements group's **Achievements** page lists the catalog.
-- A group (or project) shows a webhook pointing at `PUBLIC_URL/webhooks/gitlab`, and its **Recent events** fill up as people work.
+- A group (or project) shows a webhook pointing at `WEBHOOK_URL/webhooks/gitlab` (or `PUBLIC_URL/webhooks/gitlab` when `WEBHOOK_URL` is unset), and its **Recent events** fill up as people work.
 - A user with past activity has awards. Remember that an award is invisible until its recipient accepts it, so check as an admin rather than by looking at a profile.
 
 ## Rotating credentials

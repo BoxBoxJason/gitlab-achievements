@@ -6,7 +6,7 @@ One process, one database, and a GitLab instance it mirrors. Here is what it doe
 
 ### 1. Bootstrap
 
-Every start begins the same way. The app checks that both tokens work and have the access they need, creates or updates the 275 achievement definitions in your achievements group, and registers the webhooks that will feed it, pointed at `PUBLIC_URL` plus its ingestion path.
+Every start begins the same way. The app checks that both tokens work and have the access they need, creates or updates the 275 achievement definitions in your achievements group, and registers the webhooks that will feed it, pointed at `WEBHOOK_URL` plus its ingestion path (`PUBLIC_URL` when `WEBHOOK_URL` is unset).
 
 Bootstrap is all-or-nothing. If a token has lost a permission or GitLab rejects a mutation, startup fails rather than serving in a half-working state. Every problem it finds is reported in one pass, so you fix them together instead of one restart at a time. Nothing answers on the HTTP port until bootstrap finishes, which on a Free/CE instance with thousands of projects can take several minutes.
 

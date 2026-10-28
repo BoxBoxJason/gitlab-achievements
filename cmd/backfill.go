@@ -82,7 +82,7 @@ func runBackfill(cfg *config.Config) error {
 
 	defer sqlDB.Close() //nolint:errcheck // ignore close errors on exit
 
-	_, writeClient, _, err := bootstrapApp(ctx, cfg, conn, cfg.PublicURL+httpserver.WebhookPath)
+	_, writeClient, _, err := bootstrapApp(ctx, cfg, conn, cfg.WebhookURL+httpserver.WebhookPath)
 	if err != nil {
 		return err
 	}

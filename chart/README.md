@@ -50,7 +50,8 @@ Event-driven achievement awarder for self-hosted GitLab instances
 | config.hookRate | int | `20` | Groups or projects per second the webhook registration sweep works through. |
 | config.hookScope | string | `"auto"` | Webhook scope: auto, group or project. auto picks group hooks where the license allows. |
 | config.logLevel | string | `"info"` | Log level: debug, info, warn or error. |
-| config.publicUrl | string | `""` | Externally reachable base URL of this app. GitLab's webhooks are registered against it, so the instance must be able to resolve and reach it. |
+| config.publicUrl | string | `""` | Externally reachable base URL of this app, used for GitLab OAuth redirects. |
+| config.webhookUrl | string | `""` | Base URL GitLab uses to deliver webhooks. Empty defaults to `publicUrl`; set it to a cluster-internal Service URL when GitLab can reach the cluster. |
 | config.reconcile.interval | string | `"24h"` | How often recent activity is re-read. |
 | config.reconcile.lookback | string | `"48h"` | How far back each pass reaches. Must exceed the interval so consecutive windows overlap; the app refuses to start otherwise. |
 | config.reconcile.mode | string | `"auto"` | Periodic re-read of recent activity, healing webhook deliveries GitLab never made. auto runs it in the serving pod; off disables it, for when you schedule `gitlab-achievements reconcile` from outside the chart. |
@@ -132,4 +133,3 @@ Event-driven achievement awarder for self-hosted GitLab instances
 | uninstallJob.sweep | bool | `false` | Also enumerate the instance for hooks and achievements the app has no record of, for a lost or restored database. Walks every group or project, so it is not the default. |
 | uninstallJob.tolerations | list | `[]` | Tolerations of the Job's pod. |
 | uninstallJob.ttlSecondsAfterFinished | int | `86400` | Seconds a finished Job is kept. Keep it long enough to read the logs, the only report of what was removed and what was left behind. |
-

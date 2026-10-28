@@ -31,6 +31,7 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 		"--database-dsn", "postgres://localhost/achievements",
 		"--webhook-secret", "s3cr3t-s3cr3t-s3cr3t-s3cr3t-s3cr3t",
 		"--public-url", "https://achievements.example.com",
+		"--webhook-url", "http://achievements.default.svc.cluster.local:8080",
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -38,6 +39,10 @@ func TestBuildRootCmd_FlagsBindToConfig(t *testing.T) {
 
 	if cfg.GitLabURL != "https://gitlab.example.com" {
 		t.Errorf("expected gitlab-url to be bound, got %q", cfg.GitLabURL)
+	}
+
+	if cfg.WebhookURL != "http://achievements.default.svc.cluster.local:8080" {
+		t.Errorf("expected webhook-url to be bound, got %q", cfg.WebhookURL)
 	}
 
 	if cfg.ListenAddr != config.DefaultListenAddr {

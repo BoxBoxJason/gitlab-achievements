@@ -121,6 +121,31 @@ func TestValidate_StripsTrailingSlashFromPublicURL(t *testing.T) {
 	}
 }
 
+func TestValidate_DefaultsWebhookURLToPublicURL(t *testing.T) {
+	cfg := validConfig()
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.WebhookURL != cfg.PublicURL {
+		t.Errorf("expected webhook URL to default to public URL, got %q", cfg.WebhookURL)
+	}
+}
+
+func TestValidate_StripsTrailingSlashFromWebhookURL(t *testing.T) {
+	cfg := validConfig()
+	cfg.WebhookURL = "http://achievements.svc.cluster.local:8080///"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.WebhookURL != "http://achievements.svc.cluster.local:8080" {
+		t.Errorf("expected trailing slashes to be stripped, got %q", cfg.WebhookURL)
+	}
+}
+
 // The webhook secret is the only credential on the ingestion endpoint, so a
 // short one is refused the way a short session secret is.
 func TestValidate_ShortWebhookSecret(t *testing.T) {
@@ -144,6 +169,11 @@ func TestInsecureURLs(t *testing.T) {
 
 	if got := cfg.InsecureURLs(); len(got) != 1 || got[0] != "public-url" {
 		t.Errorf("expected public-url to be flagged, got %v", got)
+	}
+
+	cfg.WebhookURL = "http://achievements-webhook.svc.cluster.local:8080"
+	if got := cfg.InsecureURLs(); len(got) != 2 || got[1] != "webhook-url" {
+		t.Errorf("expected webhook-url to be flagged too, got %v", got)
 	}
 }
 
