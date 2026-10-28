@@ -656,6 +656,7 @@ func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.WebhookURL) == "" {
 		c.WebhookURL = c.PublicURL
 	}
+
 	c.WebhookURL = strings.TrimRight(c.WebhookURL, "/")
 }
 
