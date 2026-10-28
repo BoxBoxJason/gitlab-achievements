@@ -8,7 +8,7 @@ them, and nothing brings those back. `helm uninstall` is an ordinary thing
 to type, and it must not be what wipes everybody's badges.
 
 Rendering it from the chart is what keeps it correct: it inherits the image
-the release runs, the same GitLab URL, namespace and PUBLIC_URL the hooks
+the release runs, the same GitLab URL, namespace and WEBHOOK_URL the hooks
 were registered against, the same credentials Secret, and the same pod
 labels, which is what any NetworkPolicy covering the Deployment selects on.
 A hand-written Job has to get all five right to remove anything at all.

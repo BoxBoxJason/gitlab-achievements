@@ -191,9 +191,11 @@ type Config struct {
 	DatabaseDSN           string
 	WebhookSecret         string
 	// PublicURL is the externally reachable base URL this app is deployed
-	// at, used to build the webhook URL registered with GitLab on
-	// bootstrap (see the README's "how it works" section).
-	PublicURL  string
+	// at, used for OAuth redirects and browser sessions.
+	PublicURL string
+	// WebhookURL is the base URL GitLab uses to deliver webhooks. When empty,
+	// it defaults to PublicURL for backwards compatibility.
+	WebhookURL string
 	ListenAddr string
 	// MetricsAddr is the address Prometheus metrics are served on, apart
 	// from ListenAddr, or MetricsDisabled to serve none.
@@ -330,7 +332,8 @@ func (c *Config) AuthMode() APIAuth {
 // Either one is allowed, since a lab or an in-cluster address may have no
 // TLS to offer, but both carry credentials: the GitLab tokens travel to
 // gitlab-url, the webhook secret and session cookies to public-url (and the
-// cookies lose Secure), all readable by anyone on the path.
+// cookies lose Secure), all readable by anyone on the path. The webhook
+// secret travels to webhook-url.
 func (c *Config) InsecureURLs() []string {
 	var insecure []string
 
@@ -650,6 +653,10 @@ func (c *Config) applyDefaults() {
 	// path) without risking a double slash, which would break the URL
 	// match used to adopt an already-registered hook.
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+	if strings.TrimSpace(c.WebhookURL) == "" {
+		c.WebhookURL = c.PublicURL
+	}
+	c.WebhookURL = strings.TrimRight(c.WebhookURL, "/")
 }
 
 // applyReconcileDefaults fills in the reconciliation sync's knobs, kept
@@ -693,7 +700,11 @@ type requiredField struct {
 
 // urlFields are the settings that hold absolute URLs.
 func (c *Config) urlFields() []requiredField {
-	return []requiredField{{"gitlab-url", c.GitLabURL}, {"public-url", c.PublicURL}}
+	return []requiredField{
+		{"gitlab-url", c.GitLabURL},
+		{"public-url", c.PublicURL},
+		{"webhook-url", c.WebhookURL},
+	}
 }
 
 func (c *Config) requiredFields() []requiredField {

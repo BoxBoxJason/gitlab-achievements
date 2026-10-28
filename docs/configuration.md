@@ -15,7 +15,7 @@ The app refuses to start without these six.
 | `--gitlab-write-token` | `GITLAB_WRITE_TOKEN` | Token with `api` scope on an instance-admin account, used to manage webhooks and achievements. Must differ from the read token |
 | `--achievements-namespace` | `ACHIEVEMENTS_NAMESPACE` | Full path of the group owning the achievement definitions, e.g. `achievements` |
 | `--webhook-secret` | `WEBHOOK_SECRET` | Shared secret GitLab presents on every delivery, at least 32 characters, e.g. from `openssl rand -hex 32` |
-| `--public-url` | `PUBLIC_URL` | Base URL GitLab reaches this app at. Trailing slashes are stripped; the webhook path is appended |
+| `--public-url` | `PUBLIC_URL` | Public base URL of this app, used for GitLab OAuth redirects and browser sessions |
 
 `--database-dsn` / `DATABASE_DSN` is not in this list: left unset, it defaults to a local SQLite file, see [Databases](#databases).
 
@@ -26,6 +26,7 @@ Where the two credentials come from, and what trusting the admin one implies, is
 | Flag | Environment | Default | What it does |
 | --- | --- | --- | --- |
 | `--database-dsn` | `DATABASE_DSN` | `sqlite:///var/lib/gitlab-achievements/data.db` | Where state is kept, see [Databases](#databases) |
+| `--webhook-url` | `WEBHOOK_URL` | `PUBLIC_URL` | Base URL GitLab reaches for webhooks. Trailing slashes are stripped and the webhook path is appended. Set this to an in-cluster URL when GitLab can reach the cluster but users cannot |
 | `--listen-addr` | `LISTEN_ADDR` | `:8080` | Address the HTTP server binds to |
 | `--metrics-addr` | `METRICS_ADDR` | `:9464` | Address Prometheus metrics are served on, apart from `--listen-addr`. `off` serves none. See [Metrics](metrics.md) |
 | `--log-level` | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |

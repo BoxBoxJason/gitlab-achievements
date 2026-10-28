@@ -97,7 +97,7 @@ func runUninstall(cfg *config.Config, opts bootstrap.CleanupOptions, keepAchieve
 		return fmt.Errorf("failed to build gitlab write client: %w", err)
 	}
 
-	report, err := bootstrap.RemoveWebhooks(ctx, readClient, writeClient, conn, cfg, cfg.PublicURL+httpserver.WebhookPath, opts)
+	report, err := bootstrap.RemoveWebhooks(ctx, readClient, writeClient, conn, cfg, cfg.WebhookURL+httpserver.WebhookPath, opts)
 	if err != nil {
 		return fmt.Errorf("failed to remove the event ingestion webhooks: %w", err)
 	}

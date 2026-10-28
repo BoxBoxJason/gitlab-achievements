@@ -33,6 +33,8 @@ config:
   gitlabUrl: https://gitlab.example.com
   achievementsNamespace: achievements
   publicUrl: https://achievements.example.com
+  # Optional: GitLab-facing URL for webhook delivery.
+  webhookUrl: http://gitlab-achievements.default.svc.cluster.local:8080
 
 secrets:
   existingSecret: gitlab-achievements-credentials
@@ -121,7 +123,7 @@ Liveness and readiness only start once it passes, so they need no adjusting. Rea
 
 ## Ingress and reachability
 
-`config.publicUrl` is what the app registers its webhooks against, so GitLab has to resolve and reach it. A cluster-internal hostname works only if GitLab runs in the same cluster and outbound local-network requests are allowed on the instance. See [GitLab-side setup](../gitlab-setup.md#6-make-the-app-reachable-from-gitlab).
+`config.webhookUrl` is what the app registers its webhooks against, so GitLab has to resolve and reach it. It defaults to `config.publicUrl`. A cluster-internal hostname works only if GitLab runs in the same cluster and outbound local-network requests are allowed on the instance. See [GitLab-side setup](../gitlab-setup.md#6-make-the-app-reachable-from-gitlab).
 
 The chart's Ingress is optional and plain. A Gateway API route, a `LoadBalancer` Service or a service mesh works just as well: set `ingress.enabled: false` and route to the Service yourself. Whatever fronts it has to handle one path prefix for everything, because webhooks, the API and the probes all share a port.
 
@@ -207,7 +209,7 @@ Scaling to zero first matters: a running pod re-registers the hooks on its next 
 
 The Job is opt-in rather than a `pre-delete` hook on purpose. Deleting an achievement deletes every award of it, and `helm uninstall` is too ordinary a thing to type for it to be what wipes your team's badges. Set `uninstallJob.keepAchievements: true` to take only the hooks and leave people what they earned, or `uninstallJob.sweep: true` to also hunt down what the database has no record of. Full details in [Uninstalling](../uninstall.md).
 
-Letting the chart render it is what keeps it working. It inherits the release's image, its GitLab URL, achievements namespace and `PUBLIC_URL` — the hooks can only be found under the URL they were registered against — its credentials Secret, and its pod labels. That last one matters more than it looks: a hand-written Job carries none of the labels a NetworkPolicy selects on, so it is denied its way to GitLab and fails on a connection timeout that reads like a GitLab outage.
+Letting the chart render it is what keeps it working. It inherits the release's image, its GitLab URL, achievements namespace and `WEBHOOK_URL` — the hooks can only be found under the URL they were registered against — its credentials Secret, and its pod labels. That last one matters more than it looks: a hand-written Job carries none of the labels a NetworkPolicy selects on, so it is denied its way to GitLab and fails on a connection timeout that reads like a GitLab outage.
 
 The database is yours and is left alone. It is also what the removal reads from, so dropping it first leaves the app no record of what it registered; `uninstall --sweep` enumerates the instance to recover from that.
 

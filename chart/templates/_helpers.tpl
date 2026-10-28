@@ -89,7 +89,9 @@ separately, so they never appear in a pod spec.
 - name: ACHIEVEMENTS_NAMESPACE
   value: {{ required "config.achievementsNamespace is required: the full path of the namespace that owns the achievement definitions" .Values.config.achievementsNamespace | quote }}
 - name: PUBLIC_URL
-  value: {{ required "config.publicUrl is required: GitLab's webhooks are registered against it" .Values.config.publicUrl | quote }}
+  value: {{ required "config.publicUrl is required: GitLab OAuth redirects are built from it" .Values.config.publicUrl | quote }}
+- name: WEBHOOK_URL
+  value: {{ .Values.config.webhookUrl | quote }}
 - name: LISTEN_ADDR
   value: ":{{ include "gitlab-achievements.containerPort" . }}"
 - name: LOG_LEVEL
