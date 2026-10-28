@@ -10,6 +10,10 @@ metadata:
   name: {{ include "gitlab-achievements.fullname" . }}
   labels:
     {{- include "gitlab-achievements.labels" . | nindent 4 }}
+  {{- with .Values.deployment.annotations }}
+  annotations:
+    {{ . | nindent 4 }}
+  {{- end }}
 spec:
   replicas: {{ .Values.replicaCount }}
   {{- with .Values.strategy }}
