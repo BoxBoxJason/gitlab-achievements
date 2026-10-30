@@ -52,9 +52,8 @@ const (
 	KindMergeRequestMergedFast Kind = "merge_request_merged_fast"
 	// KindMergeRequestClosed is a merge request closed without merging.
 	KindMergeRequestClosed Kind = "merge_request_closed"
-	// KindDiscussionResolved is a review discussion resolved by a user.
-	// Discussions GitLab resolves on its own when a push obsoletes them are
-	// not reported as this kind.
+	// KindDiscussionResolved is a review discussion resolved by a user,
+	// whether by hand or by a push that made it obsolete.
 	KindDiscussionResolved Kind = "discussion_resolved"
 	// KindIssueOpened is an issue opened by its author.
 	KindIssueOpened Kind = "issue_opened"

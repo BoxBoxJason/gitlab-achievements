@@ -645,7 +645,7 @@ func buildServer(
 
 	startSessionPruning(ctx, cfg, readAPI)
 
-	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue)
+	receiver := webhook.NewReceiver(cfg.WebhookSecret, queue, webhook.WithDiscussions(readClient))
 
 	return newHTTPServer(cfg, sqlDB, readClient, receiver, readAPI, site), nil
 }

@@ -26,6 +26,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
+	"iter"
 	"net/http"
 	"time"
 
@@ -69,19 +70,47 @@ type dispatcher interface {
 	Enqueue(ctx context.Context, events []activity.Event) error
 }
 
+// discussionSource lists a merge request's discussions, satisfied by
+// *gitlabclient.ReadClient.
+type discussionSource interface {
+	ListMergeRequestDiscussions(pid any, mergeRequest int64, opt *gitlab.ListMergeRequestDiscussionsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Discussion, error]
+}
+
+// discussionFetchTimeout bounds the trip to the API a delivery may cost,
+// well inside the time GitLab waits for a hook to answer.
+const discussionFetchTimeout = 5 * time.Second
+
 // Receiver handles GitLab webhook deliveries.
 type Receiver struct {
-	queue  dispatcher
-	secret string
+	queue       dispatcher
+	discussions discussionSource
+	secret      string
+}
+
+// ReceiverOption configures optional parts of a Receiver.
+type ReceiverOption func(*Receiver)
+
+// WithDiscussions lets the receiver read a merge request's discussions,
+// which is the only way to see a thread being resolved on a GitLab that
+// reports it as a bare merge request update. Without it, resolutions are
+// only counted from the note hooks older versions send.
+func WithDiscussions(source discussionSource) ReceiverOption {
+	return func(r *Receiver) { r.discussions = source }
 }
 
 // NewReceiver builds a Receiver that authenticates deliveries against
 // secret and hands the activity it parses to queue.
-func NewReceiver(secret string, queue dispatcher) *Receiver {
-	return &Receiver{
+func NewReceiver(secret string, queue dispatcher, opts ...ReceiverOption) *Receiver {
+	receiver := &Receiver{
 		secret: secret,
 		queue:  queue,
 	}
+
+	for _, opt := range opts {
+		opt(receiver)
+	}
+
+	return receiver
 }
 
 // ServeHTTP validates, parses, and queues one delivery.
@@ -131,7 +160,7 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	events, parsed := r.parse(eventType, payload)
+	events, parsed := r.parse(req.Context(), eventType, payload)
 	if len(events) == 0 {
 		result := metrics.DeliveryIgnored
 		if !parsed && subscribedEvents[eventType] {
@@ -191,7 +220,7 @@ func (r *Receiver) authenticate(req *http.Request) bool {
 // unrecognized type is expected rather than exceptional. A type this app
 // did ask for that won't parse is a different matter: something was lost,
 // and it is logged at warn so it shows up without the hook being failed.
-func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) ([]activity.Event, bool) {
+func (r *Receiver) parse(ctx context.Context, eventType gitlab.EventType, payload []byte) ([]activity.Event, bool) {
 	parsed, err := gitlab.ParseWebhook(eventType, payload)
 	if err != nil {
 		if subscribedEvents[eventType] {
@@ -209,5 +238,48 @@ func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) ([]activity
 		return nil, false
 	}
 
-	return normalize(parsed, time.Now()), true
+	now := time.Now()
+	events := normalize(parsed, now)
+
+	if merge, ok := parsed.(*gitlab.MergeEvent); ok && r.discussions != nil && resolutionCandidate(merge) {
+		events = append(events, r.resolvedDiscussions(ctx, merge, now)...)
+	}
+
+	return events, true
+}
+
+// resolvedDiscussions reads the discussions of the merge request an update
+// hook is about and reports the resolved ones.
+//
+// A failed read is logged and costs only this delivery's resolutions: the
+// next update of the merge request reads the same threads again, and the
+// resolution deduplicates on its discussion, so nothing is counted twice.
+func (r *Receiver) resolvedDiscussions(ctx context.Context, event *gitlab.MergeEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, discussionFetchTimeout)
+	defer cancel()
+
+	projectID := event.ObjectAttributes.TargetProjectID
+	if projectID == 0 {
+		projectID = event.Project.ID
+	}
+
+	var discussions []*gitlab.Discussion
+
+	opts := &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
+
+	for discussion, err := range r.discussions.ListMergeRequestDiscussions(projectID, event.ObjectAttributes.IID, opts, gitlab.WithContext(ctx)) {
+		if err != nil {
+			zap.L().Warn("failed to read merge request discussions for a resolution check",
+				zap.Int64("project_id", projectID),
+				zap.Int64("merge_request_iid", event.ObjectAttributes.IID),
+				zap.Error(err),
+			)
+
+			break
+		}
+
+		discussions = append(discussions, discussion)
+	}
+
+	return normalizeDiscussions(discussions, projectID, receivedAt)
 }

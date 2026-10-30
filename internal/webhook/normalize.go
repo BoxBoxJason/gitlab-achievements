@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -478,19 +479,19 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 // counts once however many notes it holds, and so the several deliveries
 // GitLab sends as a thread is edited after resolution collapse into one.
 //
-// Discussions GitLab resolved on its own don't count: pushing a commit that
-// obsoletes a thread resolves it without anyone deciding anything, which is
-// what ResolvedByPush marks.
+// A thread resolved by a push counts like one resolved by a click: it is
+// credited to the user GitLab names as its resolver either way, which is
+// also all the discussions API (see normalizeDiscussions) can report.
 func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) []activity.Event {
 	attrs := event.ObjectAttributes
 
-	if attrs.ResolvedAt == "" || attrs.ResolvedByID == 0 || attrs.ResolvedByPush {
+	if attrs.ResolvedAt == "" || attrs.ResolvedByID == 0 {
 		return nil
 	}
 
 	// A note that can be resolved always belongs to a discussion, but the
 	// note's own ID identifies the same thread if an instance ever omits it.
-	key := fmt.Sprintf("discussion:%s:resolved", attrs.DiscussionID)
+	key := discussionResolvedKey(attrs.DiscussionID)
 	if attrs.DiscussionID == "" {
 		key = fmt.Sprintf("discussion:note:%d:resolved", attrs.ID)
 	}
@@ -507,6 +508,91 @@ func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) 
 		ProjectID:      attrs.ProjectID,
 		Count:          1,
 	}}
+}
+
+// discussionResolvedKey is the dedup key of a discussion's resolution, shared
+// by the note hook and the discussions API so the two never count one
+// thread twice.
+func discussionResolvedKey(discussionID string) string {
+	return fmt.Sprintf("discussion:%s:resolved", discussionID)
+}
+
+// normalizeDiscussions counts the review discussions of one merge request
+// that are resolved.
+//
+// GitLab 19.5 reports a resolution as a merge request hook with
+// `action: update` and empty `changes`, which names neither the thread nor
+// who resolved it, so the receiver reads the merge request's discussions
+// instead. A discussion counts when every one of its resolvable notes is
+// resolved, credited to whoever resolved the last of them. Everything that
+// was already counted deduplicates on the discussion, so it does no harm
+// that each fetch reports threads resolved long ago.
+func normalizeDiscussions(discussions []*gitlab.Discussion, projectID int64, receivedAt time.Time) []activity.Event {
+	var events []activity.Event
+
+	for _, discussion := range discussions {
+		if discussion == nil || discussion.IndividualNote || discussion.ID == "" {
+			continue
+		}
+
+		var last *gitlab.Note
+
+		resolved := true
+
+		for _, entry := range discussion.Notes {
+			if entry == nil || !entry.Resolvable {
+				continue
+			}
+
+			if !entry.Resolved || entry.ResolvedBy.ID == 0 {
+				resolved = false
+
+				break
+			}
+
+			if last == nil || entry.ResolvedAt != nil && (last.ResolvedAt == nil || entry.ResolvedAt.After(*last.ResolvedAt)) {
+				last = entry
+			}
+		}
+
+		if !resolved || last == nil {
+			continue
+		}
+
+		occurredAt := receivedAt
+		if last.ResolvedAt != nil {
+			occurredAt = *last.ResolvedAt
+		}
+
+		events = append(events, activity.Event{
+			OccurredAt:     occurredAt,
+			Kind:           activity.KindDiscussionResolved,
+			DedupKey:       discussionResolvedKey(discussion.ID),
+			ActorUsername:  last.ResolvedBy.Username,
+			ActorAvatarURL: last.ResolvedBy.AvatarURL,
+			ActorID:        last.ResolvedBy.ID,
+			ProjectID:      projectID,
+			Count:          1,
+		})
+	}
+
+	return events
+}
+
+// resolutionCandidate reports whether a merge request hook might be a
+// thread being resolved: an update that changed nothing the payload can
+// describe. Updates that did change something (a title, a label, a state)
+// are not worth a trip to the API.
+func resolutionCandidate(event *gitlab.MergeEvent) bool {
+	if event == nil || event.ObjectAttributes.Action != "update" || event.ObjectAttributes.IID == 0 {
+		return false
+	}
+
+	changes := event.Changes
+	changes.UpdatedAt = gitlab.EventChangesUpdatedAt{}
+	changes.UpdatedByID = gitlab.EventChangesUpdatedByID{}
+
+	return reflect.ValueOf(changes).IsZero()
 }
 
 // normalizeJob counts one CI job that ran.

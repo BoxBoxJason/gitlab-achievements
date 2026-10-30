@@ -3,11 +3,15 @@ package webhook
 import (
 	"context"
 	"errors"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 
 	"github.com/boxboxjason/gitlab-achievements/internal/activity"
 )
@@ -255,5 +259,100 @@ func TestReceiver_ParseErrorsAreNotFatalToTheProcess(t *testing.T) {
 	resp := deliver(t, receiver, "s3cr3t", "Push Hook", pushPayload)
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected an enqueue failure to surface as 503, got %d", resp.Code)
+	}
+}
+
+// fakeDiscussions serves one merge request's discussions, or an error.
+type fakeDiscussions struct {
+	discussions []*gitlab.Discussion
+	err         error
+	calls       int
+}
+
+func (f *fakeDiscussions) ListMergeRequestDiscussions(_ any, _ int64, _ *gitlab.ListMergeRequestDiscussionsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Discussion, error] {
+	f.calls++
+
+	return func(yield func(*gitlab.Discussion, error) bool) {
+		if f.err != nil {
+			yield(nil, f.err)
+
+			return
+		}
+
+		for _, discussion := range f.discussions {
+			if !yield(discussion, nil) {
+				return
+			}
+		}
+	}
+}
+
+const bareMergeRequestUpdate = `{
+  "object_kind": "merge_request",
+  "user": {"id": 10, "username": "alice"},
+  "project": {"id": 1},
+  "object_attributes": {"id": 5, "iid": 3, "target_project_id": 1, "action": "update"},
+  "changes": {}
+}`
+
+func resolvedByAlice() []*gitlab.Discussion {
+	when := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+
+	return []*gitlab.Discussion{{ID: "abc123", Notes: []*gitlab.Note{{
+		Resolvable: true, Resolved: true, ResolvedAt: &when,
+		ResolvedBy: gitlab.NoteResolvedBy{ID: 10, Username: "alice"},
+	}}}}
+}
+
+func TestReceiver_ABareMergeRequestUpdateIsCheckedForResolvedDiscussions(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeDiscussions{discussions: resolvedByAlice()}
+	receiver := NewReceiver("s3cr3t", queue, WithDiscussions(source))
+
+	resp := deliver(t, receiver, "s3cr3t", "Merge Request Hook", bareMergeRequestUpdate)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	events := queue.accepted()
+	if len(events) != 1 || events[0].Kind != activity.KindDiscussionResolved || events[0].ActorID != 10 {
+		t.Errorf("expected alice's resolution to be queued, got %+v", events)
+	}
+}
+
+func TestReceiver_AnUpdateThatChangedSomethingCostsNoAPICall(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeDiscussions{discussions: resolvedByAlice()}
+	receiver := NewReceiver("s3cr3t", queue, WithDiscussions(source))
+
+	body := strings.Replace(bareMergeRequestUpdate, `"changes": {}`, `"changes": {"title": {"previous": "a", "current": "b"}}`, 1)
+	deliver(t, receiver, "s3cr3t", "Merge Request Hook", body)
+
+	if source.calls != 0 {
+		t.Errorf("expected no discussions read for an update that changed the title, got %d", source.calls)
+	}
+}
+
+func TestReceiver_AFailedDiscussionReadDropsNothingElseAndStillAnswers200(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeDiscussions{err: errors.New("boom")}
+	receiver := NewReceiver("s3cr3t", queue, WithDiscussions(source))
+
+	resp := deliver(t, receiver, "s3cr3t", "Merge Request Hook", bareMergeRequestUpdate)
+
+	if resp.Code != http.StatusOK || len(queue.accepted()) != 0 {
+		t.Errorf("expected a quiet 200 with nothing queued, got %d and %+v", resp.Code, queue.accepted())
+	}
+}
+
+func TestReceiver_WithoutADiscussionSourceAnUpdateIsIgnored(t *testing.T) {
+	queue := &fakeDispatcher{}
+	receiver := NewReceiver("s3cr3t", queue)
+
+	deliver(t, receiver, "s3cr3t", "Merge Request Hook", bareMergeRequestUpdate)
+
+	if len(queue.accepted()) != 0 {
+		t.Errorf("expected nothing without a source, got %+v", queue.accepted())
 	}
 }

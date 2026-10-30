@@ -42,6 +42,6 @@ In CI, the **End-to-end** workflow runs the same script. It is manual only (Acti
 - **Application settings are not cached.** The suite allows hooks to the local network through the API, and GitLab otherwise keeps serving the old value for a minute, long enough for every delivery of the run to be blocked.
 - **GitLab's memory watchdog is off.** In the single-process Puma mode used to fit a CI runner, the watchdog restarts all of GitLab once it passes ~1.6 GB, which a run does.
 
-## Known gaps on GitLab 19.5
+## Resolved discussions on GitLab 19.5
 
-`discussions_resolved` fails on the webhook phase. Resolving a thread on 19.5 sends a single merge request hook with `action: update` and empty `changes`, and no note hook. That hook says neither which thread was resolved nor who resolved it, and the app reads resolutions off note hooks. The suite keeps asserting it, so the run stays red until the app learns another way to see a resolution.
+Resolving a thread on 19.5 sends a single merge request hook with `action: update` and empty `changes`, and no note hook. That hook names neither the thread nor who resolved it, so when the app receives such an update it reads the merge request's discussions through the API and counts every resolved one for its resolver. The suite asserts this on the webhook phases, which is what keeps it honest if a later release changes what it sends.

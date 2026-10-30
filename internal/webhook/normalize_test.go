@@ -560,13 +560,103 @@ func TestNormalize_AvatarsGoOnlyToTheActorTheyBelongTo(t *testing.T) {
 	}
 }
 
-func TestNormalize_DiscussionResolvedByAPushIsNobodysAchievement(t *testing.T) {
+func TestNormalize_DiscussionResolvedByAPushCountsLikeAClick(t *testing.T) {
 	events := normalize(resolvedNote(10, true), receivedAt)
 
-	for _, event := range events {
-		if event.Kind == activity.KindDiscussionResolved {
-			t.Error("expected a discussion GitLab resolved on its own not to count")
-		}
+	if findKind(t, events, activity.KindDiscussionResolved).ActorID != 10 {
+		t.Error("expected a discussion resolved by a push to be credited to its resolver")
+	}
+}
+
+func resolvableNote(resolvedBy int64, resolvedAt string) *gitlab.Note {
+	note := &gitlab.Note{Resolvable: true}
+
+	if resolvedBy != 0 {
+		when, _ := time.Parse(time.RFC3339, resolvedAt)
+		note.Resolved = true
+		note.ResolvedAt = &when
+		note.ResolvedBy = gitlab.NoteResolvedBy{ID: resolvedBy, Username: "alice", AvatarURL: "https://gitlab.example.com/a.png"}
+	}
+
+	return note
+}
+
+func TestNormalizeDiscussions_ResolvedThreadsCountForTheirResolver(t *testing.T) {
+	events := normalizeDiscussions([]*gitlab.Discussion{
+		{ID: "abc123", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z")}},
+		{ID: "open", Notes: []*gitlab.Note{resolvableNote(0, "")}},
+		{ID: "plain", IndividualNote: true, Notes: []*gitlab.Note{{Resolvable: false}}},
+		{ID: "mixed", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z"), resolvableNote(0, "")}},
+	}, 1, receivedAt)
+
+	if len(events) != 1 {
+		t.Fatalf("expected only the resolved thread to count, got %d events", len(events))
+	}
+
+	got := events[0]
+	if got.Kind != activity.KindDiscussionResolved || got.ActorID != 10 || got.ActorUsername != "alice" || got.ProjectID != 1 {
+		t.Errorf("unexpected resolution %+v", got)
+	}
+
+	if got.DedupKey != "discussion:abc123:resolved" {
+		t.Errorf("expected the key the note hook uses, got %q", got.DedupKey)
+	}
+}
+
+func TestNormalizeDiscussions_CreditsWhoResolvedTheLastNote(t *testing.T) {
+	events := normalizeDiscussions([]*gitlab.Discussion{{ID: "d", Notes: []*gitlab.Note{
+		resolvableNote(10, "2026-03-02T11:00:00Z"), resolvableNote(30, "2026-03-02T12:00:00Z"),
+	}}}, 1, receivedAt)
+
+	if len(events) != 1 || events[0].ActorID != 30 {
+		t.Errorf("expected the thread credited to its last resolver, got %+v", events)
+	}
+}
+
+func TestNormalizeDiscussions_AgreesWithTheNoteHookOnTheKey(t *testing.T) {
+	fromAPI := normalizeDiscussions([]*gitlab.Discussion{
+		{ID: "abc123", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z")}},
+	}, 1, receivedAt)
+
+	fromHook := normalize(resolvedNote(10, false), receivedAt)
+
+	if fromAPI[0].DedupKey != findKind(t, fromHook, activity.KindDiscussionResolved).DedupKey {
+		t.Error("expected one thread to be counted once however GitLab reports its resolution")
+	}
+}
+
+func TestResolutionCandidate(t *testing.T) {
+	update := func() *gitlab.MergeEvent {
+		event := &gitlab.MergeEvent{}
+		event.ObjectAttributes.Action = "update"
+		event.ObjectAttributes.IID = 3
+
+		return event
+	}
+
+	if !resolutionCandidate(update()) {
+		t.Error("expected an update that changed nothing to be a candidate")
+	}
+
+	touched := update()
+	touched.Changes.UpdatedAt.Current = "2026-03-02 11:00:00 UTC"
+
+	if !resolutionCandidate(touched) {
+		t.Error("expected a bumped updated_at alone not to rule a candidate out")
+	}
+
+	retitled := update()
+	retitled.Changes.Title.Current = "New title"
+
+	if resolutionCandidate(retitled) {
+		t.Error("expected an update that changed something to be left alone")
+	}
+
+	opened := update()
+	opened.ObjectAttributes.Action = "open"
+
+	if resolutionCandidate(opened) {
+		t.Error("expected only updates to be candidates")
 	}
 }
 
