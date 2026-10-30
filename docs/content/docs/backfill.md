@@ -11,16 +11,18 @@ It reads every group-owned project the read token can see, in ascending project 
 
 Per project:
 
-- **The Events API** (`GET /projects/:id/events`) for pushes and their commit counts, branch and tag creation, merge requests opened, merged, approved and closed, issues opened and closed, and comments. The [Audit Events API](https://docs.gitlab.com/api/audit_events/) would be richer, but it is Premium/Ultimate only, so a Free/CE-compatible backfill cannot rely on it.
+- **The Events API** (`GET /projects/:id/events`) for pushes and their commit counts, branch and tag creation, merge requests opened, merged, approved and closed, issues opened and closed, comments, including which of them were left on a merge request's diff, and wiki pages created. The [Audit Events API](https://docs.gitlab.com/api/audit_events/) would be richer, but it is Premium/Ultimate only, so a Free/CE-compatible backfill cannot rely on it.
 - **The Pipelines API**, because pipelines do not appear in the Events API at all.
+- **The releases API**, the only place releases and their authors are recorded.
+- **The merge requests API** for merged merge requests. The Events API reports a merge as the merger's, without saying whose work it was, so this is where merge requests landing for their authors come from.
 
 Between them that covers most of the catalog, including the engagement criteria: every dated activity also records the day it happened on, which is what streaks and the night owl and early bird criteria are derived from.
 
-Six criteria have no Events API equivalent at all (deployments, jobs, emoji, wiki pages, discussion resolutions, fast merges). Those only ever advance from live deliveries, so they start at zero on a freshly bootstrapped instance however long it has existed.
+Five criteria have no Events API equivalent at all (deployments, jobs, emoji, discussion resolutions, fast merges). Those only ever advance from live deliveries, so they start at zero on a freshly bootstrapped instance however long it has existed.
 
 ## How it behaves
 
-**It resumes.** Progress is persisted as it goes: last completed project, in-flight phase, event date cursor, last processed pipeline. An interrupted walk picks up near where it stopped. Re-walked activity is deduplicated by the engine, so a coarse cursor costs a few repeated reads and never a double-counted commit. A completion watermark records when history was walked end to end, which is what tells the app the cold start is over.
+**It resumes.** Progress is persisted as it goes: last completed project, in-flight phase (events, pipelines, merge requests, releases), event date cursor, last processed pipeline. An interrupted walk picks up near where it stopped. Re-walked activity is deduplicated by the engine, so a coarse cursor costs a few repeated reads and never a double-counted commit. A completion watermark records when history was walked end to end, which is what tells the app the cold start is over.
 
 **It goes slowly on purpose.** This is the heaviest read workload the app ever runs against an instance it does not own, and it has no deadline. Requests are capped at `BACKFILL_RATE`, 5 per second by default, on a client of its own so a readiness probe never queues behind the walk. 429 and 5xx responses are retried using GitLab's own `Retry-After`. A project the read token cannot see is skipped rather than fatal, and projects in personal namespaces are skipped to match [what the webhooks cover]({{< relref "/docs/webhooks#two-things-to-know-before-you-deploy" >}}).
 
@@ -42,7 +44,7 @@ On instances big enough that the cold start deserves its own job, set `BACKFILL=
 gitlab-achievements backfill
 ```
 
-Same flags and environment as the server. It runs bootstrap first, so it does not need the server to have started. Add `BACKFILL=force` to walk an instance whose previous walk already finished, which exists for recovering from a walk that ran against a broken catalog rather than for steady state.
+Same flags and environment as the server. It runs bootstrap first, so it does not need the server to have started. Add `BACKFILL=force` to walk an instance whose previous walk already finished, which exists for recovering from a walk that ran against a broken catalog rather than for steady state. It is also how criteria added in an upgrade get their history: everything the earlier walk counted is skipped again, while what only the new criteria read is counted for the first time.
 
 Awards the walk records are pushed to GitLab as soon as it finishes, instead of waiting for the hourly award reconciliation to notice them.
 

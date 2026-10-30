@@ -191,11 +191,13 @@ func criteriaOf(key, category, title string, tiers []AchievementTier, hasIcon bo
 	return row
 }
 
-// handleAchievementIcon serves the image every tier of a criteria shares.
+// handleAchievementIcon serves the art every tier of a criteria is drawn
+// from.
 //
-// The image is the same one bootstrap uploaded to GitLab as the
-// achievement's avatar, served from the copy compiled into this binary, so
-// a frontend need not reach GitLab for it. http.ServeContent answers a
+// It is the art bootstrap uploads to GitLab as each tier's avatar, without
+// the tier marker drawn over it there: the frontend shows the tier beside
+// the icon instead. It is served from the copy compiled into this binary,
+// so a frontend need not reach GitLab for it. http.ServeContent answers a
 // revalidation carrying the ETag with a bodiless 304.
 func (a *API) handleAchievementIcon(resp http.ResponseWriter, req *http.Request) {
 	image, ok := a.icons[req.PathValue("criteria")]

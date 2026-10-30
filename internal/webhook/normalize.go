@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -29,26 +30,42 @@ const (
 	// mapped onto one activity with one dedup key rather than counted twice.
 	actionApproval = "approval"
 	actionApproved = "approved"
+	// actionUpdate is anything else about a merge request changing, which on
+	// GitLab 19.5 includes a thread on it being resolved (see
+	// resolutionCandidate).
+	actionUpdate = "update"
 )
 
-// Emoji and wiki page actions, as they appear in a payload's
-// object_attributes.action.
+// Emoji, release and wiki page actions, as they appear in a payload's
+// object_attributes.action (a release's at the top level).
 //
 // Unlike deployment and pipeline statuses, which client-go models as typed
-// enums this package switches on, these two are plain strings on both the
+// enums this package switches on, these are plain strings on both the
 // payload struct and the API, with no constants anywhere in client-go to
 // borrow.
 const (
 	// emojiActionAward is a reaction being added. The paired "revoke" is
 	// deliberately not tracked: an award, once earned, is never taken back,
 	// so a criteria that could fall would be meaningless.
+	//
+	// GitLab reports it as the payload's top-level event_type. client-go
+	// also models an object_attributes.action, which 19.5 does not send;
+	// it is still read as a fallback, for whichever instance does.
 	emojiActionAward = "award"
+	// releaseActionCreate is a release being created. Updates and deletions
+	// are not tracked, as for wiki pages.
+	releaseActionCreate = "create"
 	// wikiActionCreate is a wiki page being created. The paired "update" and
 	// "delete" are not tracked, for want of a stable identifier: a wiki
 	// payload carries no revision ID, so two edits of one page and a
 	// redelivery of the first edit are indistinguishable.
 	wikiActionCreate = "create"
 )
+
+// diffNoteType is a note's type when it was left on a line of a diff, as
+// opposed to a "DiscussionNote" starting a thread on the whole merge
+// request, or no type at all for a plain comment.
+const diffNoteType = "DiffNote"
 
 // fastMergeWindow is how soon after being opened a merge request has to be
 // merged to count as fast. An hour is short enough that hitting it means
@@ -139,6 +156,8 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
+
+		activities = append(activities, reviewComment(attrs.Type, activities)...)
 
 		// Merge request notes are the only ones that can be resolved, and
 		// the only comment payload carrying the resolution fields.
@@ -283,21 +302,61 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 		Count:          1,
 	}
 
-	activities := []activity.Event{base}
+	if kind != activity.KindMergeRequestMerged {
+		return []activity.Event{base}
+	}
 
-	// The fast merge is credited to whoever merged rather than to the
-	// author, matching the merge itself: GitLab reports the acting user, and
-	// how quickly a merge request cleared review is the reviewer's doing at
-	// least as much as the author's.
-	if kind == activity.KindMergeRequestMerged && mergedFast(attrs.CreatedAt, attrs.UpdatedAt) {
-		fast := base
+	return append([]activity.Event{base}, mergeFollowUps(event, base)...)
+}
+
+// mergeFollowUps derives what a merge implies beyond the merge itself: that
+// it was a fast one, and that it landed for its author.
+//
+// The fast merge is credited to whoever merged rather than to the author,
+// matching the merge itself: GitLab reports the acting user, and how quickly
+// a merge request cleared review is the reviewer's doing at least as much
+// as the author's.
+func mergeFollowUps(event *gitlab.MergeEvent, merged activity.Event) []activity.Event {
+	attrs := event.ObjectAttributes
+
+	var activities []activity.Event
+
+	if mergedFast(attrs.CreatedAt, attrs.UpdatedAt) {
+		fast := merged
 		fast.Kind = activity.KindMergeRequestMergedFast
 		fast.DedupKey = fmt.Sprintf("merge_request:%d:merged_fast", attrs.ID)
 
 		activities = append(activities, fast)
 	}
 
+	if attrs.AuthorID != 0 {
+		activities = append(activities, landed(event, merged))
+	}
+
 	return activities
+}
+
+// landed credits a merged merge request to its author.
+//
+// The payload names the author by ID only. Their username and avatar are
+// taken from the top-level user when the author merged their own work, and
+// left empty otherwise rather than borrowed from the merger, as userActor
+// does for comments: the engine keys users on their GitLab ID and fills the
+// rest in the next time they do something.
+//
+// The key matches the one eventsapi.NormalizeMergedMergeRequest derives
+// from the merge requests API, which is how backfill and reconciliation
+// reach the same activity.
+func landed(event *gitlab.MergeEvent, merged activity.Event) activity.Event {
+	authorID := event.ObjectAttributes.AuthorID
+
+	author := merged
+	author.Kind = activity.KindMergeRequestLanded
+	author.DedupKey = fmt.Sprintf("merge_request:%d:landed", event.ObjectAttributes.ID)
+	author.ActorID = authorID
+	author.ActorUsername, author.ActorAvatarURL = eventUserActor(event.User, authorID)
+
+	return author
 }
 
 // mergedFast reports whether a merge request was merged within
@@ -431,6 +490,34 @@ func normalizePipeline(event *gitlab.PipelineEvent, receivedAt time.Time) []acti
 	return activities
 }
 
+// pipelinePassed reports whether a pipeline hook is a pipeline passing, and
+// names a ref to look its predecessor up on.
+func pipelinePassed(event *gitlab.PipelineEvent) bool {
+	return event != nil && event.User != nil && event.User.ID != 0 && event.Project.ID != 0 &&
+		event.ObjectAttributes.Ref != "" && gitlab.BuildStateValue(event.ObjectAttributes.Status) == gitlab.Success
+}
+
+// normalizePipelineFix reports a passing pipeline as having fixed the build,
+// given how the pipeline before it on the same ref ended, keyed as
+// eventsapi.NormalizePipelineFix keys it. Only a pass after a failure
+// counts; see there for why a retried pipeline doesn't.
+func normalizePipelineFix(event *gitlab.PipelineEvent, previous gitlab.BuildStateValue, receivedAt time.Time) []activity.Event {
+	if previous != gitlab.Failed || !pipelinePassed(event) {
+		return nil
+	}
+
+	base := activity.Event{
+		OccurredAt:     parseEventTime(event.ObjectAttributes.CreatedAt, receivedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", event.ObjectAttributes.ID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.Project.ID,
+	}
+
+	return []activity.Event{activityFrom(base, activity.KindPipelineFixed, 1)}
+}
+
 // note is the common shape of the four comment event types, which GitLab
 // splits by what was commented on but which carry the same note fields.
 // They are nominally distinct types, and two of them type the user as
@@ -468,25 +555,40 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 	}}
 }
 
+// reviewComment derives a code review comment from the comment a merge
+// request note was counted as, when the note was left on a line of the
+// diff rather than on the merge request as a whole.
+//
+// Only merge request notes qualify. A commit's diff can be commented on
+// too, but its payload doesn't say whether a note was, so counting those
+// here would be counting whatever subset happened to be recognizable.
+func reviewComment(noteType string, comment []activity.Event) []activity.Event {
+	if noteType != diffNoteType || len(comment) == 0 {
+		return nil
+	}
+
+	return []activity.Event{activityFrom(comment[0], activity.KindReviewComment, 1)}
+}
+
 // normalizeResolution counts a review discussion a user resolved.
 //
 // It is keyed on the discussion rather than the note, so resolving a thread
 // counts once however many notes it holds, and so the several deliveries
 // GitLab sends as a thread is edited after resolution collapse into one.
 //
-// Discussions GitLab resolved on its own don't count: pushing a commit that
-// obsoletes a thread resolves it without anyone deciding anything, which is
-// what ResolvedByPush marks.
+// A thread resolved by a push counts like one resolved by a click: it is
+// credited to the user GitLab names as its resolver either way, which is
+// also all the discussions API (see normalizeDiscussions) can report.
 func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) []activity.Event {
 	attrs := event.ObjectAttributes
 
-	if attrs.ResolvedAt == "" || attrs.ResolvedByID == 0 || attrs.ResolvedByPush {
+	if attrs.ResolvedAt == "" || attrs.ResolvedByID == 0 {
 		return nil
 	}
 
 	// A note that can be resolved always belongs to a discussion, but the
 	// note's own ID identifies the same thread if an instance ever omits it.
-	key := fmt.Sprintf("discussion:%s:resolved", attrs.DiscussionID)
+	key := discussionResolvedKey(attrs.DiscussionID)
 	if attrs.DiscussionID == "" {
 		key = fmt.Sprintf("discussion:note:%d:resolved", attrs.ID)
 	}
@@ -503,6 +605,110 @@ func normalizeResolution(event *gitlab.MergeCommentEvent, receivedAt time.Time) 
 		ProjectID:      attrs.ProjectID,
 		Count:          1,
 	}}
+}
+
+// discussionResolvedKey is the dedup key of a discussion's resolution, shared
+// by the note hook and the discussions API so the two never count one
+// thread twice.
+func discussionResolvedKey(discussionID string) string {
+	return fmt.Sprintf("discussion:%s:resolved", discussionID)
+}
+
+// normalizeDiscussions counts the review discussions of one merge request
+// that are resolved.
+//
+// GitLab 19.5 reports a resolution as a merge request hook with
+// `action: update` and empty `changes`, which names neither the thread nor
+// who resolved it, and only when no thread is left open; see
+// resolutionCandidate for when the receiver reads the merge request's
+// discussions instead. A discussion counts when every one of its resolvable notes is
+// resolved, credited to whoever resolved the last of them. Everything that
+// was already counted deduplicates on the discussion, so it does no harm
+// that each fetch reports threads resolved long ago.
+func normalizeDiscussions(discussions []*gitlab.Discussion, projectID int64, receivedAt time.Time) []activity.Event {
+	var events []activity.Event
+
+	for _, discussion := range discussions {
+		if discussion == nil || discussion.IndividualNote || discussion.ID == "" {
+			continue
+		}
+
+		var last *gitlab.Note
+
+		resolved := true
+
+		for _, entry := range discussion.Notes {
+			if entry == nil || !entry.Resolvable {
+				continue
+			}
+
+			if !entry.Resolved || entry.ResolvedBy.ID == 0 {
+				resolved = false
+
+				break
+			}
+
+			if last == nil || entry.ResolvedAt != nil && (last.ResolvedAt == nil || entry.ResolvedAt.After(*last.ResolvedAt)) {
+				last = entry
+			}
+		}
+
+		if !resolved || last == nil {
+			continue
+		}
+
+		occurredAt := receivedAt
+		if last.ResolvedAt != nil {
+			occurredAt = *last.ResolvedAt
+		}
+
+		events = append(events, activity.Event{
+			OccurredAt:     occurredAt,
+			Kind:           activity.KindDiscussionResolved,
+			DedupKey:       discussionResolvedKey(discussion.ID),
+			ActorUsername:  last.ResolvedBy.Username,
+			ActorAvatarURL: last.ResolvedBy.AvatarURL,
+			ActorID:        last.ResolvedBy.ID,
+			ProjectID:      projectID,
+			Count:          1,
+		})
+	}
+
+	return events
+}
+
+// resolutionCandidate reports whether a merge request hook is worth reading
+// the merge request's discussions for.
+//
+// One kind is a thread being resolved: an update that changed nothing the
+// payload can describe. Updates that did change something (a title, a
+// label) are not worth a trip to the API.
+//
+// The other is the merge request being merged or closed. GitLab 19.5 sends
+// the bare update only for the resolution that leaves no thread open, and
+// nothing at all for one that leaves others open, so those resolutions
+// would otherwise never be seen. Every merge request is eventually merged
+// or closed, and by then each thread that was going to be resolved is.
+// A resolution counted late is still dated by its own resolved_at, and one
+// the bare update already counted is not counted again.
+func resolutionCandidate(event *gitlab.MergeEvent) bool {
+	if event == nil || event.ObjectAttributes.IID == 0 {
+		return false
+	}
+
+	switch event.ObjectAttributes.Action {
+	case actionMerge, actionClose:
+		return true
+	case actionUpdate:
+	default:
+		return false
+	}
+
+	changes := event.Changes
+	changes.UpdatedAt = gitlab.EventChangesUpdatedAt{}
+	changes.UpdatedByID = gitlab.EventChangesUpdatedByID{}
+
+	return reflect.ValueOf(changes).IsZero()
 }
 
 // normalizeJob counts one CI job that ran.
@@ -593,7 +799,12 @@ func normalizeEmoji(event *gitlab.EmojiEvent, receivedAt time.Time) []activity.E
 
 	attrs := event.ObjectAttributes
 
-	if attrs.Action != emojiActionAward {
+	action := event.EventType
+	if action == "" {
+		action = attrs.Action
+	}
+
+	if action != emojiActionAward {
 		return nil
 	}
 
@@ -638,6 +849,40 @@ func normalizeWikiPage(event *gitlab.WikiPageEvent, receivedAt time.Time) []acti
 		ActorUsername:  event.User.Username,
 		ActorAvatarURL: event.User.AvatarURL,
 		ActorID:        event.User.ID,
+		Count:          1,
+	}}
+}
+
+// releaseCreated reports whether a release hook is a release being created,
+// and names one to look up.
+func releaseCreated(event *gitlab.ReleaseEvent) bool {
+	return event != nil && event.Action == releaseActionCreate && event.Project.ID != 0 && event.Tag != ""
+}
+
+// normalizeRelease credits a release to its author, read from the releases
+// API since the hook names nobody.
+//
+// The key is built from the hook's own project and tag rather than the
+// API's, matching eventsapi.NormalizeRelease, so a release counted live is
+// recognized when reconciliation lists it again.
+func normalizeRelease(event *gitlab.ReleaseEvent, release *gitlab.Release, receivedAt time.Time) []activity.Event {
+	if release == nil || release.Author.ID == 0 {
+		return nil
+	}
+
+	occurredAt := receivedAt
+	if release.CreatedAt != nil {
+		occurredAt = *release.CreatedAt
+	}
+
+	return []activity.Event{{
+		OccurredAt:     occurredAt,
+		Kind:           activity.KindReleasePublished,
+		DedupKey:       fmt.Sprintf("release:%d:%s", event.Project.ID, event.Tag),
+		ActorUsername:  release.Author.Username,
+		ActorAvatarURL: release.Author.AvatarURL,
+		ActorID:        release.Author.ID,
+		ProjectID:      event.Project.ID,
 		Count:          1,
 	}}
 }

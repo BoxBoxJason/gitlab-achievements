@@ -182,3 +182,21 @@ func TestActivityDay_SamePairDifferentUsers(t *testing.T) {
 		}
 	}
 }
+
+func TestActivityProject_UniqueUserProject(t *testing.T) {
+	conn := migratedTestDB(t)
+
+	user := &db.User{GitLabUserID: 8, Username: "heidi"}
+	if err := conn.Create(user).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	if err := conn.Create(&db.ActivityProject{UserID: user.ID, ProjectID: 7}).Error; err != nil {
+		t.Fatalf("failed to create first activity project: %v", err)
+	}
+
+	err := conn.Create(&db.ActivityProject{UserID: user.ID, ProjectID: 7}).Error
+	if !isUniqueConstraintErr(err) {
+		t.Fatalf("expected a unique constraint error, got: %v", err)
+	}
+}

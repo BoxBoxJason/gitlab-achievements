@@ -348,3 +348,28 @@ func TestRecordActivityDay_UsesTheReportedClock(t *testing.T) {
 		t.Error("expected the reported hour to make it a night owl day")
 	}
 }
+
+func TestProcess_SomebodyElsesMergeIsNotTheAuthorsActiveDay(t *testing.T) {
+	conn := testConn(t)
+	eng := New(conn)
+
+	landed := dayEvent(at(2024, time.May, 3, 2))
+	landed.Kind = activity.KindMergeRequestLanded
+	landed.DedupKey = "merge_request:55:landed"
+
+	if err := eng.Process(t.Context(), landed); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if got := counterOrZero(t, conn, catalog.CriteriaMergeRequestsLanded); got != 1 {
+		t.Errorf("expected the landing counted, got %d", got)
+	}
+
+	// Merged at 2am by a teammate: the author was neither active that day
+	// nor up at that hour.
+	for _, criteriaKey := range []string{catalog.CriteriaActiveDays, catalog.CriteriaNightOwlDays} {
+		if got := counterOrZero(t, conn, criteriaKey); got != 0 {
+			t.Errorf("expected %s untouched, got %d", criteriaKey, got)
+		}
+	}
+}

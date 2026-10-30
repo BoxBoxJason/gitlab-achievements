@@ -15,7 +15,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-The first start creates 275 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
+The first start creates 330 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
 
 ```bash
 curl -sf http://127.0.0.1:8080/readyz && echo ready

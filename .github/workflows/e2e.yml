@@ -1,0 +1,54 @@
+name: End-to-end
+
+# Runs the catalog end-to-end suite (test/e2e) against a real GitLab booted
+# in the job. Manual only: GitLab alone takes ~4 GiB of memory and five
+# minutes to boot, which is not something to pay for on every push. Run it
+# before a release, and whenever a new GitLab version is worth checking.
+on:
+  workflow_dispatch:
+    inputs:
+      gitlab_image:
+        description: GitLab image to test against
+        default: docker.io/gitlab/gitlab-ee:19.5.1-ee.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Catalog on ${{ inputs.gitlab_image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.3"
+          cache: true
+
+      - name: Pull GitLab
+        env:
+          GITLAB_IMAGE: ${{ inputs.gitlab_image }}
+        run: docker pull "$GITLAB_IMAGE"
+
+      - name: Run suite
+        env:
+          ENGINE: docker
+          GITLAB_IMAGE: ${{ inputs.gitlab_image }}
+          ARTIFACTS: ${{ runner.temp }}/e2e
+        run: test/e2e/run.sh
+
+      # Logs, databases and the report; not the binary, and not .state,
+      # which holds the instance's admin token.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e
+          path: |
+            ${{ runner.temp }}/e2e/*.log
+            ${{ runner.temp }}/e2e/*.db
+            ${{ runner.temp }}/e2e/report.md
+          if-no-files-found: ignore

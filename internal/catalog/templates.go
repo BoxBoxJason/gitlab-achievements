@@ -43,10 +43,11 @@ type Template struct {
 	// or not its curve currently starts at 1, so retuning a curve can't
 	// bring the plural back.
 	First string
-	// AvatarPath is the embedded asset shown for every tier of this
-	// criteria, or empty for no avatar. Tiers deliberately share one image
-	// rather than each having their own: a criteria at eleven tiers would
-	// otherwise need eleven pieces of art before it could ship at all.
+	// AvatarPath is the embedded art every tier of this criteria is drawn
+	// from, or empty for no avatar. Tiers deliberately share one image, each
+	// told apart by the marker badge.go draws on it, rather than each having
+	// their own: a criteria at eleven tiers would otherwise need eleven
+	// pieces of art before it could ship at all.
 	AvatarPath string
 	// MinTier and MaxTier bound which tier indexes to generate, inclusive.
 	// The index feeds Curve; the name always numbers from I regardless, so
@@ -117,10 +118,11 @@ const maxTier = 10
 // observable: an amend is indistinguishable from an ordinary commit once
 // pushed, and GitLab's Events API doesn't report whether a push was forced.
 //
-// Four of the event types the hooks subscribe to are absent for a different
-// reason: nobody to credit. Release and vulnerability payloads carry no
-// user at all, member payloads name the member rather than whoever added
-// them, and feature flag payloads carry a user but no identifier for the
+// Three of the event types the hooks subscribe to are absent for a different
+// reason: nobody to credit. Vulnerability payloads carry no user at all
+// (release payloads don't either, but the releases API names the author,
+// so a release hook is followed by a lookup), member payloads name the
+// member rather than whoever added them, and feature flag payloads carry a user but no identifier for the
 // change, so repeated toggles of one flag can't be told apart from a
 // redelivery of the first. Milestone events have no payload type in
 // client-go to parse at all. The hooks stay subscribed to them so that
@@ -170,6 +172,16 @@ var templates = []Template{
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
 	},
+	{
+		CriteriaKey: CriteriaReleasesPublished,
+		Category:    CategoryGit,
+		Title:       "Release Manager %s",
+		Description: "Publish %d releases.",
+		First:       "Publish your first release.",
+		AvatarPath:  "assets/release.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
 
 	//////////////////////// MERGE REQUESTS & REVIEW ////////////////////////
 	{
@@ -190,6 +202,19 @@ var templates = []Template{
 		First:       "Merge your first merge request.",
 		AvatarPath:  "assets/merge.png",
 		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		// Merger credits whoever clicked merge, which on most teams is a
+		// reviewer or a maintainer. This is the other half: the author whose
+		// work went in.
+		CriteriaKey: CriteriaMergeRequestsLanded,
+		Category:    CategoryMergeRequests,
+		Title:       "Patch Accepted %s",
+		Description: "Have %d of your merge requests merged.",
+		First:       "Have your first merge request merged.",
+		AvatarPath:  "assets/landed.png",
+		Curve:       StandardHardCurve,
 		MaxTier:     maxTier,
 	},
 	{
@@ -229,6 +254,18 @@ var templates = []Template{
 		Description: "Leave %d comments.",
 		First:       "Leave your first comment.",
 		AvatarPath:  "assets/comment.png",
+		Curve:       StandardMediumCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		// Commentator counts small talk on an issue the same as a remark on
+		// line 40 of somebody's change. This counts only the latter.
+		CriteriaKey: CriteriaReviewComments,
+		Category:    CategoryMergeRequests,
+		Title:       "Code Reviewer %s",
+		Description: "Leave %d comments on merge request diffs.",
+		First:       "Leave your first comment on a merge request diff.",
+		AvatarPath:  "assets/review.png",
 		Curve:       StandardMediumCurve,
 		MaxTier:     maxTier,
 	},
@@ -297,6 +334,17 @@ var templates = []Template{
 		MaxTier:     maxTier,
 	},
 	{
+		// Firefighter rewards the fire. This rewards putting it out.
+		CriteriaKey: CriteriaPipelinesFixed,
+		Category:    CategoryCICD,
+		Title:       "Back to Green %s",
+		Description: "Fix the build %d times: pass a pipeline on a branch whose last one failed.",
+		First:       "Fix the build: pass a pipeline on a branch whose last one failed.",
+		AvatarPath:  "assets/fixed.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
 		CriteriaKey: CriteriaJobsRun,
 		Category:    CategoryCICD,
 		Title:       "Assembly Line %s",
@@ -349,6 +397,19 @@ var templates = []Template{
 		Description: "Create %d wiki pages.",
 		First:       "Create your first wiki page.",
 		AvatarPath:  "assets/librarian.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		// Breadth rather than volume: one project with ten thousand commits
+		// is one project. It is what rewards the people who wander into
+		// other teams' repositories to fix things.
+		CriteriaKey: CriteriaProjectsContributed,
+		Category:    CategoryCollaboration,
+		Title:       "Globetrotter %s",
+		Description: "Contribute to %d projects.",
+		First:       "Contribute to a project.",
+		AvatarPath:  "assets/globe.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
 	},

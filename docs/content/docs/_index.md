@@ -30,5 +30,6 @@ title: Documentation
 | [Historical backfill]({{< relref "/docs/backfill" >}}) | Awarding for activity that predates the bot |
 | [Reconciliation]({{< relref "/docs/reconciliation" >}}) | Catching activity whose webhook delivery was lost |
 | [GitLab achievements API behavior]({{< relref "/docs/achievements-api-behavior" >}}) | What GitLab's achievement mutations actually do, verified on a live instance |
+| [End-to-end catalog check]({{< relref "/docs/e2e" >}}) | The suite that drives every criteria through a real GitLab, and the CI job that runs it |
 
 New here? Start with the [Quick start]({{< relref "/docs/quick-start" >}}).

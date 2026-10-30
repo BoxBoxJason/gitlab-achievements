@@ -199,6 +199,8 @@ func logBackfillReport(report *backfill.Report, stats engine.Stats) {
 		zap.Int("projects_skipped", report.ProjectsSkipped),
 		zap.Int("events", report.Events),
 		zap.Int("pipelines", report.Pipelines),
+		zap.Int("merge_requests", report.MergeRequests),
+		zap.Int("releases", report.Releases),
 		zap.Int64("activity_counted", stats.Processed),
 		zap.Int64("activity_skipped", stats.Skipped),
 		zap.Int64("achievements_earned", stats.Awarded),

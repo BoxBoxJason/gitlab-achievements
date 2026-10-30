@@ -11,7 +11,7 @@
 
 </div>
 
-Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **275 badges across 25 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
+Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **330 badges across 30 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
 
 Point it at a self-hosted GitLab and it takes care of itself. It creates the achievements, registers its own webhooks, walks your history once so nobody starts from zero, and from then on reacts to what people do as they do it.
 
@@ -22,7 +22,7 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 
 ![A GitLab profile showing the achievements this app awarded](docs/static/screenshots/gitlab-profile.png)
 
-Every one of the 25 criteria (commits, merge requests, reviews, pipelines, deployments, streaks, ...) stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Each tier is worth EXP, and the binary serves the instance leaderboard and everyone's progress toward their next tier. [The full catalog](https://boxboxjason.github.io/gitlab-achievements/docs/achievements/).
+Every one of the 30 criteria (commits, merge requests, reviews, pipelines, deployments, streaks, ...) stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Each tier is worth EXP, and the binary serves the instance leaderboard and everyone's progress toward their next tier. [The full catalog](https://boxboxjason.github.io/gitlab-achievements/docs/achievements/).
 
 ![The leaderboard, ranked by EXP](docs/static/screenshots/leaderboard.png)
 
@@ -49,7 +49,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-The first start creates 275 achievements and registers webhooks before it serves anything. Once `/readyz` answers, you are live. More in the [Quick start](https://boxboxjason.github.io/gitlab-achievements/docs/quick-start/).
+The first start creates 330 achievements and registers webhooks before it serves anything. Once `/readyz` answers, you are live. More in the [Quick start](https://boxboxjason.github.io/gitlab-achievements/docs/quick-start/).
 
 ## Contributing
 

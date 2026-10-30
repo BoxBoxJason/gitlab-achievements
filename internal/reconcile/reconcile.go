@@ -20,10 +20,12 @@
 // a window webhooks already covered would inflate every counter in it, and
 // GitLab awards are never revoked, so the inflation would be permanent.
 //
-// The Events API reports pushes, merge requests, issues and comments, and
-// the Pipelines API covers pipelines. Jobs, deployments, emoji reactions,
-// wiki pages, resolved discussions and fast merges have no read-side
-// representation at all, so a lost delivery of one of those stays lost.
+// The Events API reports pushes, merge requests, issues, comments and wiki
+// pages, the Pipelines API covers pipelines, the merge requests API covers
+// merge requests landing for their authors, and the releases API covers
+// releases. Jobs, deployments, emoji reactions, resolved discussions and
+// fast merges have no read-side representation at all, so a lost delivery
+// of one of those stays lost.
 // That is the safe direction: this heals what it can see and undercounts
 // the rest, rather than guessing.
 //
@@ -70,6 +72,9 @@ type activityReader interface {
 	ListProjectVisibleEvents(pid any, opt *gitlab.ListProjectVisibleEventsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.ProjectEvent, error]
 	ListProjectPipelines(pid any, opt *gitlab.ListProjectPipelinesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.PipelineInfo, error]
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
+	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
+	ListReleases(pid any, opt *gitlab.ListReleasesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error]
+	LastPipelineOutcome(pid any, ref string, beforeID int64, options ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error)
 }
 
 // Options tunes a reconciliation pass.
@@ -99,6 +104,10 @@ type Report struct {
 	Events int
 	// Pipelines counts pipelines re-read.
 	Pipelines int
+	// MergeRequests counts merged merge requests re-read.
+	MergeRequests int
+	// Releases counts releases re-read.
+	Releases int
 	// Gap is how long it had been since the last successful pass, beyond
 	// the interval one is expected to take. A non-zero value means passes
 	// were being missed, which is what makes a lost webhook window
@@ -150,8 +159,11 @@ func Run(ctx context.Context, read activityReader, conn *gorm.DB, processor acti
 type runner struct {
 	read      activityReader
 	processor activity.Processor
-	since     time.Time
-	report    Report
+	// projectPath is the path of the project being walked, which wiki page
+	// events are keyed on and don't carry themselves.
+	projectPath string
+	since       time.Time
+	report      Report
 }
 
 // walkProjects visits every project that has seen activity since the
@@ -191,6 +203,8 @@ func (r *runner) walkProjects(ctx context.Context) error {
 			continue
 		}
 
+		r.projectPath = project.PathWithNamespace
+
 		err = r.walkProject(ctx, project.ID)
 		if err != nil {
 			return err
@@ -200,7 +214,8 @@ func (r *runner) walkProjects(ctx context.Context) error {
 	return nil
 }
 
-// walkProject re-reads one project's recent events and pipelines.
+// walkProject re-reads one project's recent events, pipelines, merges and
+// releases.
 //
 // A project this app can't read, or that was deleted between being listed
 // and being walked, is skipped rather than failing the pass: one
@@ -215,6 +230,16 @@ func (r *runner) walkProject(ctx context.Context, projectID int64) error {
 	err = r.walkProjectPipelines(ctx, projectID)
 	if err != nil {
 		return r.handleProjectError(projectID, "pipelines", err)
+	}
+
+	err = r.walkProjectMergeRequests(ctx, projectID)
+	if err != nil {
+		return r.handleProjectError(projectID, "merge_requests", err)
+	}
+
+	err = r.walkProjectReleases(ctx, projectID)
+	if err != nil {
+		return r.handleProjectError(projectID, "releases", err)
 	}
 
 	r.report.Projects++
@@ -266,7 +291,9 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 			return fmt.Errorf("failed to list events for project %d: %w", projectID, err)
 		}
 
-		processErr := r.process(ctx, eventsapi.NormalizeProjectEvent(event))
+		activities := append(eventsapi.NormalizeProjectEvent(event), eventsapi.NormalizeWikiPageEvent(event, r.projectPath)...)
+
+		processErr := r.process(ctx, activities)
 		if processErr != nil {
 			return processErr
 		}
@@ -307,9 +334,81 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 	return nil
 }
 
+// walkProjectMergeRequests re-reads the merge requests merged in the
+// window, to credit each to its author: the Events API's merge event names
+// only whoever merged it.
+//
+// The merge requests API filters on updates, not merges, so the listing is
+// narrowed by that and the merges from before the window are dropped here.
+// They were the previous passes' to count.
+func (r *runner) walkProjectMergeRequests(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListProjectMergeRequestsOptions{
+		ListOptions:  gitlab.ListOptions{PerPage: pageSize},
+		State:        new("merged"),
+		UpdatedAfter: &r.since,
+	}
+
+	for merged, err := range r.read.ListProjectMergeRequests(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list merge requests for project %d: %w", projectID, err)
+		}
+
+		if merged.MergedAt == nil || merged.MergedAt.Before(r.since) {
+			continue
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeMergedMergeRequest(merged))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.MergeRequests++
+	}
+
+	return nil
+}
+
+// walkProjectReleases re-reads the releases created in the window.
+//
+// GitLab offers no date filter on releases, so they are listed newest
+// first and the listing is abandoned at the first one older than the
+// window: the rest are older still.
+func (r *runner) walkProjectReleases(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListReleasesOptions{
+		ListOptions: gitlab.ListOptions{PerPage: pageSize},
+		OrderBy:     new("created_at"),
+		Sort:        new("desc"),
+	}
+
+	for release, err := range r.read.ListReleases(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list releases for project %d: %w", projectID, err)
+		}
+
+		if release.CreatedAt != nil && release.CreatedAt.Before(r.since) {
+			break
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeRelease(projectID, release))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.Releases++
+	}
+
+	return nil
+}
+
 // processPipeline fetches the detail a pipeline's activity needs (the
 // listing carries no user) and processes it. A pipeline deleted between
 // being listed and being fetched is skipped, not fatal.
+//
+// A pipeline that passed costs one more request, to learn how the one
+// before it on its ref ended, which is what decides whether it fixed the
+// build. That predecessor is asked of GitLab rather than taken from the
+// window's own listing: a pipeline that finished before the window is not
+// in it, so the listing would name an older one in its place.
 func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int64) error {
 	pipeline, err := r.read.GetPipeline(projectID, pipelineID, gitlab.WithContext(ctx))
 	if err != nil {
@@ -325,9 +424,29 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 		return err
 	}
 
+	err = r.processPipelineFix(ctx, projectID, pipeline)
+	if err != nil {
+		return err
+	}
+
 	r.report.Pipelines++
 
 	return nil
+}
+
+// processPipelineFix counts pipeline as having fixed the build if it passed
+// where the previous pipeline on its ref had failed.
+func (r *runner) processPipelineFix(ctx context.Context, projectID int64, pipeline *gitlab.Pipeline) error {
+	if gitlab.BuildStateValue(pipeline.Status) != gitlab.Success || pipeline.Ref == "" {
+		return nil
+	}
+
+	previous, err := r.read.LastPipelineOutcome(projectID, pipeline.Ref, pipeline.ID, gitlab.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to look up the pipeline before %d of project %d: %w", pipeline.ID, projectID, err)
+	}
+
+	return r.process(ctx, eventsapi.NormalizePipelineFix(pipeline, previous))
 }
 
 // process hands normalized activity to the achievement engine, which

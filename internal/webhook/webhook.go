@@ -26,6 +26,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
+	"iter"
 	"net/http"
 	"time"
 
@@ -61,6 +62,7 @@ var subscribedEvents = map[gitlab.EventType]bool{
 	gitlab.EventTypeDeployment:    true,
 	gitlab.EventTypeEmoji:         true,
 	gitlab.EventTypeWikiPage:      true,
+	gitlab.EventTypeRelease:       true,
 }
 
 // dispatcher is what the receiver hands normalized activity to, satisfied
@@ -69,19 +71,75 @@ type dispatcher interface {
 	Enqueue(ctx context.Context, events []activity.Event) error
 }
 
+// discussionSource lists a merge request's discussions, satisfied by
+// *gitlabclient.ReadClient.
+type discussionSource interface {
+	ListMergeRequestDiscussions(pid any, mergeRequest int64, opt *gitlab.ListMergeRequestDiscussionsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Discussion, error]
+}
+
+// releaseSource reads a release, satisfied by *gitlabclient.ReadClient.
+type releaseSource interface {
+	GetRelease(pid any, tagName string, options ...gitlab.RequestOptionFunc) (*gitlab.Release, error)
+}
+
+// pipelineHistory reports how a ref's previous pipeline ended, satisfied by
+// *gitlabclient.ReadClient.
+type pipelineHistory interface {
+	LastPipelineOutcome(pid any, ref string, beforeID int64, options ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error)
+}
+
+// apiFetchTimeout bounds the trip to the API a delivery may cost, well
+// inside the time GitLab waits for a hook to answer.
+const apiFetchTimeout = 5 * time.Second
+
 // Receiver handles GitLab webhook deliveries.
 type Receiver struct {
-	queue  dispatcher
-	secret string
+	queue       dispatcher
+	discussions discussionSource
+	releases    releaseSource
+	pipelines   pipelineHistory
+	secret      string
+}
+
+// ReceiverOption configures optional parts of a Receiver.
+type ReceiverOption func(*Receiver)
+
+// WithDiscussions lets the receiver read a merge request's discussions,
+// which is the only way to see a thread being resolved on a GitLab that
+// reports it as a bare merge request update, or not at all. Without it, resolutions are
+// only counted from the note hooks older versions send.
+func WithDiscussions(source discussionSource) ReceiverOption {
+	return func(r *Receiver) { r.discussions = source }
+}
+
+// WithReleases lets the receiver read a release, which is the only way to
+// learn who created one: the release hook names nobody. Without it,
+// releases are only counted by backfill and reconciliation.
+func WithReleases(source releaseSource) ReceiverOption {
+	return func(r *Receiver) { r.releases = source }
+}
+
+// WithPipelineHistory lets the receiver look up the pipeline before a
+// passing one, which is how it tells a pass that fixed the build from one
+// that kept it green. Without it, fixes are only counted by backfill and
+// reconciliation.
+func WithPipelineHistory(source pipelineHistory) ReceiverOption {
+	return func(r *Receiver) { r.pipelines = source }
 }
 
 // NewReceiver builds a Receiver that authenticates deliveries against
 // secret and hands the activity it parses to queue.
-func NewReceiver(secret string, queue dispatcher) *Receiver {
-	return &Receiver{
+func NewReceiver(secret string, queue dispatcher, opts ...ReceiverOption) *Receiver {
+	receiver := &Receiver{
 		secret: secret,
 		queue:  queue,
 	}
+
+	for _, opt := range opts {
+		opt(receiver)
+	}
+
+	return receiver
 }
 
 // ServeHTTP validates, parses, and queues one delivery.
@@ -131,7 +189,7 @@ func (r *Receiver) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	events, parsed := r.parse(eventType, payload)
+	events, parsed := r.parse(req.Context(), eventType, payload)
 	if len(events) == 0 {
 		result := metrics.DeliveryIgnored
 		if !parsed && subscribedEvents[eventType] {
@@ -191,7 +249,7 @@ func (r *Receiver) authenticate(req *http.Request) bool {
 // unrecognized type is expected rather than exceptional. A type this app
 // did ask for that won't parse is a different matter: something was lost,
 // and it is logged at warn so it shows up without the hook being failed.
-func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) ([]activity.Event, bool) {
+func (r *Receiver) parse(ctx context.Context, eventType gitlab.EventType, payload []byte) ([]activity.Event, bool) {
 	parsed, err := gitlab.ParseWebhook(eventType, payload)
 	if err != nil {
 		if subscribedEvents[eventType] {
@@ -209,5 +267,117 @@ func (r *Receiver) parse(eventType gitlab.EventType, payload []byte) ([]activity
 		return nil, false
 	}
 
-	return normalize(parsed, time.Now()), true
+	now := time.Now()
+
+	return append(normalize(parsed, now), r.lookUp(ctx, parsed, now)...), true
+}
+
+// lookUp derives the activities a delivery implies but does not describe,
+// by asking the API what the payload leaves out: which threads an update
+// resolved, who created a release, whether a pass fixed the build. Each
+// lookup is made only when its source was configured and the delivery is
+// one it could change the answer for.
+func (r *Receiver) lookUp(ctx context.Context, parsed any, receivedAt time.Time) []activity.Event {
+	switch payload := parsed.(type) {
+	case *gitlab.MergeEvent:
+		if r.discussions != nil && resolutionCandidate(payload) {
+			return r.resolvedDiscussions(ctx, payload, receivedAt)
+		}
+	case *gitlab.ReleaseEvent:
+		if r.releases != nil && releaseCreated(payload) {
+			return r.publishedRelease(ctx, payload, receivedAt)
+		}
+	case *gitlab.PipelineEvent:
+		if r.pipelines != nil && pipelinePassed(payload) {
+			return r.fixedPipeline(ctx, payload, receivedAt)
+		}
+	}
+
+	return nil
+}
+
+// fixedPipeline reports a passing pipeline as having fixed the build when
+// the previous pipeline on its ref had failed.
+//
+// A failed lookup is logged and costs this delivery its fix only:
+// reconciliation asks the same question of every pipeline that passed in
+// its window.
+func (r *Receiver) fixedPipeline(ctx context.Context, event *gitlab.PipelineEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
+	defer cancel()
+
+	attrs := event.ObjectAttributes
+
+	previous, err := r.pipelines.LastPipelineOutcome(event.Project.ID, attrs.Ref, attrs.ID, gitlab.WithContext(ctx))
+	if err != nil {
+		zap.L().Warn("failed to look up the pipeline before a passing one",
+			zap.Int64("project_id", event.Project.ID),
+			zap.Int64("pipeline_id", attrs.ID),
+			zap.Error(err),
+		)
+
+		return nil
+	}
+
+	return normalizePipelineFix(event, previous, receivedAt)
+}
+
+// publishedRelease reads the release a creation hook is about, to credit it
+// to its author.
+//
+// A failed read is logged and costs this delivery its release. GitLab sends
+// no second creation hook, so the release is left to the next
+// reconciliation pass, which reads it from the same API.
+func (r *Receiver) publishedRelease(ctx context.Context, event *gitlab.ReleaseEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
+	defer cancel()
+
+	release, err := r.releases.GetRelease(event.Project.ID, event.Tag, gitlab.WithContext(ctx))
+	if err != nil {
+		zap.L().Warn("failed to read a release to credit its author",
+			zap.Int64("project_id", event.Project.ID),
+			zap.String("tag", event.Tag),
+			zap.Error(err),
+		)
+
+		return nil
+	}
+
+	return normalizeRelease(event, release, receivedAt)
+}
+
+// resolvedDiscussions reads the discussions of the merge request a hook is
+// about and reports the resolved ones.
+//
+// A failed read is logged and costs only this delivery's resolutions: the
+// next update of the merge request reads the same threads again, and the
+// resolution deduplicates on its discussion, so nothing is counted twice.
+func (r *Receiver) resolvedDiscussions(ctx context.Context, event *gitlab.MergeEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
+	defer cancel()
+
+	projectID := event.ObjectAttributes.TargetProjectID
+	if projectID == 0 {
+		projectID = event.Project.ID
+	}
+
+	var discussions []*gitlab.Discussion
+
+	opts := &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
+
+	for discussion, err := range r.discussions.ListMergeRequestDiscussions(projectID, event.ObjectAttributes.IID, opts, gitlab.WithContext(ctx)) {
+		if err != nil {
+			zap.L().Warn("failed to read merge request discussions for a resolution check",
+				zap.Int64("project_id", projectID),
+				zap.Int64("merge_request_iid", event.ObjectAttributes.IID),
+				zap.Error(err),
+			)
+
+			break
+		}
+
+		discussions = append(discussions, discussion)
+	}
+
+	return normalizeDiscussions(discussions, projectID, receivedAt)
 }

@@ -341,6 +341,91 @@
       ]
     },
     {
+      "criteria_key": "releases_published",
+      "category": "git",
+      "title": "Release Manager",
+      "icon_url": "/api/v1/achievements/releases_published/icon",
+      "tiers": [
+        {
+          "name": "Release Manager I",
+          "description": "Publish your first release.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Release Manager II",
+          "description": "Publish 3 releases.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Release Manager III",
+          "description": "Publish 5 releases.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Release Manager IV",
+          "description": "Publish 10 releases.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Release Manager V",
+          "description": "Publish 50 releases.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Release Manager VI",
+          "description": "Publish 100 releases.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Release Manager VII",
+          "description": "Publish 500 releases.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Release Manager VIII",
+          "description": "Publish 1000 releases.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Release Manager IX",
+          "description": "Publish 5000 releases.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Release Manager X",
+          "description": "Publish 10000 releases.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Release Manager XI",
+          "description": "Publish 50000 releases.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "merge_requests_opened",
       "category": "merge_requests",
       "title": "Merge Request Opener",
@@ -506,6 +591,91 @@
           "description": "Merge 50000 merge requests.",
           "tier": 11,
           "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "merge_requests_landed",
+      "category": "merge_requests",
+      "title": "Patch Accepted",
+      "icon_url": "/api/v1/achievements/merge_requests_landed/icon",
+      "tiers": [
+        {
+          "name": "Patch Accepted I",
+          "description": "Have your first merge request merged.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Patch Accepted II",
+          "description": "Have 5 of your merge requests merged.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Patch Accepted III",
+          "description": "Have 10 of your merge requests merged.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Patch Accepted IV",
+          "description": "Have 50 of your merge requests merged.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Patch Accepted V",
+          "description": "Have 100 of your merge requests merged.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Patch Accepted VI",
+          "description": "Have 500 of your merge requests merged.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Patch Accepted VII",
+          "description": "Have 1000 of your merge requests merged.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Patch Accepted VIII",
+          "description": "Have 5000 of your merge requests merged.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Patch Accepted IX",
+          "description": "Have 10000 of your merge requests merged.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Patch Accepted X",
+          "description": "Have 50000 of your merge requests merged.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Patch Accepted XI",
+          "description": "Have 100000 of your merge requests merged.",
+          "tier": 11,
+          "threshold": 100000,
           "exp_reward": 50000
         }
       ]
@@ -844,6 +1014,91 @@
         {
           "name": "Commentator XI",
           "description": "Leave 200000 comments.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "review_comments",
+      "category": "merge_requests",
+      "title": "Code Reviewer",
+      "icon_url": "/api/v1/achievements/review_comments/icon",
+      "tiers": [
+        {
+          "name": "Code Reviewer I",
+          "description": "Leave 2 comments on merge request diffs.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Code Reviewer II",
+          "description": "Leave 10 comments on merge request diffs.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Code Reviewer III",
+          "description": "Leave 20 comments on merge request diffs.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Code Reviewer IV",
+          "description": "Leave 100 comments on merge request diffs.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Code Reviewer V",
+          "description": "Leave 200 comments on merge request diffs.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Code Reviewer VI",
+          "description": "Leave 1000 comments on merge request diffs.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Code Reviewer VII",
+          "description": "Leave 2000 comments on merge request diffs.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Code Reviewer VIII",
+          "description": "Leave 10000 comments on merge request diffs.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Code Reviewer IX",
+          "description": "Leave 20000 comments on merge request diffs.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Code Reviewer X",
+          "description": "Leave 100000 comments on merge request diffs.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Code Reviewer XI",
+          "description": "Leave 200000 comments on merge request diffs.",
           "tier": 11,
           "threshold": 200000,
           "exp_reward": 50000
@@ -1361,6 +1616,91 @@
       ]
     },
     {
+      "criteria_key": "pipelines_fixed",
+      "category": "ci_cd",
+      "title": "Back to Green",
+      "icon_url": "/api/v1/achievements/pipelines_fixed/icon",
+      "tiers": [
+        {
+          "name": "Back to Green I",
+          "description": "Fix the build: pass a pipeline on a branch whose last one failed.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Back to Green II",
+          "description": "Fix the build 3 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Back to Green III",
+          "description": "Fix the build 5 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Back to Green IV",
+          "description": "Fix the build 10 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Back to Green V",
+          "description": "Fix the build 50 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Back to Green VI",
+          "description": "Fix the build 100 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Back to Green VII",
+          "description": "Fix the build 500 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Back to Green VIII",
+          "description": "Fix the build 1000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Back to Green IX",
+          "description": "Fix the build 5000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Back to Green X",
+          "description": "Fix the build 10000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Back to Green XI",
+          "description": "Fix the build 50000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "jobs_run",
       "category": "ci_cd",
       "title": "Assembly Line",
@@ -1779,6 +2119,91 @@
         {
           "name": "Librarian XI",
           "description": "Create 50000 wiki pages.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
+      "criteria_key": "projects_contributed",
+      "category": "collaboration",
+      "title": "Globetrotter",
+      "icon_url": "/api/v1/achievements/projects_contributed/icon",
+      "tiers": [
+        {
+          "name": "Globetrotter I",
+          "description": "Contribute to a project.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Globetrotter II",
+          "description": "Contribute to 3 projects.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Globetrotter III",
+          "description": "Contribute to 5 projects.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Globetrotter IV",
+          "description": "Contribute to 10 projects.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Globetrotter V",
+          "description": "Contribute to 50 projects.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Globetrotter VI",
+          "description": "Contribute to 100 projects.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Globetrotter VII",
+          "description": "Contribute to 500 projects.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Globetrotter VIII",
+          "description": "Contribute to 1000 projects.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Globetrotter IX",
+          "description": "Contribute to 5000 projects.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Globetrotter X",
+          "description": "Contribute to 10000 projects.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Globetrotter XI",
+          "description": "Contribute to 50000 projects.",
           "tier": 11,
           "threshold": 50000,
           "exp_reward": 50000

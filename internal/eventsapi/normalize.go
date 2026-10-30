@@ -27,7 +27,12 @@
 //	merge request . merge_request:<id>:<action>        (target_id)
 //	issue ......... issue:<id>:<action>                (target_id)
 //	comment ....... note:<id>                          (note.id)
+//	review comment  note:<id>:review_comment           (a DiffNote's note.id)
 //	pipeline ...... pipeline:<id>
+//	build fixed ... pipeline:<id>:pipeline_fixed
+//	landed merge .. merge_request:<id>:landed          (merge requests API)
+//	release ....... release:<project>:<tag>            (releases API)
+//	wiki page ..... wiki_page:<project path>:<slug>    (wiki_page.slug)
 //
 // A key here is a compatibility surface with the processed-event log as
 // much as with the other producer, so changing one silently re-counts
@@ -36,9 +41,11 @@
 //
 // # What the Events API cannot report
 //
-// Jobs, deployments, emoji reactions, wiki pages, resolved discussions and
-// fast merges have no Events API representation at all, so nothing here
-// produces them; they are webhook-only. A reconciliation sync consequently
+// Jobs, deployments, emoji reactions, resolved discussions and fast merges
+// have no Events API representation at all, so nothing here
+// produces them; they are webhook-only. Merge requests landing for their
+// author aren't in it either, but the merge requests API reports them, so
+// NormalizeMergedMergeRequest reads them from there. A reconciliation sync consequently
 // heals everything else and leaves those to the live path, which is the
 // safe direction to be wrong in: a missed heal undercounts, whereas a
 // mismatched key would overcount permanently.
@@ -136,9 +143,11 @@ func NormalizeProjectEvent(event *gitlab.ProjectEvent) []activity.Event {
 		ProjectID:      event.ProjectID,
 	}
 
-	// A push carries no target type; everything else names the resource it
-	// acted on.
-	if event.TargetType == "" {
+	// A push is recognized by its push_data rather than by its target type.
+	// Older instances leave a push's target type empty, but GitLab 19 reports
+	// it as "Project", and either way the ref type is only ever set on a
+	// push.
+	if event.PushData.RefType != "" {
 		return pushActivities(event, base)
 	}
 
@@ -149,12 +158,6 @@ func NormalizeProjectEvent(event *gitlab.ProjectEvent) []activity.Event {
 // itself, the commits it delivered, and the branch or tag it created, if
 // any.
 func pushActivities(event *gitlab.ProjectEvent, base activity.Event) []activity.Event {
-	// An event with no target type and no ref isn't a push at all; GitLab
-	// leaves the target type empty for a few other things too.
-	if event.PushData.RefType == "" {
-		return nil
-	}
-
 	base.DedupKey = pushDedupKey(event)
 
 	activities := []activity.Event{activityFrom(base, activity.KindPush, 1)}
@@ -234,7 +237,22 @@ func targetActivities(event *gitlab.ProjectEvent, base activity.Event) []activit
 	base.DedupKey = key
 	base.Count = 1
 
+	if kind == activity.KindComment && reviewNote(event) {
+		return []activity.Event{base, activityFrom(base, activity.KindReviewComment, 1)}
+	}
+
 	return []activity.Event{base}
+}
+
+// reviewNote reports whether a note event is a comment on a line of a merge
+// request's diff. GitLab reports those as DiffNotes, which is also what a
+// comment on a commit's diff is, so what the note was left on tells the two
+// apart:
+// the webhook path can only recognize the merge request ones.
+func reviewNote(event *gitlab.ProjectEvent) bool {
+	folded := strings.ToLower(strings.ReplaceAll(event.TargetType, "_", ""))
+
+	return folded == "diffnote" && normalizeTargetType(event.Note.NoteableType) == targetMergeRequest
 }
 
 // targetKind maps a non-push event's target type and action onto the
@@ -365,17 +383,9 @@ func normalizeTargetType(raw string) targetType {
 // Pipelines with no triggering user (schedules, API triggers with a
 // detached token) are dropped, for the same reason authorless events are.
 func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
-	if pipeline == nil || pipeline.User == nil || pipeline.User.ID == 0 {
+	base, ok := pipelineBase(pipeline)
+	if !ok {
 		return nil
-	}
-
-	base := activity.Event{
-		OccurredAt:     TimeOrZero(pipeline.CreatedAt),
-		DedupKey:       fmt.Sprintf("pipeline:%d", pipeline.ID),
-		ActorUsername:  pipeline.User.Username,
-		ActorAvatarURL: pipeline.User.AvatarURL,
-		ActorID:        pipeline.User.ID,
-		ProjectID:      pipeline.ProjectID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPipelineRun, 1)}
@@ -396,6 +406,135 @@ func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
 	}
 
 	return activities
+}
+
+// actionCreated is the action_name the Events API gives a wiki page being
+// created, where it says "opened" for an issue or a merge request.
+const actionCreated = "created"
+
+// NormalizeWikiPageEvent counts a wiki page a user created, from a project
+// event whose project lives at projectPath.
+//
+// It is apart from NormalizeProjectEvent because the key needs something the
+// event doesn't carry. The live path keys a page on its project's path and
+// slug, the only identifiers the wiki hook has, so this has to spell the
+// same key from the path the caller listed the project under. A project
+// renamed between the hook and a reconciliation pass re-reading it would
+// count the page twice; that is a rename inside the look-back window, and
+// the price of agreeing with a hook that names no project ID.
+//
+// Like the live path, it ties the page to no project, so the two paths
+// agree on what it adds to the projects a user has contributed to.
+func NormalizeWikiPageEvent(event *gitlab.ProjectEvent, projectPath string) []activity.Event {
+	if event == nil || event.AuthorID == 0 || projectPath == "" || event.WikiPage == nil || event.WikiPage.Slug == "" {
+		return nil
+	}
+
+	folded := strings.ToLower(strings.ReplaceAll(event.TargetType, "_", ""))
+	if !strings.HasPrefix(folded, "wikipage") || strings.ToLower(event.ActionName) != actionCreated {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     ParseEventTime(event.CreatedAt),
+		Kind:           activity.KindWikiPageCreated,
+		DedupKey:       fmt.Sprintf("wiki_page:%s:%s", projectPath, event.WikiPage.Slug),
+		ActorUsername:  eventAuthorUsername(event),
+		ActorAvatarURL: event.Author.AvatarURL,
+		ActorID:        event.AuthorID,
+		Count:          1,
+	}}
+}
+
+// NormalizeMergedMergeRequest credits a merged merge request to its author.
+//
+// The Events API can't: its merge event is the merger's, and names the
+// merge request without its author. The merge requests API names both, so
+// this is what backfill and reconciliation read the landing from, with the
+// key the webhook path gives the same merge.
+//
+// A merge request that isn't merged, or names no author, yields nothing.
+func NormalizeMergedMergeRequest(merged *gitlab.BasicMergeRequest) []activity.Event {
+	if merged == nil || merged.MergedAt == nil || merged.Author == nil || merged.Author.ID == 0 {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     *merged.MergedAt,
+		Kind:           activity.KindMergeRequestLanded,
+		DedupKey:       fmt.Sprintf("merge_request:%d:landed", merged.ID),
+		ActorUsername:  merged.Author.Username,
+		ActorAvatarURL: merged.Author.AvatarURL,
+		ActorID:        merged.Author.ID,
+		ProjectID:      merged.ProjectID,
+		Count:          1,
+	}}
+}
+
+// NormalizeRelease credits a release to whoever created it.
+//
+// The Events API has no record of releases at all, so backfill and
+// reconciliation list them per project through the releases API, which is
+// also the only place the author is named: the release hook leaves it out.
+// A release is keyed on its project and tag because that is what both the
+// API and the hook identify it by; neither reports an ID.
+//
+// It is dated by creation rather than by released_at, which whoever creates
+// a release may set to any moment they like, past or future.
+func NormalizeRelease(projectID int64, release *gitlab.Release) []activity.Event {
+	if release == nil || release.Author.ID == 0 || release.TagName == "" {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     TimeOrZero(release.CreatedAt),
+		Kind:           activity.KindReleasePublished,
+		DedupKey:       fmt.Sprintf("release:%d:%s", projectID, release.TagName),
+		ActorUsername:  release.Author.Username,
+		ActorAvatarURL: release.Author.AvatarURL,
+		ActorID:        release.Author.ID,
+		ProjectID:      projectID,
+		Count:          1,
+	}}
+}
+
+// NormalizePipelineFix reports a passing pipeline as having fixed the build,
+// given how the pipeline before it on the same ref ended. The caller finds
+// that out, since one pipeline says nothing about its predecessors: a walk
+// over a project's pipelines in order already knows, and anyone else asks.
+//
+// Only a pass that follows a failure counts. A pipeline retried from
+// failure into success keeps its ID, so it fixes nothing by this measure
+// unless the one before it had failed too: retrying a flaky job is not
+// fixing the build.
+func NormalizePipelineFix(pipeline *gitlab.Pipeline, previous gitlab.BuildStateValue) []activity.Event {
+	if previous != gitlab.Failed || pipeline == nil || gitlab.BuildStateValue(pipeline.Status) != gitlab.Success {
+		return nil
+	}
+
+	base, ok := pipelineBase(pipeline)
+	if !ok {
+		return nil
+	}
+
+	return []activity.Event{activityFrom(base, activity.KindPipelineFixed, 1)}
+}
+
+// pipelineBase is what every activity a pipeline yields has in common,
+// reporting false for a pipeline with no triggering user to credit.
+func pipelineBase(pipeline *gitlab.Pipeline) (activity.Event, bool) {
+	if pipeline == nil || pipeline.User == nil || pipeline.User.ID == 0 {
+		return activity.Event{}, false
+	}
+
+	return activity.Event{
+		OccurredAt:     TimeOrZero(pipeline.CreatedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", pipeline.ID),
+		ActorUsername:  pipeline.User.Username,
+		ActorAvatarURL: pipeline.User.AvatarURL,
+		ActorID:        pipeline.User.ID,
+		ProjectID:      pipeline.ProjectID,
+	}, true
 }
 
 // activityFrom specializes base to one kind, scoping its dedup key to the

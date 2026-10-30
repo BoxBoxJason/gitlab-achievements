@@ -94,23 +94,28 @@ func TestV1_CoversEveryCriteria(t *testing.T) {
 		catalog.CriteriaPushes,
 		catalog.CriteriaBranchesCreated,
 		catalog.CriteriaTagsCreated,
+		catalog.CriteriaReleasesPublished,
 		catalog.CriteriaMergeRequestsOpened,
 		catalog.CriteriaMergeRequestsMerged,
+		catalog.CriteriaMergeRequestsLanded,
 		catalog.CriteriaMergeRequestsApproved,
 		catalog.CriteriaMergeRequestsClosed,
 		catalog.CriteriaMergeRequestsMergedFast,
 		catalog.CriteriaComments,
+		catalog.CriteriaReviewComments,
 		catalog.CriteriaDiscussionsResolved,
 		catalog.CriteriaIssuesOpened,
 		catalog.CriteriaIssuesClosed,
 		catalog.CriteriaPipelinesRun,
 		catalog.CriteriaPipelinesSucceeded,
 		catalog.CriteriaPipelinesFailed,
+		catalog.CriteriaPipelinesFixed,
 		catalog.CriteriaJobsRun,
 		catalog.CriteriaDeployments,
 		catalog.CriteriaDeploymentsSucceeded,
 		catalog.CriteriaEmojiAwarded,
 		catalog.CriteriaWikiPagesCreated,
+		catalog.CriteriaProjectsContributed,
 		catalog.CriteriaActiveDays,
 		catalog.CriteriaActivityStreak,
 		catalog.CriteriaNightOwlDays,
@@ -191,14 +196,9 @@ func TestV1_AvatarsResolve(t *testing.T) {
 			continue
 		}
 
-		file, err := entry.Avatar()
-		if err != nil {
+		if _, err := entry.Avatar(); err != nil {
 			t.Errorf("achievement %q: %v", entry.Name, err)
-
-			continue
 		}
-
-		file.Close()
 	}
 }
 
@@ -229,8 +229,8 @@ func TestAllCriteria_EveryCriteriaHasACategoryAndATitle(t *testing.T) {
 	}
 
 	criteria := catalog.AllCriteria()
-	if len(criteria) != 25 {
-		t.Fatalf("expected 25 criteria, got %d", len(criteria))
+	if len(criteria) != 30 {
+		t.Fatalf("expected 30 criteria, got %d", len(criteria))
 	}
 
 	for _, entry := range criteria {

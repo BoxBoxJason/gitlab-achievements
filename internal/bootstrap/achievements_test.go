@@ -459,8 +459,13 @@ func TestCreateAchievement_UploadsAvatarWhenConfigured(t *testing.T) {
 		t.Fatalf("failed to load persisted definition: %v", err)
 	}
 
-	if def.AvatarPath != entry.AvatarPath {
-		t.Errorf("expected persisted AvatarPath %q, got %q", entry.AvatarPath, def.AvatarPath)
+	wantKey, err := entry.AvatarKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if def.AvatarKey != wantKey {
+		t.Errorf("expected persisted AvatarKey %q, got %q", wantKey, def.AvatarKey)
 	}
 }
 
@@ -511,7 +516,56 @@ func TestReconcileAchievements_UploadsAvatarOnceAddedToCatalog(t *testing.T) {
 		t.Fatalf("failed to load persisted definition: %v", err)
 	}
 
-	if def.AvatarPath != "assets/commit.png" {
-		t.Errorf("expected persisted AvatarPath to be updated, got %q", def.AvatarPath)
+	wantKey, err := withAvatar[0].AvatarKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if def.AvatarKey != wantKey {
+		t.Errorf("expected persisted AvatarKey %q, got %q", wantKey, def.AvatarKey)
+	}
+}
+
+// Rows written before tiers had badges of their own record the bare asset
+// path. Each must read as drifted and get its tier's badge, or every
+// achievement already on GitLab would keep the unmarked art.
+func TestReconcileAchievements_UploadsTierBadgeOverSharedArt(t *testing.T) {
+	conn := testConn(t)
+	write := &fakeAchievementWriter{}
+
+	entries := []catalog.Entry{
+		{CriteriaKey: "commits", Tier: 1, Threshold: 10, Name: "Committer I", Description: "Made 10 commits.", AvatarPath: "assets/commit.png"},
+	}
+
+	if _, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries); err != nil {
+		t.Fatalf("expected no error seeding, got: %v", err)
+	}
+
+	err := conn.Model(&appdb.AchievementDefinition{}).Where("criteria_key = ?", "commits").
+		Update("avatar_path", "assets/commit.png").Error
+	if err != nil {
+		t.Fatalf("failed to backdate the row: %v", err)
+	}
+
+	report, err := ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if report.Updated != 1 {
+		t.Fatalf("expected the shared-art achievement to be updated, got %+v", report)
+	}
+
+	if write.avatarUploads != 2 {
+		t.Errorf("expected the badge to be uploaded over the shared art, got %d uploads total", write.avatarUploads)
+	}
+
+	report, err = ReconcileAchievements(t.Context(), write, conn, 42, "achievements", entries)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if report.Unchanged != 1 || write.avatarUploads != 2 {
+		t.Errorf("expected the badge to be uploaded once and then left alone, got %+v after %d uploads", report, write.avatarUploads)
 	}
 }

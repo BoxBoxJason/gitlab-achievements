@@ -64,6 +64,14 @@ func TestNormalizeProjectEvent(t *testing.T) {
 			want: []kindWeight{{activity.KindPush, 1}},
 		},
 		{
+			name: "push GitLab 19 reports against the project as its target",
+			event: &gitlab.ProjectEvent{
+				ID: 17, AuthorID: 10, ActionName: "pushed new", TargetType: "Project",
+				PushData: gitlab.ProjectEventPushData{Action: "created", RefType: "branch", CommitCount: 1},
+			},
+			want: []kindWeight{{activity.KindPush, 1}, {activity.KindBranchCreated, 1}, {activity.KindCommit, 1}},
+		},
+		{
 			name:  "an event with neither a target type nor a ref is not a push",
 			event: &gitlab.ProjectEvent{ID: 16, AuthorID: 10, ActionName: "joined"},
 			want:  []kindWeight{},
@@ -441,5 +449,215 @@ func TestNormalizeProjectEvent_TagPushCountsNoCommits(t *testing.T) {
 		if got.Kind == activity.KindCommit {
 			t.Errorf("expected a tag to count no commits, it names ones an earlier push delivered")
 		}
+	}
+}
+
+func TestNormalizeMergedMergeRequest_LandsForTheAuthor(t *testing.T) {
+	mergedAt := time.Date(2026, time.March, 4, 12, 30, 0, 0, time.UTC)
+
+	activities := NormalizeMergedMergeRequest(&gitlab.BasicMergeRequest{
+		ID: 55, ProjectID: 1, MergedAt: &mergedAt,
+		Author:    &gitlab.BasicUser{ID: 99, Username: "carol", AvatarURL: "https://gitlab.example.com/c.png"},
+		MergeUser: &gitlab.BasicUser{ID: 10, Username: "alice"},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one landing, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindMergeRequestLanded || got.ActorID != 99 || got.ActorUsername != "carol" {
+		t.Errorf("expected the landing credited to carol, got %+v", got)
+	}
+
+	// The webhook path's key for the same merge.
+	if got.DedupKey != "merge_request:55:landed" {
+		t.Errorf("expected the webhook path's key, got %q", got.DedupKey)
+	}
+
+	if !got.OccurredAt.Equal(mergedAt) || got.ProjectID != 1 {
+		t.Errorf("expected the merge time and project, got %v in %d", got.OccurredAt, got.ProjectID)
+	}
+}
+
+func TestNormalizeMergedMergeRequest_NeedsAMergeAndAnAuthor(t *testing.T) {
+	mergedAt := time.Date(2026, time.March, 4, 12, 30, 0, 0, time.UTC)
+
+	cases := map[string]*gitlab.BasicMergeRequest{
+		"nil":        nil,
+		"not merged": {ID: 55, Author: &gitlab.BasicUser{ID: 99}},
+		"no author":  {ID: 55, MergedAt: &mergedAt},
+		"author 0":   {ID: 55, MergedAt: &mergedAt, Author: &gitlab.BasicUser{}},
+	}
+
+	for name, mr := range cases {
+		if got := NormalizeMergedMergeRequest(mr); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}
+
+func diffNoteEvent(noteableType string) *gitlab.ProjectEvent {
+	return &gitlab.ProjectEvent{
+		ID: 910, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "DiffNote", TargetID: 5501, ActionName: "commented on",
+		Note: gitlab.ProjectEventNote{ID: 5501, NoteableType: noteableType},
+	}
+}
+
+func TestNormalizeProjectEvent_AMergeRequestDiffNoteIsAReviewComment(t *testing.T) {
+	activities := NormalizeProjectEvent(diffNoteEvent("MergeRequest"))
+
+	if len(activities) != 2 || activities[0].Kind != activity.KindComment || activities[1].Kind != activity.KindReviewComment {
+		t.Fatalf("expected a comment and a review comment, got %v", kindsOf(activities))
+	}
+
+	if activities[1].DedupKey != "note:5501:review_comment" {
+		t.Errorf("expected the review keyed on the note, got %q", activities[1].DedupKey)
+	}
+}
+
+func TestNormalizeProjectEvent_ACommitDiffNoteIsOnlyAComment(t *testing.T) {
+	// The webhook path can't tell a commit's diff notes from its other
+	// notes, so neither path counts them as reviews.
+	activities := NormalizeProjectEvent(diffNoteEvent("Commit"))
+
+	if len(activities) != 1 || activities[0].Kind != activity.KindComment {
+		t.Errorf("expected only a comment, got %v", kindsOf(activities))
+	}
+}
+
+func TestNormalizeProjectEvent_ADiscussionNoteIsNoReview(t *testing.T) {
+	event := diffNoteEvent("MergeRequest")
+	event.TargetType = "DiscussionNote"
+
+	if activities := NormalizeProjectEvent(event); len(activities) != 1 {
+		t.Errorf("expected only a comment, got %v", kindsOf(activities))
+	}
+}
+
+func TestNormalizeRelease_CreditsTheAuthor(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+	releasedAt := createdAt.AddDate(-3, 0, 0)
+
+	activities := NormalizeRelease(7, &gitlab.Release{
+		TagName: "v1.0.0", CreatedAt: &createdAt, ReleasedAt: &releasedAt,
+		Author: gitlab.BasicUser{ID: 10, Username: "alice"},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one release, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindReleasePublished || got.ActorID != 10 || got.DedupKey != "release:7:v1.0.0" || got.ProjectID != 7 {
+		t.Errorf("unexpected release %+v", got)
+	}
+
+	// released_at is whatever its author typed; creation is when it happened.
+	if !got.OccurredAt.Equal(createdAt) {
+		t.Errorf("expected the creation time, got %v", got.OccurredAt)
+	}
+}
+
+func TestNormalizeRelease_NeedsAnAuthorAndATag(t *testing.T) {
+	for name, release := range map[string]*gitlab.Release{
+		"nil":       nil,
+		"no author": {TagName: "v1"},
+		"no tag":    {Author: gitlab.BasicUser{ID: 10}},
+	} {
+		if got := NormalizeRelease(7, release); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}
+
+func TestNormalizePipelineFix(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+	pipeline := func(status string) *gitlab.Pipeline {
+		return &gitlab.Pipeline{
+			ID: 600, ProjectID: 7, Ref: "main", Status: status, CreatedAt: &createdAt,
+			User: &gitlab.BasicUser{ID: 10, Username: "alice"},
+		}
+	}
+
+	fixed := NormalizePipelineFix(pipeline("success"), gitlab.Failed)
+	if len(fixed) != 1 || fixed[0].Kind != activity.KindPipelineFixed || fixed[0].DedupKey != "pipeline:600:pipeline_fixed" || fixed[0].ActorID != 10 {
+		t.Errorf("expected a pass after a failure to be a fix, got %+v", fixed)
+	}
+
+	for name, got := range map[string][]activity.Event{
+		"pass after a pass":       NormalizePipelineFix(pipeline("success"), gitlab.Success),
+		"pass, nothing prior":     NormalizePipelineFix(pipeline("success"), ""),
+		"failure after a failure": NormalizePipelineFix(pipeline("failed"), gitlab.Failed),
+		"nil":                     NormalizePipelineFix(nil, gitlab.Failed),
+	} {
+		if len(got) != 0 {
+			t.Errorf("%s: expected no fix, got %v", name, kindsOf(got))
+		}
+	}
+}
+
+func wikiEvent(action string) *gitlab.ProjectEvent {
+	return &gitlab.ProjectEvent{
+		ID: 920, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "WikiPage::Meta", TargetID: 3, ActionName: action, CreatedAt: "2026-03-02T11:00:00Z",
+		WikiPage: &gitlab.EventWikiPage{Slug: "home", Title: "Home"},
+	}
+}
+
+func TestNormalizeWikiPageEvent_CountsACreation(t *testing.T) {
+	activities := NormalizeWikiPageEvent(wikiEvent("created"), "team/app")
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one wiki page, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindWikiPageCreated || got.ActorID != 10 || got.DedupKey != "wiki_page:team/app:home" {
+		t.Errorf("unexpected wiki page %+v", got)
+	}
+
+	// The live path can't tie a page to a project ID, so neither does this.
+	if got.ProjectID != 0 {
+		t.Errorf("expected no project, got %d", got.ProjectID)
+	}
+}
+
+func TestNormalizeWikiPageEvent_CountsOnlyCreations(t *testing.T) {
+	for _, action := range []string{"updated", "destroyed"} {
+		if got := NormalizeWikiPageEvent(wikiEvent(action), "team/app"); len(got) != 0 {
+			t.Errorf("action %q: expected nothing, got %v", action, kindsOf(got))
+		}
+	}
+}
+
+func TestNormalizeWikiPageEvent_NeedsAPageAPathAndAWikiTarget(t *testing.T) {
+	noPage := wikiEvent("created")
+	noPage.WikiPage = nil
+
+	issue := wikiEvent("created")
+	issue.TargetType = "Issue"
+
+	cases := map[string]struct {
+		event *gitlab.ProjectEvent
+		path  string
+	}{
+		"no page":    {noPage, "team/app"},
+		"no path":    {wikiEvent("created"), ""},
+		"not a wiki": {issue, "team/app"},
+		"nil event":  {nil, "team/app"},
+	}
+
+	for name, tc := range cases {
+		if got := NormalizeWikiPageEvent(tc.event, tc.path); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}
+
+func TestNormalizeProjectEvent_LeavesWikiPagesToTheirOwnNormalizer(t *testing.T) {
+	if got := NormalizeProjectEvent(wikiEvent("created")); len(got) != 0 {
+		t.Errorf("expected nothing without the project's path, got %v", kindsOf(got))
 	}
 }

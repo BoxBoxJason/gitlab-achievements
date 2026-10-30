@@ -54,3 +54,5 @@ The frontend is Vue 3 with TypeScript and Tailwind, styled after GitLab's Pajama
 ## Testing against a real instance
 
 A few tests run against a live GitLab rather than a mock. [docs/content/docs/achievements-api-behavior.md](docs/content/docs/achievements-api-behavior.md) has a throwaway instance in one `podman run`, and the environment variables the live tests look for.
+
+The catalog end-to-end suite boots its own instance: `test/e2e/run.sh`, or the manual **End-to-end** workflow in CI. Run it when you touch a normalizer or a dedup key, or before trusting a new GitLab release. See [docs/content/docs/e2e.md](docs/content/docs/e2e.md).

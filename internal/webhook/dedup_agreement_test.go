@@ -273,3 +273,87 @@ func TestDedupKeysAgree_Pipeline(t *testing.T) {
 	agreesOn(t, activity.KindPipelineRun, live, historical)
 	agreesOn(t, activity.KindPipelineSucceeded, live, historical)
 }
+
+func TestDedupKeysAgree_MergeRequestLanded(t *testing.T) {
+	live := normalize(&gitlab.MergeEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"},
+		ObjectAttributes: gitlab.MergeEventObjectAttributes{
+			ID: 905, TargetProjectID: 7, AuthorID: 99, Action: "merge",
+		},
+	}, receivedAt)
+
+	mergedAt := receivedAt
+	historical := eventsapi.NormalizeMergedMergeRequest(&gitlab.BasicMergeRequest{
+		ID: 905, ProjectID: 7, MergedAt: &mergedAt,
+		Author: &gitlab.BasicUser{ID: 99, Username: "carol"},
+	})
+
+	agreesOn(t, activity.KindMergeRequestLanded, live, historical)
+}
+
+func TestDedupKeysAgree_ReviewComment(t *testing.T) {
+	live := normalize(&gitlab.MergeCommentEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 7,
+		ObjectAttributes: gitlab.MergeCommentEventObjectAttributes{
+			ID: 5501, AuthorID: 10, ProjectID: 7, Type: "DiffNote", CreatedAt: "2026-03-04 11:00:00 UTC",
+		},
+	}, receivedAt)
+
+	historical := eventsapi.NormalizeProjectEvent(&gitlab.ProjectEvent{
+		ID: 910, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "DiffNote", TargetID: 5501, ActionName: "commented on",
+		Note: gitlab.ProjectEventNote{ID: 5501, NoteableType: "MergeRequest"},
+	})
+
+	agreesOn(t, activity.KindComment, live, historical)
+	agreesOn(t, activity.KindReviewComment, live, historical)
+}
+
+func TestDedupKeysAgree_Release(t *testing.T) {
+	createdAt := receivedAt
+	release := &gitlab.Release{
+		TagName: "v1.0.0", CreatedAt: &createdAt,
+		Author: gitlab.BasicUser{ID: 10, Username: "alice"},
+	}
+
+	hook := &gitlab.ReleaseEvent{Action: "create", Tag: "v1.0.0"}
+	hook.Project.ID = 7
+
+	live := normalizeRelease(hook, release, receivedAt)
+	historical := eventsapi.NormalizeRelease(7, release)
+
+	agreesOn(t, activity.KindReleasePublished, live, historical)
+}
+
+func TestDedupKeysAgree_PipelineFixed(t *testing.T) {
+	live := normalizePipelineFix(&gitlab.PipelineEvent{
+		User:             &gitlab.EventUser{ID: 10, Username: "alice"},
+		Project:          gitlab.PipelineEventProject{ID: 7},
+		ObjectAttributes: gitlab.PipelineEventObjectAttributes{ID: 6600, Ref: "main", Status: "success"},
+	}, gitlab.Failed, receivedAt)
+
+	createdAt := receivedAt
+	historical := eventsapi.NormalizePipelineFix(&gitlab.Pipeline{
+		ID: 6600, ProjectID: 7, Ref: "main", Status: "success", CreatedAt: &createdAt,
+		User: &gitlab.BasicUser{ID: 10, Username: "alice"},
+	}, gitlab.Failed)
+
+	agreesOn(t, activity.KindPipelineFixed, live, historical)
+}
+
+func TestDedupKeysAgree_WikiPage(t *testing.T) {
+	hook := &gitlab.WikiPageEvent{User: &gitlab.EventUser{ID: 10, Username: "alice"}}
+	hook.Project.PathWithNamespace = "team/app"
+	hook.ObjectAttributes.Action = "create"
+	hook.ObjectAttributes.Slug = "home"
+
+	live := normalize(hook, receivedAt)
+
+	historical := eventsapi.NormalizeWikiPageEvent(&gitlab.ProjectEvent{
+		ID: 920, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "WikiPage::Meta", ActionName: "created",
+		WikiPage: &gitlab.EventWikiPage{Slug: "home"},
+	}, "team/app")
+
+	agreesOn(t, activity.KindWikiPageCreated, live, historical)
+}

@@ -60,6 +60,12 @@ type fakeReader struct {
 	events    map[int64][]*gitlab.ProjectEvent
 	pipelines map[int64][]*gitlab.PipelineInfo
 	details   map[int64]*gitlab.Pipeline
+	merged    map[int64][]*gitlab.BasicMergeRequest
+	releases  map[int64][]*gitlab.Release
+	// previous is how the pipeline before each pipeline ID ended on its
+	// ref, and lookups the pipelines it was asked about.
+	previous map[int64]gitlab.BuildStateValue
+	lookups  []int64
 
 	projectsErr  error
 	eventsErr    map[int64]error
@@ -68,6 +74,7 @@ type fakeReader struct {
 	projectsOpt  gitlab.ListProjectsOptions
 	eventsOpt    map[int64]gitlab.ListProjectVisibleEventsOptions
 	pipelinesOpt map[int64]gitlab.ListProjectPipelinesOptions
+	mergedOpt    map[int64]gitlab.ListProjectMergeRequestsOptions
 }
 
 func (f *fakeReader) ListProjects(opt *gitlab.ListProjectsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error] {
@@ -143,6 +150,42 @@ func (f *fakeReader) GetPipeline(_ any, pipeline int64, _ ...gitlab.RequestOptio
 	}
 
 	return found, nil
+}
+
+func (f *fakeReader) ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error] {
+	projectID, _ := pid.(int64)
+
+	if f.mergedOpt == nil {
+		f.mergedOpt = map[int64]gitlab.ListProjectMergeRequestsOptions{}
+	}
+
+	f.mergedOpt[projectID] = *opt
+
+	return func(yield func(*gitlab.BasicMergeRequest, error) bool) {
+		for _, mr := range f.merged[projectID] {
+			if !yield(mr, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (f *fakeReader) ListReleases(pid any, _ *gitlab.ListReleasesOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error] {
+	projectID, _ := pid.(int64)
+
+	return func(yield func(*gitlab.Release, error) bool) {
+		for _, release := range f.releases[projectID] {
+			if !yield(release, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (f *fakeReader) LastPipelineOutcome(_ any, _ string, beforeID int64, _ ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error) {
+	f.lookups = append(f.lookups, beforeID)
+
+	return f.previous[beforeID], nil
 }
 
 // recorder collects everything a pass hands to the achievement engine.
@@ -469,5 +512,133 @@ func TestCompletedAt_RejectsAnUnreadableWatermark(t *testing.T) {
 
 	if _, _, err := CompletedAt(conn); err == nil {
 		t.Error("expected an unparseable watermark to be reported rather than treated as absent")
+	}
+}
+
+func TestRun_CreditsMergesInTheWindowToTheirAuthors(t *testing.T) {
+	conn := testConn(t)
+
+	inWindow := startedAt.Add(-time.Hour)
+	beforeWindow := startedAt.Add(-30 * 24 * time.Hour)
+
+	read := oneProjectInstance()
+	read.merged = map[int64][]*gitlab.BasicMergeRequest{
+		1: {
+			{ID: 54, ProjectID: 1, MergedAt: &beforeWindow, Author: &gitlab.BasicUser{ID: 99}},
+			{ID: 55, ProjectID: 1, MergedAt: &inWindow, Author: &gitlab.BasicUser{ID: 99}},
+		},
+	}
+
+	processor := &recorder{}
+
+	report, err := run(t, read, conn, processor)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var landed []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindMergeRequestLanded {
+			landed = append(landed, event.DedupKey)
+		}
+	}
+
+	if len(landed) != 1 || landed[0] != "merge_request:55:landed" {
+		t.Errorf("expected only the merge in the window, got %v", landed)
+	}
+
+	if report.MergeRequests != 1 {
+		t.Errorf("expected 1 merge request in the report, got %d", report.MergeRequests)
+	}
+
+	opt := read.mergedOpt[1]
+	if opt.State == nil || *opt.State != "merged" || opt.UpdatedAfter == nil || !opt.UpdatedAfter.Equal(report.Since) {
+		t.Errorf("expected merged merge requests updated in the window to be asked for, got %+v", opt)
+	}
+}
+
+func TestRun_ReReadsReleasesUntilTheFirstOneBeforeTheWindow(t *testing.T) {
+	conn := testConn(t)
+
+	at := func(ago time.Duration) *time.Time {
+		moment := startedAt.Add(-ago)
+
+		return &moment
+	}
+
+	author := gitlab.BasicUser{ID: 10, Username: "alice"}
+
+	read := oneProjectInstance()
+	read.releases = map[int64][]*gitlab.Release{
+		// Newest first, as asked for.
+		1: {
+			{TagName: "v1.1", CreatedAt: at(time.Hour), Author: author},
+			{TagName: "v1.0", CreatedAt: at(30 * 24 * time.Hour), Author: author},
+			{TagName: "v0.9", CreatedAt: at(time.Minute), Author: author},
+		},
+	}
+
+	processor := &recorder{}
+
+	report, err := run(t, read, conn, processor)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var keys []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindReleasePublished {
+			keys = append(keys, event.DedupKey)
+		}
+	}
+
+	// v0.9 is out of order on purpose: the listing stops at v1.0, so a
+	// release past it is never looked at.
+	if len(keys) != 1 || keys[0] != "release:1:v1.1" || report.Releases != 1 {
+		t.Errorf("expected only v1.1, got %v (%d in the report)", keys, report.Releases)
+	}
+}
+
+func TestRun_CountsAPassAfterAFailureAsAFix(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.details[500].Ref = "main"
+	read.previous = map[int64]gitlab.BuildStateValue{500: gitlab.Failed}
+
+	processor := &recorder{}
+
+	if _, err := run(t, read, conn, processor); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var fixes []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindPipelineFixed {
+			fixes = append(fixes, event.DedupKey)
+		}
+	}
+
+	if len(fixes) != 1 || fixes[0] != "pipeline:500:pipeline_fixed" {
+		t.Errorf("expected pipeline 500 to count as a fix, got %v", fixes)
+	}
+}
+
+func TestRun_AsksAboutPredecessorsOnlyForPassingPipelines(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.details[500].Ref = "main"
+	read.details[500].Status = "failed"
+
+	if _, err := run(t, read, conn, &recorder{}); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(read.lookups) != 0 {
+		t.Errorf("expected no lookup for a failed pipeline, got %v", read.lookups)
 	}
 }

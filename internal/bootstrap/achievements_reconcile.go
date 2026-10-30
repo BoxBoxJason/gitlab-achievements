@@ -168,13 +168,19 @@ func adoptAchievement(ctx context.Context, write achievementWriter, conn *gorm.D
 	}
 
 	// An avatar can only be seen as present or absent, never compared
-	// against the catalog's asset, so an achievement GitLab already shows
+	// against the catalog's image, so an achievement GitLab already shows
 	// one for is taken to be showing the entry's. One with no avatar
-	// records no path, which is what makes an entry that expects an avatar
+	// records no key, which is what makes an entry that expects an avatar
 	// read as drifted and get one uploaded.
-	avatarPath := ""
+	avatarKey := ""
+
 	if live.AvatarURL != nil {
-		avatarPath = entry.AvatarPath
+		key, err := entry.AvatarKey()
+		if err != nil {
+			return fmt.Errorf("failed to render avatar for achievement %q: %w", entry.Name, err)
+		}
+
+		avatarKey = key
 	}
 
 	existing.GitLabAchievementID = live.ID
@@ -184,7 +190,7 @@ func adoptAchievement(ctx context.Context, write achievementWriter, conn *gorm.D
 	existing.ExpReward = entry.Exp
 	existing.Name = live.Name
 	existing.Description = description
-	existing.AvatarPath = avatarPath
+	existing.AvatarKey = avatarKey
 
 	err := conn.Save(existing).Error
 	if err != nil {
@@ -237,7 +243,7 @@ func listAchievements(ctx context.Context, write achievementWriter, namespaceFul
 // overwrites existing's row in place with the new ID, rather than inserting
 // a duplicate row.
 func recreateAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, existing *db.AchievementDefinition, entry catalog.Entry) error {
-	avatar, err := avatarUpload(entry)
+	avatar, avatarKey, err := avatarUpload(entry)
 	if err != nil {
 		return err
 	}
@@ -256,7 +262,7 @@ func recreateAchievement(ctx context.Context, write achievementWriter, conn *gor
 	existing.Description = entry.Description
 	existing.Threshold = entry.Threshold
 	existing.ExpReward = entry.Exp
-	existing.AvatarPath = entry.AvatarPath
+	existing.AvatarKey = avatarKey
 
 	err = conn.Save(existing).Error
 	if err != nil {

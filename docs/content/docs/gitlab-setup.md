@@ -12,7 +12,7 @@ Work through it once, then pick a target: [Kubernetes]({{< relref "/docs/deploym
 | What | Why |
 | --- | --- |
 | GitLab **16.6 or later**, self-hosted | Achievements do not exist before it |
-| A **group** to own the achievement definitions | The 275 definitions are created in it |
+| A **group** to own the achievement definitions | The 330 definitions are created in it |
 | A **read credential** (`read_api`) | All data fetching: backfill, event enrichment |
 | A **write credential** (`api`, instance Admin) | Registering webhooks, creating and awarding achievements |
 | A **URL GitLab can reach** | Webhook deliveries are pushed to it |

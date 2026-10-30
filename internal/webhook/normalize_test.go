@@ -476,6 +476,55 @@ func TestNormalize_FastMergeNeedsBothTimestampsToParse(t *testing.T) {
 	}
 }
 
+func TestNormalize_AMergeLandsForItsAuthor(t *testing.T) {
+	event := mergeEvent("merge")
+	event.ObjectAttributes.AuthorID = 99
+
+	events := normalize(event, receivedAt)
+
+	landed := findKind(t, events, activity.KindMergeRequestLanded)
+	if landed.ActorID != 99 {
+		t.Errorf("expected the landing credited to the author (99), got %d", landed.ActorID)
+	}
+
+	if landed.DedupKey != "merge_request:55:landed" {
+		t.Errorf("expected the landing keyed apart from the merge, got %q", landed.DedupKey)
+	}
+
+	// The payload's user is the merger, so their name must not end up on
+	// the author's row.
+	if landed.ActorUsername != "" || landed.ActorAvatarURL != "" {
+		t.Errorf("expected no profile borrowed from the merger, got %q/%q", landed.ActorUsername, landed.ActorAvatarURL)
+	}
+
+	if findKind(t, events, activity.KindMergeRequestMerged).ActorID != 10 {
+		t.Error("expected the merge itself still credited to whoever merged")
+	}
+}
+
+func TestNormalize_ASelfMergeLandsWithTheAuthorsProfile(t *testing.T) {
+	event := mergeEvent("merge")
+	event.ObjectAttributes.AuthorID = 10
+
+	landed := findKind(t, normalize(event, receivedAt), activity.KindMergeRequestLanded)
+	if landed.ActorID != 10 || landed.ActorUsername != "alice" {
+		t.Errorf("expected a self-merge to land for alice, got %d/%q", landed.ActorID, landed.ActorUsername)
+	}
+}
+
+func TestNormalize_OnlyAMergeLands(t *testing.T) {
+	for _, action := range []string{"open", "close", "approval"} {
+		event := mergeEvent(action)
+		event.ObjectAttributes.AuthorID = 99
+
+		for _, got := range normalize(event, receivedAt) {
+			if got.Kind == activity.KindMergeRequestLanded {
+				t.Errorf("action %q: expected nothing to land", action)
+			}
+		}
+	}
+}
+
 func resolvedNote(resolvedBy int64, byPush bool) *gitlab.MergeCommentEvent {
 	return &gitlab.MergeCommentEvent{
 		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
@@ -560,12 +609,116 @@ func TestNormalize_AvatarsGoOnlyToTheActorTheyBelongTo(t *testing.T) {
 	}
 }
 
-func TestNormalize_DiscussionResolvedByAPushIsNobodysAchievement(t *testing.T) {
+func TestNormalize_DiscussionResolvedByAPushCountsLikeAClick(t *testing.T) {
 	events := normalize(resolvedNote(10, true), receivedAt)
 
-	for _, event := range events {
-		if event.Kind == activity.KindDiscussionResolved {
-			t.Error("expected a discussion GitLab resolved on its own not to count")
+	if findKind(t, events, activity.KindDiscussionResolved).ActorID != 10 {
+		t.Error("expected a discussion resolved by a push to be credited to its resolver")
+	}
+}
+
+func resolvableNote(resolvedBy int64, resolvedAt string) *gitlab.Note {
+	note := &gitlab.Note{Resolvable: true}
+
+	if resolvedBy != 0 {
+		when, _ := time.Parse(time.RFC3339, resolvedAt)
+		note.Resolved = true
+		note.ResolvedAt = &when
+		note.ResolvedBy = gitlab.NoteResolvedBy{ID: resolvedBy, Username: "alice", AvatarURL: "https://gitlab.example.com/a.png"}
+	}
+
+	return note
+}
+
+func TestNormalizeDiscussions_ResolvedThreadsCountForTheirResolver(t *testing.T) {
+	events := normalizeDiscussions([]*gitlab.Discussion{
+		{ID: "abc123", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z")}},
+		{ID: "open", Notes: []*gitlab.Note{resolvableNote(0, "")}},
+		{ID: "plain", IndividualNote: true, Notes: []*gitlab.Note{{Resolvable: false}}},
+		{ID: "mixed", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z"), resolvableNote(0, "")}},
+	}, 1, receivedAt)
+
+	if len(events) != 1 {
+		t.Fatalf("expected only the resolved thread to count, got %d events", len(events))
+	}
+
+	got := events[0]
+	if got.Kind != activity.KindDiscussionResolved || got.ActorID != 10 || got.ActorUsername != "alice" || got.ProjectID != 1 {
+		t.Errorf("unexpected resolution %+v", got)
+	}
+
+	if got.DedupKey != "discussion:abc123:resolved" {
+		t.Errorf("expected the key the note hook uses, got %q", got.DedupKey)
+	}
+}
+
+func TestNormalizeDiscussions_CreditsWhoResolvedTheLastNote(t *testing.T) {
+	events := normalizeDiscussions([]*gitlab.Discussion{{ID: "d", Notes: []*gitlab.Note{
+		resolvableNote(10, "2026-03-02T11:00:00Z"), resolvableNote(30, "2026-03-02T12:00:00Z"),
+	}}}, 1, receivedAt)
+
+	if len(events) != 1 || events[0].ActorID != 30 {
+		t.Errorf("expected the thread credited to its last resolver, got %+v", events)
+	}
+}
+
+func TestNormalizeDiscussions_AgreesWithTheNoteHookOnTheKey(t *testing.T) {
+	fromAPI := normalizeDiscussions([]*gitlab.Discussion{
+		{ID: "abc123", Notes: []*gitlab.Note{resolvableNote(10, "2026-03-02T11:00:00Z")}},
+	}, 1, receivedAt)
+
+	fromHook := normalize(resolvedNote(10, false), receivedAt)
+
+	if fromAPI[0].DedupKey != findKind(t, fromHook, activity.KindDiscussionResolved).DedupKey {
+		t.Error("expected one thread to be counted once however GitLab reports its resolution")
+	}
+}
+
+func TestResolutionCandidate(t *testing.T) {
+	update := func() *gitlab.MergeEvent {
+		event := &gitlab.MergeEvent{}
+		event.ObjectAttributes.Action = "update"
+		event.ObjectAttributes.IID = 3
+
+		return event
+	}
+
+	if !resolutionCandidate(update()) {
+		t.Error("expected an update that changed nothing to be a candidate")
+	}
+
+	touched := update()
+	touched.Changes.UpdatedAt.Current = "2026-03-02 11:00:00 UTC"
+
+	if !resolutionCandidate(touched) {
+		t.Error("expected a bumped updated_at alone not to rule a candidate out")
+	}
+
+	retitled := update()
+	retitled.Changes.Title.Current = "New title"
+
+	if resolutionCandidate(retitled) {
+		t.Error("expected an update that changed something to be left alone")
+	}
+
+	for _, action := range []string{"open", "reopen", "approval", "approved", "unapproval"} {
+		other := update()
+		other.ObjectAttributes.Action = action
+
+		if resolutionCandidate(other) {
+			t.Errorf("action %q: expected no candidate", action)
+		}
+	}
+
+	// GitLab says nothing when a resolution leaves other threads open, so
+	// the end of the merge request is when those are caught up on.
+	for _, action := range []string{"merge", "close"} {
+		ended := update()
+		ended.ObjectAttributes.Action = action
+		ended.Changes.Title.Current = "changed alongside"
+
+		if !resolutionCandidate(ended) {
+			t.Errorf("action %q: expected a candidate", action)
 		}
 	}
 }
@@ -694,6 +847,30 @@ func TestNormalize_EmojiAwardCountsAndRevokeDoesNot(t *testing.T) {
 	}
 }
 
+// TestNormalize_EmojiActionReadFromEventType pins the shape GitLab actually
+// delivers, observed on 19.5: the award or revoke is the payload's top-level
+// event_type, and object_attributes carries no action at all.
+func TestNormalize_EmojiActionReadFromEventType(t *testing.T) {
+	emoji := func(eventType string) *gitlab.EmojiEvent {
+		return &gitlab.EmojiEvent{
+			ObjectKind: "emoji", EventType: eventType,
+			User: gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+			ObjectAttributes: gitlab.EmojiEventObjectAttributes{
+				ID: 78, Name: "heart", AwardableType: "Issue", CreatedAt: "2026-10-29T21:53:36.539Z",
+			},
+		}
+	}
+
+	awarded := normalize(emoji("award"), receivedAt)
+	if len(awarded) != 1 || awarded[0].Kind != activity.KindEmojiAwarded {
+		t.Fatalf("expected an awarded reaction to count, got %v", kindsOf(awarded))
+	}
+
+	if events := normalize(emoji("revoke"), receivedAt); len(events) != 0 {
+		t.Errorf("expected a withdrawn reaction not to take anything back, got %v", kindsOf(events))
+	}
+}
+
 func TestNormalize_WikiPageCreationCountsAndEditsDoNot(t *testing.T) {
 	wiki := func(action, slug string) *gitlab.WikiPageEvent {
 		return &gitlab.WikiPageEvent{
@@ -765,5 +942,46 @@ func TestParseEventTime_KeepsTheOffsetGitLabReported(t *testing.T) {
 
 	if got.Hour() != 23 {
 		t.Errorf("expected the reported hour 23 to survive, got %d", got.Hour())
+	}
+}
+
+func mergeNote(noteType string) *gitlab.MergeCommentEvent {
+	return &gitlab.MergeCommentEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.MergeCommentEventObjectAttributes{
+			ID: 8, AuthorID: 10, ProjectID: 1, Type: noteType, CreatedAt: "2026-03-04 11:00:00 UTC",
+		},
+	}
+}
+
+func TestNormalize_ADiffNoteIsAlsoAReviewComment(t *testing.T) {
+	events := normalize(mergeNote("DiffNote"), receivedAt)
+
+	review := findKind(t, events, activity.KindReviewComment)
+	if review.DedupKey != "note:8:review_comment" || review.ActorID != 10 {
+		t.Errorf("expected alice's review comment keyed on the note, got %+v", review)
+	}
+
+	if findKind(t, events, activity.KindComment).DedupKey != "note:8" {
+		t.Error("expected the note still counted as a comment")
+	}
+}
+
+func TestNormalize_ACommentOffTheDiffIsNoReview(t *testing.T) {
+	for _, noteType := range []string{"", "DiscussionNote"} {
+		for _, got := range normalize(mergeNote(noteType), receivedAt) {
+			if got.Kind == activity.KindReviewComment {
+				t.Errorf("type %q: expected no review comment", noteType)
+			}
+		}
+	}
+}
+
+func TestNormalize_ASystemDiffNoteIsNoReview(t *testing.T) {
+	event := mergeNote("DiffNote")
+	event.ObjectAttributes.System = true
+
+	if events := normalize(event, receivedAt); len(events) != 0 {
+		t.Errorf("expected GitLab's own narration to count for nothing, got %v", kindsOf(events))
 	}
 }

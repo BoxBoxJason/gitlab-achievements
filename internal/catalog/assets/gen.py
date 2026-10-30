@@ -29,6 +29,10 @@ smoothly:
 
 Keep SCALE an integer. A fractional one reintroduces precisely the uneven
 pixel sizes the tripling exists to avoid.
+
+The bottom-right corner is shared. When an avatar is uploaded, badge.go
+draws the tier's marker over it: up to three pips, 16x6 art pixels at most,
+flush with that corner. Keep anything an icon cannot do without out of it.
 """
 import os
 import sys
@@ -316,6 +320,22 @@ def tag(c):
     c.outline()
 
 
+@icon
+def release(c):
+    """Release Manager - a wrapped package, ready to go out."""
+    c.rect(4, 13, 24, 16, 'N')
+    c.shade('N', 'n', lambda x, y: x > 18)
+    c.rect(2, 8, 28, 6, 'N')
+    c.shade('N', 'n', lambda x, y: y > 11 and x > 18)
+    c.rect(14, 8, 4, 21, 'R')           # ribbon
+    c.shade('R', 'r', lambda x, y: y > 13)
+    c.disc(11, 5, 4, 'R')               # bow
+    c.disc(21, 5, 4, 'R')
+    c.disc(11, 5, 1.6, '.')
+    c.disc(21, 5, 1.6, '.')
+    c.outline()
+
+
 # ------------------------------------------- MERGE REQUESTS & REVIEW
 
 @icon
@@ -335,6 +355,26 @@ def mropen(c):
     c.shade('G', 'g', lambda x, y: x + y > 46)
     c.rect(21, 18, 3, 11, 'W')
     c.rect(16, 22, 12, 3, 'W')
+    c.outline()
+
+
+@icon
+def landed(c):
+    """Patch Accepted - the request page, merged.
+
+    mropen()'s page on purpose, with merge()'s purple where its green plus
+    was: the same request, further along.
+    """
+    c.rect(4, 2, 18, 27, 'W')
+    c.tri(22, 2, 22, 9, 15, 2, 'W')      # folded corner
+    c.shade('W', 'w', lambda x, y: x > 15)
+    c.rect(22, 2, 1, 7, 'w')
+    for y in range(12, 25, 4):
+        c.rect(7, y, 12, 2, 's')
+    c.disc(22, 23, 7, 'P')
+    c.shade('P', 'p', lambda x, y: x + y > 46)
+    c.line(18, 23, 21, 26, 'W', 2)
+    c.line(21, 26, 26, 20, 'W', 2)
     c.outline()
 
 
@@ -393,6 +433,24 @@ def comment(c):
     c.shade('W', 'w', lambda x, y: y > 21)
     for x in range(6, 18, 4):
         c.rect(x, 17, 3, 3, 's')
+    c.outline()
+
+
+@icon
+def review(c):
+    """Code Reviewer - a magnifier over a diff.
+
+    Green and red lines for the added and removed, so it reads as a diff
+    rather than as any page: mropen() already owns the plain page.
+    """
+    c.rect(2, 3, 20, 22, 'W')
+    c.shade('W', 'w', lambda x, y: x > 15)
+    for y, colour, width in ((6, 'G', 12), (10, 'R', 9), (14, 'G', 14), (18, 's', 10)):
+        c.rect(5, y, width, 2, colour)
+    c.line(21, 21, 28, 28, 'N', 4)
+    c.disc(18, 18, 7, 'S')
+    c.disc(18, 18, 5, 'T')
+    c.shade('T', 't', lambda x, y: x + y > 37)
     c.outline()
 
 
@@ -489,6 +547,24 @@ def firefighter(c):
 
 
 @icon
+def fixed(c):
+    """Back to Green - a wrench, and the build green again.
+
+    allgreen()'s green disc and tick, with a wrench across it so it reads as
+    green restored rather than green kept.
+    """
+    c.disc(18, 18, 12, 'G')
+    c.shade('G', 'g', lambda x, y: x + y > 40)
+    c.line(12, 18, 16, 22, 'W', 3)
+    c.line(16, 22, 24, 13, 'W', 3)
+    c.line(4, 4, 11, 11, 'S', 4)        # handle
+    c.disc(4, 4, 4, 'S')                # jaw
+    c.disc(2, 2, 2, '.')
+    c.shade('S', 's', lambda x, y: x + y > 12)
+    c.outline()
+
+
+@icon
 def gears(c):
     """Assembly Line - jobs run."""
     import math
@@ -574,6 +650,21 @@ def librarian(c):
 
 
 # --------------------------------------------------------- ENGAGEMENT
+
+@icon
+def globe(c):
+    """Globetrotter - a globe, for the projects one has been to."""
+    c.disc(16, 16, 13, 'B')
+    c.disc(10, 11, 4.5, 'G')            # continents
+    c.rect(8, 13, 5, 6, 'G')
+    c.disc(21, 9, 3, 'G')
+    c.disc(21, 21, 5, 'G')
+    c.rect(18, 24, 3, 4, 'G')
+    c.shade('B', 'b', lambda x, y: x + y > 36)
+    c.shade('G', 'g', lambda x, y: x + y > 36)
+    c.ring(16, 16, 13, 1, 'b')
+    c.outline()
+
 
 @icon
 def mug(c):

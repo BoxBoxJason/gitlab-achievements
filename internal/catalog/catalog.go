@@ -37,32 +37,37 @@ var avatarAssets embed.FS
 //
 // Not every criteria is observable by both activity producers. The
 // historical backfill reads GitLab's Events API, which reports pushes,
-// merge requests, issues, and notes but not deployments, jobs, emoji,
-// discussion resolutions, or wiki pages. Those advance from live webhook
-// deliveries only, so on a freshly bootstrapped instance they start from
-// zero however long the instance has existed.
+// merge requests, issues, notes and wiki pages but not deployments, jobs,
+// emoji, discussion resolutions, or fast merges. Those advance from live
+// webhook deliveries only, so on a freshly bootstrapped instance they start
+// from zero however long the instance has existed.
 const (
 	CriteriaCommits                 = "commits"
 	CriteriaPushes                  = "pushes"
 	CriteriaBranchesCreated         = "branches_created"
 	CriteriaTagsCreated             = "tags_created"
+	CriteriaReleasesPublished       = "releases_published"
 	CriteriaMergeRequestsOpened     = "merge_requests_opened"
 	CriteriaMergeRequestsMerged     = "merge_requests_merged"
+	CriteriaMergeRequestsLanded     = "merge_requests_landed"
 	CriteriaMergeRequestsApproved   = "merge_requests_approved"
 	CriteriaMergeRequestsClosed     = "merge_requests_closed"
 	CriteriaMergeRequestsMergedFast = "merge_requests_merged_fast"
 	CriteriaComments                = "comments"
+	CriteriaReviewComments          = "review_comments"
 	CriteriaDiscussionsResolved     = "discussions_resolved"
 	CriteriaIssuesOpened            = "issues_opened"
 	CriteriaIssuesClosed            = "issues_closed"
 	CriteriaPipelinesRun            = "pipelines_run"
 	CriteriaPipelinesSucceeded      = "pipelines_succeeded"
 	CriteriaPipelinesFailed         = "pipelines_failed"
+	CriteriaPipelinesFixed          = "pipelines_fixed"
 	CriteriaJobsRun                 = "jobs_run"
 	CriteriaDeployments             = "deployments"
 	CriteriaDeploymentsSucceeded    = "deployments_succeeded"
 	CriteriaEmojiAwarded            = "emoji_awarded"
 	CriteriaWikiPagesCreated        = "wiki_pages_created"
+	CriteriaProjectsContributed     = "projects_contributed"
 	CriteriaActiveDays              = "active_days"
 	CriteriaActivityStreak          = "activity_streak"
 	CriteriaNightOwlDays            = "night_owl_days"
@@ -81,8 +86,8 @@ const (
 )
 
 // Criteria describes one criteria as a whole, apart from its tiers: what to
-// call the stack, which group it belongs to, and the image every tier
-// shares, empty when it has none.
+// call the stack, which group it belongs to, and the art every tier's badge
+// is drawn from, empty when it has none.
 type Criteria struct {
 	Key        string
 	Category   string
@@ -141,15 +146,31 @@ func (e Entry) HasAvatar() bool {
 	return e.AvatarPath != ""
 }
 
-// Avatar opens entry's avatar image. The caller must close the returned
-// file, and must only call this when HasAvatar reports true.
-func (e Entry) Avatar() (fs.File, error) {
-	f, err := OpenAvatar(e.AvatarPath)
+// Avatar returns the image GitLab is given for entry: its criteria's art
+// with the tier's marker drawn on (see badge.go). It must only be called
+// when HasAvatar reports true.
+func (e Entry) Avatar() (Avatar, error) {
+	rendered, err := renderBadge(e.AvatarPath, e.Tier)
 	if err != nil {
-		return nil, fmt.Errorf("%s tier %d: %w", e.CriteriaKey, e.Tier, err)
+		return Avatar{}, fmt.Errorf("%s tier %d: %w", e.CriteriaKey, e.Tier, err)
 	}
 
-	return f, nil
+	return rendered, nil
+}
+
+// AvatarKey is the Key of entry's Avatar, or empty when entry has no
+// avatar.
+func (e Entry) AvatarKey() (string, error) {
+	if !e.HasAvatar() {
+		return "", nil
+	}
+
+	rendered, err := e.Avatar()
+	if err != nil {
+		return "", err
+	}
+
+	return rendered.Key, nil
 }
 
 // V1 returns every achievement the app maintains, one Entry per tier of

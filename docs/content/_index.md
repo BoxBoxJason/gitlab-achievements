@@ -8,7 +8,7 @@ layout: hextra-home
 {{< /hextra/hero-headline >}}
 
 {{< hextra/hero-subtitle >}}
-  275 real GitLab Achievements across 25 criteria, awarded automatically from what your team already does, with EXP and an instance leaderboard on top.
+  330 real GitLab Achievements across 30 criteria, awarded automatically from what your team already does, with EXP and an instance leaderboard on top.
 {{< /hextra/hero-subtitle >}}
 
 {{< spacer >}}

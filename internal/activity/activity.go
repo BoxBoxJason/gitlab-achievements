@@ -38,6 +38,8 @@ const (
 	KindBranchCreated Kind = "branch_created"
 	// KindTagCreated is a tag created by a push.
 	KindTagCreated Kind = "tag_created"
+	// KindReleasePublished is a release created by a user.
+	KindReleasePublished Kind = "release_published"
 	// KindMergeRequestOpened is a merge request opened by its author.
 	KindMergeRequestOpened Kind = "merge_request_opened"
 	// KindMergeRequestMerged is a merge request merged (GitLab reports the
@@ -50,11 +52,19 @@ const (
 	// the same merge request; how soon "soon" is belongs to the producer,
 	// since only it can see the two timestamps.
 	KindMergeRequestMergedFast Kind = "merge_request_merged_fast"
+	// KindMergeRequestLanded is a merge request merged, credited to its
+	// author rather than to whoever merged it. It always accompanies a
+	// KindMergeRequestMerged event for the same merge request, which credits
+	// the merger.
+	//
+	// Unlike every other kind, it is not something its actor did at the
+	// time it happened: somebody else merged their work. It therefore says
+	// nothing about which days the author was active.
+	KindMergeRequestLanded Kind = "merge_request_landed"
 	// KindMergeRequestClosed is a merge request closed without merging.
 	KindMergeRequestClosed Kind = "merge_request_closed"
-	// KindDiscussionResolved is a review discussion resolved by a user.
-	// Discussions GitLab resolves on its own when a push obsoletes them are
-	// not reported as this kind.
+	// KindDiscussionResolved is a review discussion resolved by a user,
+	// whether by hand or by a push that made it obsolete.
 	KindDiscussionResolved Kind = "discussion_resolved"
 	// KindIssueOpened is an issue opened by its author.
 	KindIssueOpened Kind = "issue_opened"
@@ -63,6 +73,10 @@ const (
 	// KindComment is a note left on an issue, merge request, commit, or
 	// snippet. System-generated notes are not reported as this kind.
 	KindComment Kind = "comment"
+	// KindReviewComment is a comment left on a line of a merge request's
+	// diff, which is to say a code review comment. It is always accompanied
+	// by a KindComment event for the same note.
+	KindReviewComment Kind = "review_comment"
 	// KindPipelineRun is a pipeline that ran, whatever its outcome.
 	KindPipelineRun Kind = "pipeline_run"
 	// KindPipelineSucceeded is a pipeline that finished successfully. It is
@@ -71,6 +85,11 @@ const (
 	// KindPipelineFailed is a pipeline that finished in failure. It is
 	// always accompanied by a KindPipelineRun event for the same pipeline.
 	KindPipelineFailed Kind = "pipeline_failed"
+	// KindPipelineFixed is a pipeline that passed on a ref whose previous
+	// pipeline to finish had failed: the build was broken, and this put it
+	// right. It is always accompanied by a KindPipelineSucceeded event for
+	// the same pipeline.
+	KindPipelineFixed Kind = "pipeline_fixed"
 	// KindJobRun is a single CI job that ran, whatever its outcome. Its
 	// outcome is deliberately not reported: the pipeline the job belongs to
 	// already carries one, and a failing job in a pipeline that passes on

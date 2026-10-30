@@ -27,3 +27,11 @@ func (c *ReadClient) ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMe
 		return c.raw.MergeRequests.ListProjectMergeRequests(pid, opt, withExtra(options, reqOpts...)...)
 	})
 }
+
+// ListMergeRequestDiscussions iterates every discussion on a merge request,
+// resolvable review threads and individual comments alike.
+func (c *ReadClient) ListMergeRequestDiscussions(pid any, mergeRequest int64, opt *gitlab.ListMergeRequestDiscussionsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Discussion, error] {
+	return iteratePages(func(reqOpts ...gitlab.RequestOptionFunc) ([]*gitlab.Discussion, *gitlab.Response, error) {
+		return c.raw.Discussions.ListMergeRequestDiscussions(pid, mergeRequest, opt, withExtra(options, reqOpts...)...)
+	})
+}
