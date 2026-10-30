@@ -53,6 +53,7 @@ const (
 	CriteriaMergeRequestsClosed     = "merge_requests_closed"
 	CriteriaMergeRequestsMergedFast = "merge_requests_merged_fast"
 	CriteriaComments                = "comments"
+	CriteriaReviewComments          = "review_comments"
 	CriteriaDiscussionsResolved     = "discussions_resolved"
 	CriteriaIssuesOpened            = "issues_opened"
 	CriteriaIssuesClosed            = "issues_closed"

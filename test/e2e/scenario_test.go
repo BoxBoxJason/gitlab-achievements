@@ -158,6 +158,12 @@ func (f *fixture) run(t *testing.T) []expectation {
 	must(t, err)
 	expect(alice, "discussions_resolved", 1, true, true, "resolve bob's MR thread")
 
+	// After the resolution, not before: a line comment opens a thread of its
+	// own, and GitLab 19.5 only sends the hook a resolution is seen by once
+	// every thread on the merge request is resolved.
+	f.diffNote(t, bob, mr.IID, "a.txt", "Typo on this line")
+	expect(bob, "review_comments", 1, true, false, "line comment on MR !1's diff")
+
 	_, _, err = gl.AwardEmoji.CreateMergeRequestAwardEmojiOnNote(pid, mr.IID, mrNote.ID,
 		&gitlab.CreateAwardEmojiOptions{Name: "thumbsup"}, as(alice))
 	must(t, err)
@@ -231,7 +237,7 @@ func (f *fixture) run(t *testing.T) []expectation {
 
 	_, _, err = gl.Notes.CreateSnippetNote(pid, snippet.ID, &gitlab.CreateSnippetNoteOptions{Body: new("Handy")}, as(bob))
 	must(t, err)
-	expect(bob, "comments", 3, true, false, "MR !1 comment + MR !1 thread + snippet comment")
+	expect(bob, "comments", 4, true, false, "MR !1 comment, thread and line comment + snippet comment")
 
 	// Wiki.
 	_, _, err = gl.Wikis.CreateWikiPage(pid, &gitlab.CreateWikiPageOptions{Title: new("Home"), Content: new("Welcome")}, as(alice))
@@ -284,6 +290,39 @@ func (f *fixture) commit(t *testing.T, user *gitlab.User, branch, path, content 
 		}},
 	}, as(user))
 	must(t, err)
+}
+
+// diffNote comments on the first line of path in a merge request's diff,
+// once GitLab has worked out the diff: right after creation its refs are
+// still being computed, and a position needs them.
+func (f *fixture) diffNote(t *testing.T, user *gitlab.User, iid int64, path, body string) {
+	t.Helper()
+
+	for range 60 {
+		mr, _, err := f.gl.MergeRequests.GetMergeRequest(f.project.ID, iid, nil)
+		must(t, err)
+
+		refs := mr.DiffRefs
+		if refs.HeadSha == "" || refs.BaseSha == "" {
+			time.Sleep(2 * time.Second)
+
+			continue
+		}
+
+		_, _, err = f.gl.Discussions.CreateMergeRequestDiscussion(f.project.ID, iid, &gitlab.CreateMergeRequestDiscussionOptions{
+			Body: new(body),
+			Position: &gitlab.PositionOptions{
+				PositionType: new("text"),
+				BaseSHA:      new(refs.BaseSha), StartSHA: new(refs.StartSha), HeadSHA: new(refs.HeadSha),
+				NewPath: new(path), OldPath: new(path), NewLine: new(int64(1)),
+			},
+		}, as(user))
+		must(t, err)
+
+		return
+	}
+
+	t.Fatalf("the diff of !%d was never ready to comment on", iid)
 }
 
 func (f *fixture) head(t *testing.T, branch string) string {

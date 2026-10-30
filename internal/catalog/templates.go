@@ -246,6 +246,18 @@ var templates = []Template{
 		MaxTier:     maxTier,
 	},
 	{
+		// Commentator counts small talk on an issue the same as a remark on
+		// line 40 of somebody's change. This counts only the latter.
+		CriteriaKey: CriteriaReviewComments,
+		Category:    CategoryMergeRequests,
+		Title:       "Code Reviewer %s",
+		Description: "Leave %d comments on merge request diffs.",
+		First:       "Leave your first comment on a merge request diff.",
+		AvatarPath:  "assets/review.png",
+		Curve:       StandardMediumCurve,
+		MaxTier:     maxTier,
+	},
+	{
 		CriteriaKey: CriteriaDiscussionsResolved,
 		Category:    CategoryMergeRequests,
 		Title:       "Loose Ends %s",

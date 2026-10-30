@@ -29,6 +29,7 @@ var kindCriteria = map[activity.Kind][]string{
 	activity.KindIssueOpened:            {catalog.CriteriaIssuesOpened},
 	activity.KindIssueClosed:            {catalog.CriteriaIssuesClosed},
 	activity.KindComment:                {catalog.CriteriaComments},
+	activity.KindReviewComment:          {catalog.CriteriaReviewComments},
 	activity.KindDiscussionResolved:     {catalog.CriteriaDiscussionsResolved},
 	activity.KindPipelineRun:            {catalog.CriteriaPipelinesRun},
 	activity.KindPipelineSucceeded:      {catalog.CriteriaPipelinesSucceeded},

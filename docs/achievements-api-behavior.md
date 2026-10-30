@@ -84,7 +84,7 @@ The same hazard sits one layer lower, in the HTTP client. A 5xx can follow a mut
 
 ## What this app does with all of it
 
-**Only the top tier a user has reached in a criteria is ever pushed to GitLab.** The catalog stacks eleven tiers across twenty-seven criteria. The engine still records every tier a user reaches, and every tier still pays its EXP, but delivery pushes one per criteria. On promotion the superseded tier is revoked and its row marked `superseded`.
+**Only the top tier a user has reached in a criteria is ever pushed to GitLab.** The catalog stacks eleven tiers across twenty-eight criteria. The engine still records every tier a user reaches, and every tier still pays its EXP, but delivery pushes one per criteria. On promotion the superseded tier is revoked and its row marked `superseded`.
 
 This is the same outcome the issue asked for ("only the highest earned tier of each criteria should be visible"), reached through what the app controls (what it awards) rather than through `showOnProfile`, which it does not control. It also settles the question the issue raised about ordering the two mutations around a crash: there is no visibility mutation to order, and award-then-revoke crashing in the middle leaves the old tier live for one reconciliation pass, never zero tiers.
 

@@ -16,6 +16,7 @@ Almost everything a pass reads is activity the live path already counted, so the
 | Merge request | `merge_request:<id>:<action>` | `target_id` |
 | Issue | `issue:<id>:<action>` | `target_id` |
 | Comment | `note:<id>` | `note.id` |
+| Review comment | `note:<id>:review_comment` | `note.id`, of a `DiffNote` on a merge request |
 | Pipeline | `pipeline:<id>` | the pipeline's ID |
 | Merge request landed | `merge_request:<id>:landed` | the merge request's ID, from the merge requests API |
 

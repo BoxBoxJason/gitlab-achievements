@@ -930,3 +930,44 @@ func TestParseEventTime_KeepsTheOffsetGitLabReported(t *testing.T) {
 		t.Errorf("expected the reported hour 23 to survive, got %d", got.Hour())
 	}
 }
+
+func mergeNote(noteType string) *gitlab.MergeCommentEvent {
+	return &gitlab.MergeCommentEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+		ObjectAttributes: gitlab.MergeCommentEventObjectAttributes{
+			ID: 8, AuthorID: 10, ProjectID: 1, Type: noteType, CreatedAt: "2026-03-04 11:00:00 UTC",
+		},
+	}
+}
+
+func TestNormalize_ADiffNoteIsAlsoAReviewComment(t *testing.T) {
+	events := normalize(mergeNote("DiffNote"), receivedAt)
+
+	review := findKind(t, events, activity.KindReviewComment)
+	if review.DedupKey != "note:8:review_comment" || review.ActorID != 10 {
+		t.Errorf("expected alice's review comment keyed on the note, got %+v", review)
+	}
+
+	if findKind(t, events, activity.KindComment).DedupKey != "note:8" {
+		t.Error("expected the note still counted as a comment")
+	}
+}
+
+func TestNormalize_ACommentOffTheDiffIsNoReview(t *testing.T) {
+	for _, noteType := range []string{"", "DiscussionNote"} {
+		for _, got := range normalize(mergeNote(noteType), receivedAt) {
+			if got.Kind == activity.KindReviewComment {
+				t.Errorf("type %q: expected no review comment", noteType)
+			}
+		}
+	}
+}
+
+func TestNormalize_ASystemDiffNoteIsNoReview(t *testing.T) {
+	event := mergeNote("DiffNote")
+	event.ObjectAttributes.System = true
+
+	if events := normalize(event, receivedAt); len(events) != 0 {
+		t.Errorf("expected GitLab's own narration to count for nothing, got %v", kindsOf(events))
+	}
+}

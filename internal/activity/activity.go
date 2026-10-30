@@ -71,6 +71,10 @@ const (
 	// KindComment is a note left on an issue, merge request, commit, or
 	// snippet. System-generated notes are not reported as this kind.
 	KindComment Kind = "comment"
+	// KindReviewComment is a comment left on a line of a merge request's
+	// diff, which is to say a code review comment. It is always accompanied
+	// by a KindComment event for the same note.
+	KindReviewComment Kind = "review_comment"
 	// KindPipelineRun is a pipeline that ran, whatever its outcome.
 	KindPipelineRun Kind = "pipeline_run"
 	// KindPipelineSucceeded is a pipeline that finished successfully. It is

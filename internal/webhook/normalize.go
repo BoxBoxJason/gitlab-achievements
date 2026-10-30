@@ -55,6 +55,11 @@ const (
 	wikiActionCreate = "create"
 )
 
+// diffNoteType is a note's type when it was left on a line of a diff, as
+// opposed to a "DiscussionNote" starting a thread on the whole merge
+// request, or no type at all for a plain comment.
+const diffNoteType = "DiffNote"
+
 // fastMergeWindow is how soon after being opened a merge request has to be
 // merged to count as fast. An hour is short enough that hitting it means
 // the review was quick rather than that the day was, and long enough not to
@@ -144,6 +149,8 @@ func normalizeComment(event any, receivedAt time.Time) []activity.Event {
 			id: attrs.ID, authorID: attrs.AuthorID, username: username, avatarURL: avatarURL,
 			projectID: payload.ProjectID, createdAt: attrs.CreatedAt, system: attrs.System,
 		}, receivedAt)
+
+		activities = append(activities, reviewComment(attrs.Type, activities)...)
 
 		// Merge request notes are the only ones that can be resolved, and
 		// the only comment payload carrying the resolution fields.
@@ -511,6 +518,21 @@ func normalizeNote(comment note, receivedAt time.Time) []activity.Event {
 		ProjectID:      comment.projectID,
 		Count:          1,
 	}}
+}
+
+// reviewComment derives a code review comment from the comment a merge
+// request note was counted as, when the note was left on a line of the
+// diff rather than on the merge request as a whole.
+//
+// Only merge request notes qualify. A commit's diff can be commented on
+// too, but its payload doesn't say whether a note was, so counting those
+// here would be counting whatever subset happened to be recognizable.
+func reviewComment(noteType string, comment []activity.Event) []activity.Event {
+	if noteType != diffNoteType || len(comment) == 0 {
+		return nil
+	}
+
+	return []activity.Event{activityFrom(comment[0], activity.KindReviewComment, 1)}
 }
 
 // normalizeResolution counts a review discussion a user resolved.

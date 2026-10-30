@@ -27,6 +27,7 @@
 //	merge request . merge_request:<id>:<action>        (target_id)
 //	issue ......... issue:<id>:<action>                (target_id)
 //	comment ....... note:<id>                          (note.id)
+//	review comment  note:<id>:review_comment           (a DiffNote's note.id)
 //	pipeline ...... pipeline:<id>
 //	landed merge .. merge_request:<id>:landed          (merge requests API)
 //
@@ -233,7 +234,22 @@ func targetActivities(event *gitlab.ProjectEvent, base activity.Event) []activit
 	base.DedupKey = key
 	base.Count = 1
 
+	if kind == activity.KindComment && reviewNote(event) {
+		return []activity.Event{base, activityFrom(base, activity.KindReviewComment, 1)}
+	}
+
 	return []activity.Event{base}
+}
+
+// reviewNote reports whether a note event is a comment on a line of a merge
+// request's diff. GitLab reports those as DiffNotes, which is also what a
+// comment on a commit's diff is, so what the note was left on tells the two
+// apart:
+// the webhook path can only recognize the merge request ones.
+func reviewNote(event *gitlab.ProjectEvent) bool {
+	folded := strings.ToLower(strings.ReplaceAll(event.TargetType, "_", ""))
+
+	return folded == "diffnote" && normalizeTargetType(event.Note.NoteableType) == targetMergeRequest
 }
 
 // targetKind maps a non-push event's target type and action onto the

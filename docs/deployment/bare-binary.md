@@ -77,7 +77,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now gitlab-achievements
 ```
 
-Watch the first start. Bootstrap runs before anything is served, verifying both tokens, creating 297 achievements, and registering a webhook on every group (or, on Free/CE, every project). Only then does the port open:
+Watch the first start. Bootstrap runs before anything is served, verifying both tokens, creating 308 achievements, and registering a webhook on every group (or, on Free/CE, every project). Only then does the port open:
 
 ```bash
 journalctl -u gitlab-achievements -f

@@ -936,6 +936,91 @@
       ]
     },
     {
+      "criteria_key": "review_comments",
+      "category": "merge_requests",
+      "title": "Code Reviewer",
+      "icon_url": "/api/v1/achievements/review_comments/icon",
+      "tiers": [
+        {
+          "name": "Code Reviewer I",
+          "description": "Leave 2 comments on merge request diffs.",
+          "tier": 1,
+          "threshold": 2,
+          "exp_reward": 1
+        },
+        {
+          "name": "Code Reviewer II",
+          "description": "Leave 10 comments on merge request diffs.",
+          "tier": 2,
+          "threshold": 10,
+          "exp_reward": 3
+        },
+        {
+          "name": "Code Reviewer III",
+          "description": "Leave 20 comments on merge request diffs.",
+          "tier": 3,
+          "threshold": 20,
+          "exp_reward": 5
+        },
+        {
+          "name": "Code Reviewer IV",
+          "description": "Leave 100 comments on merge request diffs.",
+          "tier": 4,
+          "threshold": 100,
+          "exp_reward": 10
+        },
+        {
+          "name": "Code Reviewer V",
+          "description": "Leave 200 comments on merge request diffs.",
+          "tier": 5,
+          "threshold": 200,
+          "exp_reward": 50
+        },
+        {
+          "name": "Code Reviewer VI",
+          "description": "Leave 1000 comments on merge request diffs.",
+          "tier": 6,
+          "threshold": 1000,
+          "exp_reward": 100
+        },
+        {
+          "name": "Code Reviewer VII",
+          "description": "Leave 2000 comments on merge request diffs.",
+          "tier": 7,
+          "threshold": 2000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Code Reviewer VIII",
+          "description": "Leave 10000 comments on merge request diffs.",
+          "tier": 8,
+          "threshold": 10000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Code Reviewer IX",
+          "description": "Leave 20000 comments on merge request diffs.",
+          "tier": 9,
+          "threshold": 20000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Code Reviewer X",
+          "description": "Leave 100000 comments on merge request diffs.",
+          "tier": 10,
+          "threshold": 100000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Code Reviewer XI",
+          "description": "Leave 200000 comments on merge request diffs.",
+          "tier": 11,
+          "threshold": 200000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "discussions_resolved",
       "category": "merge_requests",
       "title": "Loose Ends",

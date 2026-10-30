@@ -417,6 +417,24 @@ def comment(c):
 
 
 @icon
+def review(c):
+    """Code Reviewer - a magnifier over a diff.
+
+    Green and red lines for the added and removed, so it reads as a diff
+    rather than as any page: mropen() already owns the plain page.
+    """
+    c.rect(2, 3, 20, 22, 'W')
+    c.shade('W', 'w', lambda x, y: x > 15)
+    for y, colour, width in ((6, 'G', 12), (10, 'R', 9), (14, 'G', 14), (18, 's', 10)):
+        c.rect(5, y, width, 2, colour)
+    c.line(21, 21, 28, 28, 'N', 4)
+    c.disc(18, 18, 7, 'S')
+    c.disc(18, 18, 5, 'T')
+    c.shade('T', 't', lambda x, y: x + y > 37)
+    c.outline()
+
+
+@icon
 def resolved(c):
     """Loose Ends - a discussion bubble, ticked off."""
     c.rect(3, 4, 26, 17, 'T')

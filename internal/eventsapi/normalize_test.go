@@ -496,3 +496,42 @@ func TestNormalizeMergedMergeRequest_NeedsAMergeAndAnAuthor(t *testing.T) {
 		}
 	}
 }
+
+func diffNoteEvent(noteableType string) *gitlab.ProjectEvent {
+	return &gitlab.ProjectEvent{
+		ID: 910, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "DiffNote", TargetID: 5501, ActionName: "commented on",
+		Note: gitlab.ProjectEventNote{ID: 5501, NoteableType: noteableType},
+	}
+}
+
+func TestNormalizeProjectEvent_AMergeRequestDiffNoteIsAReviewComment(t *testing.T) {
+	activities := NormalizeProjectEvent(diffNoteEvent("MergeRequest"))
+
+	if len(activities) != 2 || activities[0].Kind != activity.KindComment || activities[1].Kind != activity.KindReviewComment {
+		t.Fatalf("expected a comment and a review comment, got %v", kindsOf(activities))
+	}
+
+	if activities[1].DedupKey != "note:5501:review_comment" {
+		t.Errorf("expected the review keyed on the note, got %q", activities[1].DedupKey)
+	}
+}
+
+func TestNormalizeProjectEvent_ACommitDiffNoteIsOnlyAComment(t *testing.T) {
+	// The webhook path can't tell a commit's diff notes from its other
+	// notes, so neither path counts them as reviews.
+	activities := NormalizeProjectEvent(diffNoteEvent("Commit"))
+
+	if len(activities) != 1 || activities[0].Kind != activity.KindComment {
+		t.Errorf("expected only a comment, got %v", kindsOf(activities))
+	}
+}
+
+func TestNormalizeProjectEvent_ADiscussionNoteIsNoReview(t *testing.T) {
+	event := diffNoteEvent("MergeRequest")
+	event.TargetType = "DiscussionNote"
+
+	if activities := NormalizeProjectEvent(event); len(activities) != 1 {
+		t.Errorf("expected only a comment, got %v", kindsOf(activities))
+	}
+}

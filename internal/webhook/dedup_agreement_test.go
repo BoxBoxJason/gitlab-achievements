@@ -290,3 +290,21 @@ func TestDedupKeysAgree_MergeRequestLanded(t *testing.T) {
 
 	agreesOn(t, activity.KindMergeRequestLanded, live, historical)
 }
+
+func TestDedupKeysAgree_ReviewComment(t *testing.T) {
+	live := normalize(&gitlab.MergeCommentEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 7,
+		ObjectAttributes: gitlab.MergeCommentEventObjectAttributes{
+			ID: 5501, AuthorID: 10, ProjectID: 7, Type: "DiffNote", CreatedAt: "2026-03-04 11:00:00 UTC",
+		},
+	}, receivedAt)
+
+	historical := eventsapi.NormalizeProjectEvent(&gitlab.ProjectEvent{
+		ID: 910, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "DiffNote", TargetID: 5501, ActionName: "commented on",
+		Note: gitlab.ProjectEventNote{ID: 5501, NoteableType: "MergeRequest"},
+	})
+
+	agreesOn(t, activity.KindComment, live, historical)
+	agreesOn(t, activity.KindReviewComment, live, historical)
+}
