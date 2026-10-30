@@ -1,4 +1,7 @@
-# Who takes part
+---
+title: Who takes part
+weight: 80
+---
 
 Everyone active on the instance takes part by default, except bots. Three things can leave an account out: GitLab flagging it as a bot, the operator listing it, or the user opting out.
 
@@ -18,7 +21,7 @@ On by default (`EXCLUDE_BOTS=true`). GitLab flags as bots the users behind proje
 
 The first time an account is seen, the app asks GitLab (`GET /api/v4/users/:id`) and remembers the answer, which never changes for a given account. While GitLab cannot be asked, the account is judged on its username. GitLab names its token users `project_<id>_bot_<hash>` and `group_<id>_bot_<hash>`, and those, along with the `ghost` user, are recognized without a lookup. The account is asked about again on its next activity.
 
-At every start, a background sweep asks about every tracked user not yet classified, paced at `BACKFILL_RATE`. That covers everyone recorded before bot exclusion existed. Its progress shows as the `bot_sweep` job in the [metrics](metrics.md).
+At every start, a background sweep asks about every tracked user not yet classified, paced at `BACKFILL_RATE`. That covers everyone recorded before bot exclusion existed. Its progress shows as the `bot_sweep` job in the [metrics]({{< relref "/docs/metrics" >}}).
 
 Accounts that run automation under a human-looking user (a shared `ci` account, say) are not flagged by GitLab. List them yourself.
 
@@ -44,7 +47,7 @@ $ curl -s           -H "Authorization: Bearer $TOKEN" https://achievements.examp
 
 `reason` says why someone is excluded even when it is not their doing (`bot`, `configured`), so a user wondering why they are not ranked finds out.
 
-Opting out is allowed by default (`ALLOW_OPT_OUT=true`). With it off, `POST` answers `403`, but `DELETE` still works, so nobody who opted out earlier is stuck that way. Activity from the time someone was opted out is not counted when they come back, except whatever the [reconciliation](reconciliation.md) look-back window still reaches.
+Opting out is allowed by default (`ALLOW_OPT_OUT=true`). With it off, `POST` answers `403`, but `DELETE` still works, so nobody who opted out earlier is stuck that way. Activity from the time someone was opted out is not counted when they come back, except whatever the [reconciliation]({{< relref "/docs/reconciliation" >}}) look-back window still reaches.
 
 Without authentication the API cannot tell who is asking, so the endpoints answer `404`. Use `EXCLUDE_USERS` instead.
 

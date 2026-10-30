@@ -1,4 +1,7 @@
-# Uninstalling
+---
+title: Uninstalling
+weight: 60
+---
 
 Retiring the deployment leaves its footprint on GitLab: webhooks pointing at a URL that no longer answers, and 275 achievement definitions in your namespace. The `uninstall` subcommand takes both off.
 
@@ -43,6 +46,6 @@ Run `uninstall` before you drop the database, not after. Doing it in the other o
 
 Each deployment guide has the runnable version:
 
-- [Kubernetes](deployment/kubernetes.md#uninstalling), as a one-off Job carrying the release's own configuration
-- [Docker Compose](deployment/docker-compose.md#uninstalling), as `docker compose run --rm app uninstall`
-- [Bare binary](deployment/bare-binary.md#uninstalling), as a transient `systemd-run` unit
+- [Kubernetes]({{< relref "/docs/deployment/kubernetes#uninstalling" >}}), as a one-off Job carrying the release's own configuration
+- [Docker Compose]({{< relref "/docs/deployment/docker-compose#uninstalling" >}}), as `docker compose run --rm app uninstall`
+- [Bare binary]({{< relref "/docs/deployment/bare-binary#uninstalling" >}}), as a transient `systemd-run` unit

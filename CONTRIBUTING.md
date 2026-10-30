@@ -29,6 +29,17 @@ make build/all         # the frontend, then the binary embedding it
 
 Branch off `main`, keep the tests passing, and open a pull request explaining what changed and why. Commits follow [Conventional Commits](https://www.conventionalcommits.org/), since the changelog is generated from them.
 
+## Documentation
+
+The documentation lives in [`docs`](docs), as Markdown rendered by [Hugo](https://gohugo.io/) (extended edition) with the shared [hugo-theme](https://github.com/BoxBoxJason/hugo-theme), and is published to <https://boxboxjason.github.io/gitlab-achievements/> from `main`.
+
+- Change the documentation in the same pull request as the code it describes.
+- `make docs-serve` serves the site locally with live reload, `make docs` builds it into `docs/public`.
+- The [CLI reference](docs/content/docs/cli-reference.md) page is generated from the CLI definition: run `make docs-generate` after changing a flag or a command, and commit the result.
+- The Helm chart values page is the chart README, published as is: run `make helm/docs` after changing `chart/values.yaml`.
+- `make test` fails when a flag, an environment variable or a subcommand is not documented in [configuration.md](docs/content/docs/configuration.md) (and a subcommand's own flags in its page), or when the generated page is stale.
+- Look and feel (colors, footer, ...) belong to the shared theme, do not restyle a single site.
+
 ## Code style
 
 Standard Go, `gofmt`ed, with `golangci-lint` clean. The linter config in [.golangci.yml](.golangci.yml) is the actual contract, so if it passes it is fine.
@@ -38,8 +49,8 @@ Two things the linter cannot check for you:
 - **Comment the why, not the what.** Most of the non-obvious decisions in this codebase are non-obvious because GitLab's API forced them. Those constraints belong next to the code that works around them.
 - **Cover the edges.** Anything touching award delivery, deduplication or resumability needs a test, because a bug there is one nobody can see until somebody's EXP is wrong.
 
-The frontend is Vue 3 with TypeScript and Tailwind, styled after GitLab's Pajamas design system with GitLab's own fonts and icons. Keep it looking like a page of GitLab: its tokens are in `web/src/styles/main.css`, and the [frontend docs](docs/frontend.md) cover the rest.
+The frontend is Vue 3 with TypeScript and Tailwind, styled after GitLab's Pajamas design system with GitLab's own fonts and icons. Keep it looking like a page of GitLab: its tokens are in `web/src/styles/main.css`, and the [frontend docs](docs/content/docs/frontend.md) cover the rest.
 
 ## Testing against a real instance
 
-A few tests run against a live GitLab rather than a mock. [docs/achievements-api-behavior.md](docs/achievements-api-behavior.md) has a throwaway instance in one `podman run`, and the environment variables the live tests look for.
+A few tests run against a live GitLab rather than a mock. [docs/content/docs/achievements-api-behavior.md](docs/content/docs/achievements-api-behavior.md) has a throwaway instance in one `podman run`, and the environment variables the live tests look for.

@@ -1,4 +1,7 @@
-# The API
+---
+title: The API
+weight: 100
+---
 
 GitLab shows which achievements somebody holds but has no notion of EXP, so this app is the only place that number exists. It is served read-only under `/api/v1/`, from the local database alone. No GitLab call sits on the data path, which means the API keeps answering while the instance it mirrors is down or rate-limiting.
 
@@ -14,9 +17,9 @@ GitLab shows which achievements somebody holds but has no notion of EXP, so this
 | `GET` | `/api/v1/achievements/{criteria}/icon` | The PNG every tier of a criteria shares |
 | `GET` | `/api/v1/me` | Who is signed in, and their record. See [Who is signed in](#who-is-signed-in) |
 | `GET` | `/api/v1/instance` | The GitLab instance this deployment mirrors, and the version serving it. See [The instance](#the-instance) |
-| `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part](participation.md#opting-out) |
+| `GET` `POST` `DELETE` | `/api/v1/me/opt-out` | The caller's own opt-out: read it, opt out, opt back in. Needs `API_AUTH=gitlab`, see [Who takes part]({{< relref "/docs/participation#opting-out" >}}) |
 
-Users who are [left out](participation.md) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
+Users who are [left out]({{< relref "/docs/participation" >}}) (bots, accounts the operator listed, people who opted out) are absent from every endpoint: not ranked, and a `404` when looked up.
 
 `{ref}` is either a numeric GitLab user ID or a username. An all-digit ref is tried as an ID first and falls back to a username, so an all-numeric username still resolves unless it collides with a real user ID. Usernames resolve through whatever this app last saw, so somebody who was renamed on GitLab is still found under their current name.
 
@@ -61,7 +64,7 @@ The full record adds the counters behind the total and the tiers earned off them
 
 `counters` and `awards` are always encoded, as `[]` rather than `null` when empty, so you can index into them without a nil check.
 
-Awards are reported whatever their delivery status, which matches how EXP is totalled: a tier is earned the moment the engine says so, and a `superseded` tier still pays even though it is not what GitLab displays. `status` and `shown_on_profile` both appear because they answer different questions. `status` is how far this app got pushing the award; `shown_on_profile` is whether the recipient accepted it, which [only they can do](achievements-api-behavior.md).
+Awards are reported whatever their delivery status, which matches how EXP is totalled: a tier is earned the moment the engine says so, and a `superseded` tier still pays even though it is not what GitLab displays. `status` and `shown_on_profile` both appear because they answer different questions. `status` is how far this app got pushing the award; `shown_on_profile` is whether the recipient accepted it, which [only they can do]({{< relref "/docs/achievements-api-behavior" >}}).
 
 The full record also carries `rank`, the user's position on the all-time leaderboard.
 
@@ -182,7 +185,7 @@ Anything else is refused with a `400` before the browser goes to GitLab, so the 
 
 | Answer | Meaning |
 | --- | --- |
-| `200` | Signed in. The body has `username`, `avatar_url`, `gitlab_user_id`, `record` (the same document as `/users/{ref}`, or `null` for somebody with nothing recorded yet or who is [left out](participation.md)), and `participation` |
+| `200` | Signed in. The body has `username`, `avatar_url`, `gitlab_user_id`, `record` (the same document as `/users/{ref}`, or `null` for somebody with nothing recorded yet or who is [left out]({{< relref "/docs/participation" >}})), and `participation` |
 | `401` | Not signed in: show a login link to `/oauth/login` |
 | `404` | This deployment has no sign-in (`API_AUTH=none`) |
 
@@ -213,7 +216,7 @@ A verified credential is trusted for `API_AUTH_CACHE_TTL` (one minute by default
 
 State-changing requests (`POST`, `DELETE`) are checked for cross-site request forgery: a browser request from another origin is refused with `403`. Scripts using a bearer token send no such headers and are unaffected.
 
-A frontend that uses the session cookie should be served from the same origin as the API, as the built-in one is. See [The frontend](frontend.md).
+A frontend that uses the session cookie should be served from the same origin as the API, as the built-in one is. See [The frontend]({{< relref "/docs/frontend" >}}).
 
 ## The other endpoints
 
@@ -226,7 +229,7 @@ Everything is served on one port, `LISTEN_ADDR`.
 | `/webhooks/gitlab` | Where GitLab's deliveries arrive. `POST` only, authenticated with the webhook secret |
 | `/api/v1/...` | The read API |
 | `/oauth/...` | Browser login flow, when `API_AUTH=gitlab` |
-| `/` | The web frontend, or the one `FRONTEND_DIR` names. See [The frontend](frontend.md) |
+| `/` | The web frontend, or the one `FRONTEND_DIR` names. See [The frontend]({{< relref "/docs/frontend" >}}) |
 
 `/healthz` and `/readyz` are unauthenticated by design.
 

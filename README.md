@@ -20,39 +20,26 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 > [!NOTE]
 > Early days. Everything described here is implemented and covered by tests, but the project is young and GitLab's achievements API is still marked Experiment. Bug reports and [issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) are very welcome.
 
-## What people earn
+![A GitLab profile showing the achievements this app awarded](docs/static/screenshots/gitlab-profile.png)
 
-![A GitLab profile showing the achievements this app awarded](docs/screenshots/gitlab-profile.png)
+Every one of the 25 criteria (commits, merge requests, reviews, pipelines, deployments, streaks, ...) stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Each tier is worth EXP, and the binary serves the instance leaderboard and everyone's progress toward their next tier. [The full catalog](https://boxboxjason.github.io/gitlab-achievements/docs/achievements/).
 
-| Category | Criteria |
-| --- | --- |
-| **Git** | commits, pushes, branches created, tags created |
-| **Merge requests & review** | opened, merged, merged within the hour, approved, closed unmerged, comments left, discussions resolved |
-| **Issues** | opened, closed |
-| **CI/CD** | pipelines run, passed, failed, jobs run, deployments, deployments succeeded |
-| **Collaboration** | emoji reactions given, wiki pages created |
-| **Engagement** | days active, longest streak, night owl days, early bird days |
-
-Every criteria stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Thresholds run from 1 to 100,000, so the first tier lands on someone's first day and the last one is a running joke.
-
-Each tier is worth EXP, and a user's total is the sum of what they hold. Only the top tier of a criteria is pushed to GitLab, so a profile shows one *Committer* badge rather than eleven near-identical ones.
-
-## See where everyone stands
-
-GitLab shows each badge on its own; this app shows the game around them. Open its URL in a browser for the instance leaderboard, all time or over the last day, week, month or year, each person's progress toward their next tier, and the full catalog with a ranking for every achievement. It looks like GitLab, in light and dark, and is compiled into the binary, so there is nothing extra to deploy. [More on the frontend](docs/frontend.md).
-
-![The leaderboard, ranked by EXP](docs/screenshots/leaderboard.png)
+![The leaderboard, ranked by EXP](docs/static/screenshots/leaderboard.png)
 
 <p>
-  <img src="docs/screenshots/achievements.png" alt="The achievements catalog, with the EXP each tier pays and your progress in each" width="49%">
-  <img src="docs/screenshots/profile.png" alt="A user's page: rank, EXP, recently reached tiers and progress toward the next ones" width="49%">
+  <img src="docs/static/screenshots/achievements.png" alt="The achievements catalog, with the EXP each tier pays and your progress in each" width="49%">
+  <img src="docs/static/screenshots/profile.png" alt="A user's page: rank, EXP, recently reached tiers and progress toward the next ones" width="49%">
 </p>
+
+## Documentation
+
+📖 **<https://boxboxjason.github.io/gitlab-achievements/>**
+
+Start with the [GitLab-side setup](https://boxboxjason.github.io/gitlab-achievements/docs/gitlab-setup/), then pick a deployment: [Kubernetes](https://boxboxjason.github.io/gitlab-achievements/docs/deployment/kubernetes/), [Docker Compose](https://boxboxjason.github.io/gitlab-achievements/docs/deployment/docker-compose/) or a [bare binary](https://boxboxjason.github.io/gitlab-achievements/docs/deployment/bare-binary/). Every flag and environment variable is in [Configuration](https://boxboxjason.github.io/gitlab-achievements/docs/configuration/), and the EXP endpoints in [The API](https://boxboxjason.github.io/gitlab-achievements/docs/api/). The site is built from the [`docs`](docs) directory of this repository, so it is updated together with the code.
 
 ## Quick start
 
-You need a self-hosted GitLab 16.6 or later, a group to hold the achievement definitions, two access tokens and a URL your instance can reach. [GitLab-side setup](docs/gitlab-setup.md) covers all of it and takes about ten minutes.
-
-Then, on any host with Docker Compose:
+On any host with Docker Compose, once the [GitLab-side setup](https://boxboxjason.github.io/gitlab-achievements/docs/gitlab-setup/) is done:
 
 ```bash
 git clone https://github.com/BoxBoxJason/gitlab-achievements.git
@@ -62,62 +49,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-The first start creates 275 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
-
-```bash
-curl -sf http://127.0.0.1:8080/readyz && echo ready
-```
-
-Awards start going out as people work, and history gets walked in the background so past activity counts too. Open the same URL in a browser for the [leaderboard and everyone's progress](docs/frontend.md). One thing to warn your team about: GitLab keeps an award hidden until its recipient accepts it from the email it sends, and [nobody but the recipient can do that](docs/achievements-api-behavior.md).
-
-## The EXP API
-
-GitLab has no notion of points, so this app is the only place that number exists. It is served read-only, straight from its own database.
-
-| Method | Path | Returns |
-| --- | --- | --- |
-| `GET` | `/api/v1/users/{ref}` | EXP total, criteria counters, and every tier earned |
-| `GET` | `/api/v1/users/{ref}/exp` | Just the number |
-| `GET` | `/api/v1/leaderboard` | Users ranked by EXP, paged, all-time or over a `period` (`day`, `week`, `month`, `year`) |
-| `GET` | `/api/v1/leaderboard/criteria/{criteria}` | Users ranked by one counter, with the tier each reached |
-| `GET` | `/api/v1/achievements` | Every achievement there is to earn, by category, with icons |
-
-```console
-$ curl -s https://achievements.example.com/api/v1/users/alice/exp
-{"username":"alice","gitlab_user_id":42,"exp_total":1350}
-```
-
-`{ref}` is a username or a numeric user ID. Open to anyone by default; set `API_AUTH=gitlab` and callers have to present a GitLab token, or sign in through the browser at `/oauth/login`. Full details in [the API reference](docs/api.md).
-
-## Deploy it
-
-One static binary. It keeps its state in SQLite by default — no separate database to run — or PostgreSQL, MySQL/MariaDB, or SQL Server if you'd rather. No agent on your GitLab, no plugin, no patched instance.
-
-| Target | What you get | Guide |
-| --- | --- | --- |
-| **Kubernetes** | Helm chart with probes, ingress, secrets and an optional backfill Job | [docs/deployment/kubernetes.md](docs/deployment/kubernetes.md) |
-| **Docker Compose** | The app and a PostgreSQL on one host, from one file | [docs/deployment/docker-compose.md](docs/deployment/docker-compose.md) |
-| **Bare binary** | A systemd unit against a database you already run | [docs/deployment/bare-binary.md](docs/deployment/bare-binary.md) |
-
-Run one copy of it. It owns your instance's webhooks and its own background sweeps, so a second replica just does everything twice.
-
-## Documentation
-
-Everything lives in [docs/](docs/).
-
-| | |
-| --- | --- |
-| [GitLab-side setup](docs/gitlab-setup.md) | The group, the two tokens, the webhook secret. Start here |
-| [Configuration](docs/configuration.md) | Every flag and environment variable |
-| [How it works](docs/how-it-works.md) | The lifecycle, from bootstrap to steady state |
-| [Achievements & EXP](docs/achievements.md) | The catalog, the tiers, and what reaches GitLab |
-| [The frontend](docs/frontend.md) | The leaderboard and progress pages the binary serves |
-| [Who takes part](docs/participation.md) | Bots left out by default, excluding accounts, opting out |
-| [The API](docs/api.md) | Endpoints, responses, authentication |
-| [Webhooks](docs/webhooks.md) | Which hooks get registered, and why |
-| [Historical backfill](docs/backfill.md) | Awarding for activity that predates the bot |
-| [Reconciliation](docs/reconciliation.md) | Catching what the webhooks dropped |
-| [Uninstalling](docs/uninstall.md) | Taking it back off your instance |
+The first start creates 275 achievements and registers webhooks before it serves anything. Once `/readyz` answers, you are live. More in the [Quick start](https://boxboxjason.github.io/gitlab-achievements/docs/quick-start/).
 
 ## Contributing
 
@@ -129,6 +61,7 @@ make test       # unit tests
 make lint       # golangci-lint
 make package    # container image
 make helm/lint  # lint and render the Helm chart
+make docs-serve # the documentation site, with live reload
 ```
 
 ## License

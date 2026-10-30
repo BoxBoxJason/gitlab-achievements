@@ -1,6 +1,9 @@
-# Docker Compose
+---
+title: Docker Compose
+weight: 2
+---
 
-The self-contained option: the app and a PostgreSQL to keep its state in, on one host, from one file. Work through [GitLab-side setup](../gitlab-setup.md) first.
+The self-contained option: the app and a PostgreSQL to keep its state in, on one host, from one file. Work through [GitLab-side setup]({{< relref "/docs/gitlab-setup" >}}) first.
 
 ## Install
 
@@ -12,7 +15,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-You only need [`docker-compose.yml`](../../docker-compose.yml) and [`.env.example`](../../.env.example), so download those two if you would rather not clone the repository.
+You only need [`docker-compose.yml`](https://github.com/BoxBoxJason/gitlab-achievements/blob/main/docker-compose.yml) and [`.env.example`](https://github.com/BoxBoxJason/gitlab-achievements/blob/main/.env.example), so download those two if you would rather not clone the repository.
 
 `.env` holds both GitLab tokens, one of them instance-admin. It should be mode `0600`, owned by whoever runs compose, and never committed. The repository's `.gitignore` already covers it.
 
@@ -27,7 +30,7 @@ The app image is built `FROM scratch` and holds nothing but the binary, so there
 
 ## What to set
 
-Everything in `.env.example` is annotated, and the six required settings are listed in [configuration.md](../configuration.md). Two are compose-specific:
+Everything in `.env.example` is annotated, and the six required settings are listed in [configuration.md]({{< relref "/docs/configuration" >}}). Two are compose-specific:
 
 - **`DATABASE_DSN`** points at the bundled database by hostname `db`: `postgres://achievements:<password>@db:5432/achievements?sslmode=disable`. TLS is off because the connection never leaves compose's own network.
 - **`POSTGRES_PASSWORD`** has to be the same password as the one in that DSN. It is spelled twice because the app and PostgreSQL are configured separately, and it is the most common reason a first start fails on the database. The app refuses to start while the DSN still holds the example's `CHANGEME`.
@@ -75,11 +78,11 @@ By default the app walks history in the background on first start. To run it as 
 docker compose run --rm app backfill
 ```
 
-It runs bootstrap first, then walks, resuming near where an interrupted run stopped. On a large instance it is a long job by design: `BACKFILL_RATE` caps it to a trickle against somebody's production GitLab. See [Historical backfill](../backfill.md).
+It runs bootstrap first, then walks, resuming near where an interrupted run stopped. On a large instance it is a long job by design: `BACKFILL_RATE` caps it to a trickle against somebody's production GitLab. See [Historical backfill]({{< relref "/docs/backfill" >}}).
 
 ## Running the reconciliation sync separately
 
-By default the app re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, picking up webhook deliveries GitLab never managed to make. See [Reconciliation](../reconciliation.md) for what it does and does not heal.
+By default the app re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, picking up webhook deliveries GitLab never managed to make. See [Reconciliation]({{< relref "/docs/reconciliation" >}}) for what it does and does not heal.
 
 That is the right setting for a Compose deployment, which is a single app container. To hand it to the host's cron instead, set `RECONCILE=off` in `.env` and schedule:
 
@@ -106,6 +109,6 @@ docker compose run --rm app uninstall
 docker compose down -v
 ```
 
-`uninstall` removes the webhooks and the achievements it created. Pass `--keep-achievements` to take only the hooks and leave people the badges they earned, because deleting an achievement deletes every award of it and nothing brings those back. Full details in [Uninstalling](../uninstall.md).
+`uninstall` removes the webhooks and the achievements it created. Pass `--keep-achievements` to take only the hooks and leave people the badges they earned, because deleting an achievement deletes every award of it and nothing brings those back. Full details in [Uninstalling]({{< relref "/docs/uninstall" >}}).
 
 Run it before `down -v`, not after. The removal is driven by the records in the database, so a volume deleted first leaves the app no idea what to clean up, and recovering from that means `uninstall --sweep`, which enumerates the whole instance instead.

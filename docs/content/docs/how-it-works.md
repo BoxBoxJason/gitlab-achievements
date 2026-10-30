@@ -1,4 +1,7 @@
-# How it works
+---
+title: How it works
+weight: 70
+---
 
 One process, one database, and a GitLab instance it mirrors. Here is what it does from the moment you start it.
 
@@ -18,7 +21,7 @@ Only one process bootstraps a database at a time. Two passes running together wo
 
 Activity happened before you installed this. The app walks every group-owned project it can see and replays that history through the same rules live events go through, so a five-year-old instance does not start everyone at zero.
 
-By default this runs in the background after bootstrap, once, and resumes where it left off if the process restarts. See [Historical backfill](backfill.md).
+By default this runs in the background after bootstrap, once, and resumes where it left off if the process restarts. See [Historical backfill]({{< relref "/docs/backfill" >}}).
 
 ### 3. Live events
 
@@ -32,11 +35,11 @@ Award delivery takes a lease of its own, so the hourly sweep, a backfill's deliv
 
 ### 5. Activity reconciliation, daily
 
-Webhooks are best-effort. GitLab retries a delivery a few times and then gives up, and nothing in the live path notices, because a delivery that never arrives leaves no trace. Once a day the app re-reads the last couple of days of activity through the Events API and replays it. Anything already counted is discarded. See [Reconciliation](reconciliation.md).
+Webhooks are best-effort. GitLab retries a delivery a few times and then gives up, and nothing in the live path notices, because a delivery that never arrives leaves no trace. Once a day the app re-reads the last couple of days of activity through the Events API and replays it. Anything already counted is discarded. See [Reconciliation]({{< relref "/docs/reconciliation" >}}).
 
 ### 6. Serving
 
-Everything it works out is available over a read-only HTTP API: a user's EXP, the progress behind it, and a leaderboard. See [The API](api.md).
+Everything it works out is available over a read-only HTTP API: a user's EXP, the progress behind it, and a leaderboard. See [The API]({{< relref "/docs/api" >}}).
 
 ## Why two tokens
 
@@ -47,7 +50,7 @@ This app splits the difference by role rather than by scope:
 - **The read token** (`read_api`) belongs to an account with read access across whatever you want tracked. Every data fetch goes through it: the backfill, event enrichment, the reconciliation passes.
 - **The write token** (`api`) belongs to a service account that is Maintainer or Owner on the achievements group and an instance Administrator. It is only ever used for a small set of calls: creating and awarding achievements, and managing webhooks.
 
-The instance-admin requirement is not about achievements. It is what lets the app enumerate every group and project and manage hooks on ones it is not otherwise a member of. That token is as sensitive as your instance's root password, and [GitLab-side setup](gitlab-setup.md#4-create-the-write-credential) spells out what trusting it to a deployment means.
+The instance-admin requirement is not about achievements. It is what lets the app enumerate every group and project and manage hooks on ones it is not otherwise a member of. That token is as sensitive as your instance's root password, and [GitLab-side setup]({{< relref "/docs/gitlab-setup#4-create-the-write-credential" >}}) spells out what trusting it to a deployment means.
 
 ## Where state lives
 
@@ -71,4 +74,4 @@ Two limits shape more of this design than anything else, and both are GitLab's, 
 
 **Awarding is not idempotent.** GitLab has no uniqueness constraint on (achievement, user), so awarding the same badge three times produces three awards and three emails. Award delivery reads back what GitLab already holds for a user instead of retrying blind.
 
-Both were verified against a live instance rather than read off the docs. The findings, and how to re-run them, are in [GitLab achievements API behavior](achievements-api-behavior.md).
+Both were verified against a live instance rather than read off the docs. The findings, and how to re-run them, are in [GitLab achievements API behavior]({{< relref "/docs/achievements-api-behavior" >}}).

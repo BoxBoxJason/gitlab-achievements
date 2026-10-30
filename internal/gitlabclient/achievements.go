@@ -78,7 +78,7 @@ func (c *WriteClient) RevokeAchievement(userAchievementID int64, options ...gitl
 // there is no admin override: an instance admin calling either on someone
 // else's award is refused, and GraphQL ignores the Sudo header. Wrapping
 // them would only offer this app's write token calls it can never make
-// successfully. See docs/achievements-api-behavior.md.
+// successfully. See docs/content/docs/achievements-api-behavior.md.
 
 // ListUserAchievements iterates every achievement awarded to username,
 // including the ones hidden from their profile.

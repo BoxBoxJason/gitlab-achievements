@@ -1,4 +1,7 @@
-# GitLab achievements API: confirmed behavior
+---
+title: "GitLab achievements API: confirmed behavior"
+weight: 140
+---
 
 Findings from the research spike in [issue #9](https://github.com/BoxBoxJason/gitlab-achievements/issues/9), verified on a throwaway self-hosted instance rather than taken from the docs, which are ambiguous on the point that matters most.
 
@@ -90,7 +93,7 @@ This is the same outcome the issue asked for ("only the highest earned tier of e
 
 The reason it matters beyond profile tidiness is the email. One award is one email, and nothing about awarding is batched, so a first backfill over a mature instance would otherwise notify every user roughly a hundred times.
 
-**Achievements the namespace already holds are adopted, not created again.** Listing by namespace plus the uniqueness of names is what lets a database rebuilt from nothing match its catalog back to the achievements already on the instance instead of failing on every create. It matters more than a tidier startup: deleting an achievement deletes every award of it, so recreating rather than adopting would take everyone's badge with it. See [Achievements and EXP](achievements.md#keeping-the-catalog-and-gitlab-in-step).
+**Achievements the namespace already holds are adopted, not created again.** Listing by namespace plus the uniqueness of names is what lets a database rebuilt from nothing match its catalog back to the achievements already on the instance instead of failing on every create. It matters more than a tidier startup: deleting an achievement deletes every award of it, so recreating rather than adopting would take everyone's badge with it. See [Achievements and EXP]({{< relref "/docs/achievements#keeping-the-catalog-and-gitlab-in-step" >}}).
 
 Two columns on `Award` carry the rest:
 

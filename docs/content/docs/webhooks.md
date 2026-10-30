@@ -1,4 +1,7 @@
-# Webhooks
+---
+title: Webhooks
+weight: 110
+---
 
 Live activity reaches the app through GitLab webhooks. It registers them itself at startup and keeps them healthy from then on, so there is nothing to click in the GitLab UI.
 
@@ -51,4 +54,4 @@ That includes the confidential issue and note variants. Work on a confidential i
 
 ## Taking them off
 
-A retired deployment leaves its hooks behind, pointing at a URL that no longer answers. The `uninstall` subcommand removes them. See [Uninstalling](uninstall.md).
+A retired deployment leaves its hooks behind, pointing at a URL that no longer answers. The `uninstall` subcommand removes them. See [Uninstalling]({{< relref "/docs/uninstall" >}}).

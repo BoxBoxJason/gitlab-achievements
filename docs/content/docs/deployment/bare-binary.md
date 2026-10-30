@@ -1,8 +1,11 @@
-# Bare binary (systemd)
+---
+title: Bare binary (systemd)
+weight: 3
+---
 
-No containers: one static binary, a systemd unit, and a database you manage. Work through [GitLab-side setup](../gitlab-setup.md) first.
+No containers: one static binary, a systemd unit, and a database you manage. Work through [GitLab-side setup]({{< relref "/docs/gitlab-setup" >}}) first.
 
-The unit and a template environment file are in [`deploy/systemd`](../../deploy/systemd).
+The unit and a template environment file are in [`deploy/systemd`](https://github.com/BoxBoxJason/gitlab-achievements/tree/main/deploy/systemd).
 
 ## 1. Get the binary
 
@@ -44,9 +47,9 @@ sudo install -o root -g root -m 0600 \
 sudo $EDITOR /etc/gitlab-achievements/gitlab-achievements.env
 ```
 
-`root:root 0600` is deliberate: systemd reads `EnvironmentFile` as root before dropping privileges, so the service account never needs to read the file that holds an instance-admin token. Anyone who can read it can administer your GitLab instance, so see the callout in [GitLab-side setup](../gitlab-setup.md#4-create-the-write-credential).
+`root:root 0600` is deliberate: systemd reads `EnvironmentFile` as root before dropping privileges, so the service account never needs to read the file that holds an instance-admin token. Anyone who can read it can administer your GitLab instance, so see the callout in [GitLab-side setup]({{< relref "/docs/gitlab-setup#4-create-the-write-credential" >}}).
 
-What every setting does is in [configuration.md](../configuration.md); the template lists them all.
+What every setting does is in [configuration.md]({{< relref "/docs/configuration" >}}); the template lists them all.
 
 ## 4. The database
 
@@ -128,11 +131,11 @@ sudo systemd-run --uid=gitlab-achievements --gid=gitlab-achievements \
 journalctl -u gitlab-achievements-backfill -f
 ```
 
-It runs bootstrap first, then walks, resuming near where an interrupted run stopped. On a large instance it runs for a long time by design: `BACKFILL_RATE` caps it to a trickle against somebody's production GitLab. See [Historical backfill](../backfill.md).
+It runs bootstrap first, then walks, resuming near where an interrupted run stopped. On a large instance it runs for a long time by design: `BACKFILL_RATE` caps it to a trickle against somebody's production GitLab. See [Historical backfill]({{< relref "/docs/backfill" >}}).
 
 ## Running the reconciliation sync on a timer
 
-By default the service re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, in the background, to pick up webhook deliveries GitLab never managed to make. See [Reconciliation](../reconciliation.md) for what it does and does not heal.
+By default the service re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, in the background, to pick up webhook deliveries GitLab never managed to make. See [Reconciliation]({{< relref "/docs/reconciliation" >}}) for what it does and does not heal.
 
 To make it a timer instead, so a pass is a unit you can start, watch and alert on at an hour you pick rather than whenever the service last restarted, set `RECONCILE=off` in the environment file and install these alongside the service unit:
 
@@ -200,7 +203,7 @@ sudo systemd-run --uid=gitlab-achievements --gid=gitlab-achievements \
   /usr/local/bin/gitlab-achievements uninstall
 ```
 
-`uninstall` removes the webhooks and the achievements it created. Pass `--keep-achievements` to take only the hooks and leave people the badges they earned, because deleting an achievement deletes every award of it and nothing brings those back. Full details in [Uninstalling](../uninstall.md).
+`uninstall` removes the webhooks and the achievements it created. Pass `--keep-achievements` to take only the hooks and leave people the badges they earned, because deleting an achievement deletes every award of it and nothing brings those back. Full details in [Uninstalling]({{< relref "/docs/uninstall" >}}).
 
 Then remove the app itself:
 

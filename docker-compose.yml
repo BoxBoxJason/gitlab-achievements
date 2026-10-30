@@ -2,8 +2,8 @@
 #
 # Copy .env.example to .env, fill it in, then `docker compose up -d`.
 # The walkthrough, including how to put TLS in front of this, is in
-# docs/deployment/docker-compose.md. What the variables mean is in
-# docs/configuration.md.
+# docs/content/docs/deployment/docker-compose.md. What the variables mean is in
+# docs/content/docs/configuration.md.
 name: gitlab-achievements
 
 services:
