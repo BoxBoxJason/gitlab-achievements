@@ -64,6 +64,7 @@ const (
 	CriteriaDeploymentsSucceeded    = "deployments_succeeded"
 	CriteriaEmojiAwarded            = "emoji_awarded"
 	CriteriaWikiPagesCreated        = "wiki_pages_created"
+	CriteriaProjectsContributed     = "projects_contributed"
 	CriteriaActiveDays              = "active_days"
 	CriteriaActivityStreak          = "activity_streak"
 	CriteriaNightOwlDays            = "night_owl_days"

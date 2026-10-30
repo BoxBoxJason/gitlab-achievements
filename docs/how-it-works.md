@@ -6,11 +6,11 @@ One process, one database, and a GitLab instance it mirrors. Here is what it doe
 
 ### 1. Bootstrap
 
-Every start begins the same way. The app checks that both tokens work and have the access they need, creates or updates the 286 achievement definitions in your achievements group, and registers the webhooks that will feed it, pointed at `WEBHOOK_URL` plus its ingestion path (`PUBLIC_URL` when `WEBHOOK_URL` is unset).
+Every start begins the same way. The app checks that both tokens work and have the access they need, creates or updates the 297 achievement definitions in your achievements group, and registers the webhooks that will feed it, pointed at `WEBHOOK_URL` plus its ingestion path (`PUBLIC_URL` when `WEBHOOK_URL` is unset).
 
 Bootstrap is all-or-nothing. If a token has lost a permission or GitLab rejects a mutation, startup fails rather than serving in a half-working state. Every problem it finds is reported in one pass, so you fix them together instead of one restart at a time. Nothing answers on the HTTP port until bootstrap finishes, which on a Free/CE instance with thousands of projects can take several minutes.
 
-Achievements the group already holds are adopted rather than created again. Which GitLab achievement belongs to which catalog entry is recorded in the database and nowhere else, so a database rebuilt from nothing — or restored from a backup older than the achievements it describes — has no idea that 286 of them are already sitting in the group. Bootstrap lists what is there and matches by name, takes over what it finds, and pushes anything that has since drifted from the catalog. Without that, every one of those entries would be created a second time and GitLab would refuse the lot as names already taken.
+Achievements the group already holds are adopted rather than created again. Which GitLab achievement belongs to which catalog entry is recorded in the database and nowhere else, so a database rebuilt from nothing — or restored from a backup older than the achievements it describes — has no idea that 297 of them are already sitting in the group. Bootstrap lists what is there and matches by name, takes over what it finds, and pushes anything that has since drifted from the catalog. Without that, every one of those entries would be created a second time and GitLab would refuse the lot as names already taken.
 
 Only one process bootstraps a database at a time. Two passes running together would both conclude that nothing had been created yet and both try to create it. A lease row makes the second one wait, and by the time it runs it finds the first one's work and adopts it. That is what lets a deployment run its historical walk as a separate workload without timing its start against the server's.
 

@@ -365,6 +365,19 @@ var templates = []Template{
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
 	},
+	{
+		// Breadth rather than volume: one project with ten thousand commits
+		// is one project. It is what rewards the people who wander into
+		// other teams' repositories to fix things.
+		CriteriaKey: CriteriaProjectsContributed,
+		Category:    CategoryCollaboration,
+		Title:       "Globetrotter %s",
+		Description: "Contribute to %d projects.",
+		First:       "Contribute to a project.",
+		AvatarPath:  "assets/globe.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
 
 	//////////////////////// ENGAGEMENT ////////////////////////
 	{

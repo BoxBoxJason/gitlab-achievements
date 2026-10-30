@@ -112,6 +112,22 @@ type ActivityDay struct {
 	EarlyBird bool `gorm:"not null;default:false"`
 }
 
+// ActivityProject records that a user did something in one project.
+//
+// "Contributed to N projects" is a set size, not a running total, for the
+// same reason ActivityDay keeps days: a thousand commits to one project are
+// one project. Keeping the set is also what makes it safe to feed from
+// activity the engine has already counted, since adding a project twice is
+// adding it once.
+type ActivityProject struct {
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	User      User  `gorm:"constraint:OnDelete:CASCADE"`
+	ID        int64 `gorm:"primarykey"`
+	UserID    int64 `gorm:"not null;index:idx_user_project,unique"`
+	ProjectID int64 `gorm:"not null;index:idx_user_project,unique"`
+}
+
 // AwardStatus describes where an Award stands in the delivery lifecycle
 // with GitLab's achievements API.
 //

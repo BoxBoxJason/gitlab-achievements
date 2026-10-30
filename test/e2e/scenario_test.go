@@ -267,6 +267,7 @@ func (f *fixture) run(t *testing.T) []expectation {
 	for _, user := range []*gitlab.User{alice, bob} {
 		expect(user, "active_days", 1, true, false, "active today")
 		expect(user, "activity_streak", 1, true, false, "one-day streak")
+		expect(user, "projects_contributed", 1, true, false, "everything happened in one project")
 	}
 
 	return exp

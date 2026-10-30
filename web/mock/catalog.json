@@ -1871,6 +1871,91 @@
       ]
     },
     {
+      "criteria_key": "projects_contributed",
+      "category": "collaboration",
+      "title": "Globetrotter",
+      "icon_url": "/api/v1/achievements/projects_contributed/icon",
+      "tiers": [
+        {
+          "name": "Globetrotter I",
+          "description": "Contribute to a project.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Globetrotter II",
+          "description": "Contribute to 3 projects.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Globetrotter III",
+          "description": "Contribute to 5 projects.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Globetrotter IV",
+          "description": "Contribute to 10 projects.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Globetrotter V",
+          "description": "Contribute to 50 projects.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Globetrotter VI",
+          "description": "Contribute to 100 projects.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Globetrotter VII",
+          "description": "Contribute to 500 projects.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Globetrotter VIII",
+          "description": "Contribute to 1000 projects.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Globetrotter IX",
+          "description": "Contribute to 5000 projects.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Globetrotter X",
+          "description": "Contribute to 10000 projects.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Globetrotter XI",
+          "description": "Contribute to 50000 projects.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "active_days",
       "category": "engagement",
       "title": "Regular",

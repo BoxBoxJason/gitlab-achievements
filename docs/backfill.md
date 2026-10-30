@@ -40,7 +40,7 @@ On instances big enough that the cold start deserves its own job, set `BACKFILL=
 gitlab-achievements backfill
 ```
 
-Same flags and environment as the server. It runs bootstrap first, so it does not need the server to have started. Add `BACKFILL=force` to walk an instance whose previous walk already finished, which exists for recovering from a walk that ran against a broken catalog rather than for steady state.
+Same flags and environment as the server. It runs bootstrap first, so it does not need the server to have started. Add `BACKFILL=force` to walk an instance whose previous walk already finished, which exists for recovering from a walk that ran against a broken catalog rather than for steady state. It is also how criteria added in an upgrade get their history: everything the earlier walk counted is skipped again, while what only the new criteria read is counted for the first time.
 
 Awards the walk records are pushed to GitLab as soon as it finishes, instead of waiting for the hourly award reconciliation to notice them.
 

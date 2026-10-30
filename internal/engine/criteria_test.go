@@ -13,7 +13,7 @@ import (
 // instance sees ten achievements that cannot be earned.
 //
 // A criteria earns its place either by being reachable from some activity
-// kind or by being derived from the user's activity days.
+// kind or by being derived from one of the user's activity sets.
 func TestKindCriteria_EveryCatalogCriteriaHasAProducer(t *testing.T) {
 	produced := make(map[string]bool)
 
@@ -26,6 +26,8 @@ func TestKindCriteria_EveryCatalogCriteriaHasAProducer(t *testing.T) {
 	for _, criteriaKey := range dayCriteria {
 		produced[criteriaKey] = true
 	}
+
+	produced[catalog.CriteriaProjectsContributed] = true
 
 	for _, entry := range catalog.V1() {
 		if !produced[entry.CriteriaKey] {

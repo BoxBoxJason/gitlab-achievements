@@ -186,6 +186,7 @@ func Migrate(conn *gorm.DB) error {
 		&AchievementDefinition{},
 		&ProgressCounter{},
 		&ActivityDay{},
+		&ActivityProject{},
 		&Award{},
 		&ProcessedEvent{},
 		&RegisteredHook{},

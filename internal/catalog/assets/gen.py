@@ -596,6 +596,21 @@ def librarian(c):
 # --------------------------------------------------------- ENGAGEMENT
 
 @icon
+def globe(c):
+    """Globetrotter - a globe, for the projects one has been to."""
+    c.disc(16, 16, 13, 'B')
+    c.disc(10, 11, 4.5, 'G')            # continents
+    c.rect(8, 13, 5, 6, 'G')
+    c.disc(21, 9, 3, 'G')
+    c.disc(21, 21, 5, 'G')
+    c.rect(18, 24, 3, 4, 'G')
+    c.shade('B', 'b', lambda x, y: x + y > 36)
+    c.shade('G', 'g', lambda x, y: x + y > 36)
+    c.ring(16, 16, 13, 1, 'b')
+    c.outline()
+
+
+@icon
 def mug(c):
     """Regular - active days, a daily coffee."""
     c.ring(24, 17, 6, 3, 'w')

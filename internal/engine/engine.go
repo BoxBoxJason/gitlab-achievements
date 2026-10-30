@@ -7,11 +7,12 @@
 //
 // Criteria come in two shapes and both are evaluated here. Cumulative ones
 // (commits, merge requests, pipelines) are running totals every matching
-// event advances. Day-derived ones (active days, streaks, night-owl and
-// early-bird days) are recomputed from the set of days the user was active
-// on, because they aren't sums of events: two commits in one afternoon are
-// one active day, and a streak can be extended by a day arriving between
-// two already-known ones. Either way, every catalog tier whose threshold
+// event advances. Set-derived ones are recomputed from a set the activity
+// adds to: the days the user was active on (active days, streaks,
+// night-owl and early-bird days), and the projects they were active in.
+// They aren't sums of events: two commits in one afternoon are one active
+// day, and a streak can be extended by a day arriving between two
+// already-known ones. Either way, every catalog tier whose threshold
 // the new value reaches is awarded, and the tier's EXP reward is added to
 // the user's total in the same transaction.
 //
@@ -107,7 +108,9 @@ func (e *Engine) Stats() Stats {
 // counted or not counted at all: a crash mid-event can't leave a counter
 // incremented without its awards, or an event marked processed without its
 // counter increment. Replaying an already-processed event (a resumed
-// backfill re-walking a page, a redelivered hook) is a no-op.
+// backfill re-walking a page, a redelivered hook) counts nothing again; it
+// can only add the project it happened in to a set that lacked it (see
+// evaluateRepeat).
 func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 	criteria := criteriaFor(event.Kind)
 	if len(criteria) == 0 || event.ActorID <= 0 {
@@ -146,14 +149,9 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 	)
 
 	err := e.conn.WithContext(ctx).Transaction(func(txn *gorm.DB) error {
-		fresh, err := recordProcessed(txn, event)
-		if err != nil || !fresh {
-			return err
-		}
+		var err error
 
-		counted = true
-
-		awarded, err = evaluate(txn, event, criteria)
+		counted, awarded, err = processIn(txn, event, criteria)
 
 		return err
 	})
@@ -185,6 +183,25 @@ func (e *Engine) Process(ctx context.Context, event activity.Event) error {
 	return nil
 }
 
+// processIn is Process's work inside its transaction. It reports whether
+// the event was new, and how many tiers it awarded either way.
+func processIn(txn *gorm.DB, event activity.Event, criteria []string) (bool, int, error) {
+	fresh, err := recordProcessed(txn, event)
+	if err != nil {
+		return false, 0, err
+	}
+
+	if !fresh {
+		awarded, repeatErr := evaluateRepeat(txn, event)
+
+		return false, awarded, repeatErr
+	}
+
+	awarded, err := evaluate(txn, event, criteria)
+
+	return true, awarded, err
+}
+
 // excluded reports whether event's actor is left out of achievements.
 func (e *Engine) excluded(ctx context.Context, event activity.Event) (bool, error) {
 	if e.filter == nil {
@@ -200,9 +217,10 @@ func (e *Engine) excluded(ctx context.Context, event activity.Event) (bool, erro
 }
 
 // evaluate applies event to every criteria it advances, inside txn: the
-// cumulative ones its kind maps to, and the day-derived ones every dated
+// cumulative ones its kind maps to, the day-derived ones every dated
 // activity feeds regardless of what it was, so long as its actor was there
-// for it (see absentKinds). It returns how many tiers were newly awarded.
+// for it (see absentKinds), and the count of projects the actor has been
+// active in. It returns how many tiers were newly awarded.
 //
 // The user's EXP total is settled here, at the end, rather than by each
 // award as it lands: one recomputation covers however many tiers an event
@@ -235,14 +253,12 @@ func evaluate(txn *gorm.DB, event activity.Event, criteria []string) (int, error
 		awarded += earned
 	}
 
-	if presentFor(event.Kind) {
-		earned, daysErr := evaluateDays(txn, user.ID, event.OccurredAt)
-		if daysErr != nil {
-			return 0, daysErr
-		}
-
-		awarded += earned
+	earned, err := evaluateSets(txn, user.ID, event)
+	if err != nil {
+		return 0, err
 	}
+
+	awarded += earned
 
 	if awarded == 0 {
 		return 0, nil
@@ -254,6 +270,30 @@ func evaluate(txn *gorm.DB, event activity.Event, criteria []string) (int, error
 	}
 
 	return awarded, nil
+}
+
+// evaluateSets adds event to the sets the set-derived criteria are
+// recomputed from: the day it happened on, if its actor was there for it
+// (see absentKinds), and the project it happened in. It returns how many
+// tiers were newly awarded.
+func evaluateSets(txn *gorm.DB, userID int64, event activity.Event) (int, error) {
+	var awarded int
+
+	if presentFor(event.Kind) {
+		earned, err := evaluateDays(txn, userID, event.OccurredAt)
+		if err != nil {
+			return 0, err
+		}
+
+		awarded += earned
+	}
+
+	earned, err := evaluateProjects(txn, userID, event)
+	if err != nil {
+		return 0, err
+	}
+
+	return awarded + earned, nil
 }
 
 // evaluateDays records the day the activity happened on and, only when that
