@@ -196,14 +196,9 @@ func TestV1_AvatarsResolve(t *testing.T) {
 			continue
 		}
 
-		file, err := entry.Avatar()
-		if err != nil {
+		if _, err := entry.Avatar(); err != nil {
 			t.Errorf("achievement %q: %v", entry.Name, err)
-
-			continue
 		}
-
-		file.Close()
 	}
 }
 

@@ -44,8 +44,12 @@ type User struct {
 // which criteria and tier it corresponds to and the progress threshold a
 // user's counter must reach to earn it.
 //
-// Name, Description, and AvatarPath mirror the last values pushed to
-// GitLab. The Achievements GraphQL API exposes no way to list or look up
+// Name, Description, and AvatarKey mirror the last values pushed to
+// GitLab. AvatarKey is the catalog's name for the exact image uploaded (see
+// catalog.Entry.AvatarKey), since GitLab hands back an avatar's URL but
+// never its bytes. Its column keeps the avatar_path name from when every
+// tier shared one asset and the path alone said which image that was; a
+// row still holding a bare path is one whose avatar predates tier badges. The Achievements GraphQL API exposes no way to list or look up
 // existing achievements by name, so this row (keyed by CriteriaKey+Tier) is
 // the source of truth bootstrap uses both to find the GitLab-side
 // achievement ID on repeat startups and to detect catalog drift worth
@@ -61,12 +65,12 @@ type AchievementDefinition struct {
 	CriteriaKey         string `gorm:"not null;index:idx_criteria_tier,unique"`
 	Name                string `gorm:"not null"`
 	Description         string
-	AvatarPath          string
-	GitLabAchievementID int64 `gorm:"uniqueIndex;not null"`
-	ID                  int64 `gorm:"primarykey"`
-	Tier                int64 `gorm:"not null;index:idx_criteria_tier,unique"`
-	Threshold           int64 `gorm:"not null"`
-	ExpReward           int64 `gorm:"column:exp_reward;not null;default:0"`
+	AvatarKey           string `gorm:"column:avatar_path"`
+	GitLabAchievementID int64  `gorm:"uniqueIndex;not null"`
+	ID                  int64  `gorm:"primarykey"`
+	Tier                int64  `gorm:"not null;index:idx_criteria_tier,unique"`
+	Threshold           int64  `gorm:"not null"`
+	ExpReward           int64  `gorm:"column:exp_reward;not null;default:0"`
 }
 
 // ProgressCounter tracks a single user's running total for a given

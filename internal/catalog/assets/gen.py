@@ -29,6 +29,10 @@ smoothly:
 
 Keep SCALE an integer. A fractional one reintroduces precisely the uneven
 pixel sizes the tripling exists to avoid.
+
+The bottom-right corner is shared. When an avatar is uploaded, badge.go
+draws the tier's marker over it: up to three pips, 16x6 art pixels at most,
+flush with that corner. Keep anything an icon cannot do without out of it.
 """
 import os
 import sys

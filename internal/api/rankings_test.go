@@ -21,7 +21,7 @@ func seedDefinition(t *testing.T, conn *gorm.DB, criteria string, tier, threshol
 		CriteriaKey:         criteria,
 		Name:                criteria + " " + string(rune('A'+tier)),
 		Description:         "earned by doing things",
-		AvatarPath:          avatar,
+		AvatarKey:           avatar,
 		GitLabAchievementID: tier*1000 + int64(len(criteria)) + threshold,
 		Tier:                tier,
 		Threshold:           threshold,

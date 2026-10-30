@@ -13,7 +13,20 @@ The catalog is 30 criteria, eleven tiers each, 330 GitLab achievements in total.
 | **Collaboration** | emoji reactions given, wiki pages created, projects contributed to |
 | **Engagement** | days active, longest activity streak, night owl days, early bird days |
 
-Tiers are numbered in Roman numerals off a shared title: `Committer I` through `Committer XI`, `Firefighter I` through `Firefighter XI`. Every tier of a criteria shares one avatar, because eleven pieces of art per criteria would be eleven reasons never to ship a new one. Icons come from the VS Code extension's set where a criteria matches; the rest ship without one for now.
+Tiers are numbered in Roman numerals off a shared title: `Committer I` through `Committer XI`, `Firefighter I` through `Firefighter XI`. Every tier of a criteria is drawn from one piece of art, because eleven pieces of art per criteria would be eleven reasons never to ship a new one. Icons come from the VS Code extension's set where a criteria matches; the rest ship without one for now.
+
+GitLab only names a tier in the tooltip, so each tier's avatar carries a marker in its bottom-right corner telling it apart at a glance. Its colour is the tier's band, and its pips count the tier within the band:
+
+| Tiers | Band | Pips |
+|---|---|---|
+| I, II, III | bronze | 1, 2, 3 |
+| IV, V, VI | silver | 1, 2, 3 |
+| VII, VIII, IX | gold | 1, 2, 3 |
+| X, XI | purple | 1, 2 |
+
+So Committer VIII is gold with two pips. The marker is drawn over the art when the avatar is uploaded (`internal/catalog/badge.go`), so a new criteria still ships with one image. A numeral was tried first and blurs into nothing at the 48 pixels GitLab draws an avatar at. The frontend colours its tier rows with the same bands.
+
+Each upload is recorded under a digest of the exact image sent, so redrawing an icon or restyling the marker re-uploads the affected avatars on the next pass, with no manual step. Upgrading from a release without tier markers re-uploads all 330 that way.
 
 ## Thresholds
 

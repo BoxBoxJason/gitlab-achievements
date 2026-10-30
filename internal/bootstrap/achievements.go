@@ -1,10 +1,10 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"iter"
-	"path"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
 	"gorm.io/gorm"
@@ -41,7 +41,7 @@ type AchievementsReport struct {
 }
 
 func createAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, namespaceID int64, entry catalog.Entry) error {
-	avatar, err := avatarUpload(entry)
+	avatar, avatarKey, err := avatarUpload(entry)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func createAchievement(ctx context.Context, write achievementWriter, conn *gorm.
 		CriteriaKey:         entry.CriteriaKey,
 		Name:                entry.Name,
 		Description:         entry.Description,
-		AvatarPath:          entry.AvatarPath,
+		AvatarKey:           avatarKey,
 		Tier:                entry.Tier,
 		Threshold:           entry.Threshold,
 		ExpReward:           entry.Exp,
@@ -74,33 +74,27 @@ func createAchievement(ctx context.Context, write achievementWriter, conn *gorm.
 	return nil
 }
 
-// avatarUpload reads entry's avatar asset, if it has one, into an upload
-// ready to attach to a Create/UpdateAchievement call. It returns a nil
-// upload when entry has no avatar, which the API takes as "leave the
-// avatar alone".
-//
-// The upload holds its own copy of the image, so the asset is closed here
-// rather than by the caller once the request has been sent. Any error
-// closing it is deliberately swallowed: the bytes are already in hand and
-// the failure carries no actionable information.
-func avatarUpload(entry catalog.Entry) (*gitlab.GraphQLUpload, error) {
+// avatarUpload renders entry's tier badge, if it has an avatar, into an
+// upload ready to attach to a Create/UpdateAchievement call, and returns
+// the key to record for it alongside. It returns a nil upload and an empty
+// key when entry has no avatar, which the API takes as "leave the avatar
+// alone".
+func avatarUpload(entry catalog.Entry) (*gitlab.GraphQLUpload, string, error) {
 	if !entry.HasAvatar() {
-		//nolint:nilnil // a nil upload is the "no avatar to attach" case, which the API reads as "leave the achievement's avatar alone"
-		return nil, nil
+		return nil, "", nil
 	}
 
-	file, err := entry.Avatar()
+	avatar, err := entry.Avatar()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open avatar for achievement %q: %w", entry.Name, err)
+		return nil, "", fmt.Errorf("failed to render avatar for achievement %q: %w", entry.Name, err)
 	}
-	defer func() { _ = file.Close() }()
 
-	upload, err := gitlab.NewGraphQLUpload(file, path.Base(entry.AvatarPath), "image/png")
+	upload, err := gitlab.NewGraphQLUpload(bytes.NewReader(avatar.PNG), avatar.FileName, "image/png")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read avatar for achievement %q: %w", entry.Name, err)
+		return nil, "", fmt.Errorf("failed to read avatar for achievement %q: %w", entry.Name, err)
 	}
 
-	return upload, nil
+	return upload, avatar.Key, nil
 }
 
 // achievementDrift tracks which parts of an achievement definition have
@@ -128,10 +122,11 @@ func (d achievementDrift) any() bool {
 //
 // Avatar drift is inferred from two signals, because GitLab exposes an
 // achievement's AvatarURL but not its bytes, so live image content cannot
-// be diffed against the catalog's asset:
+// be diffed against the catalog's image:
 //
-//   - the catalog names an asset other than the one the row records having
-//     pushed, which is how a swapped or renamed icon is noticed;
+//   - the catalog's avatar key (avatarKey, see catalog.Entry.AvatarKey)
+//     differs from the one the row records having pushed, which is how a
+//     redrawn or swapped icon, or a restyled tier badge, is noticed;
 //   - the catalog expects an avatar and the live record carries none, which
 //     is how one cleared on GitLab, or an adopted achievement that never had
 //     one, is noticed.
@@ -140,7 +135,7 @@ func (d achievementDrift) any() bool {
 // expects is left alone: there is no supported way to clear an avatar
 // through this API, so the row is simply brought back in line with the
 // catalog (see reconcileAchievement) and no request is made.
-func detectAchievementDrift(live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry) achievementDrift {
+func detectAchievementDrift(live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry, avatarKey string) achievementDrift {
 	liveDescription := ""
 	if live.Description != nil {
 		liveDescription = *live.Description
@@ -149,7 +144,7 @@ func detectAchievementDrift(live *gitlab.Achievement, existing *db.AchievementDe
 	return achievementDrift{
 		name:        live.Name != entry.Name,
 		description: liveDescription != entry.Description,
-		avatar:      entry.AvatarPath != "" && (existing.AvatarPath != entry.AvatarPath || live.AvatarURL == nil),
+		avatar:      avatarKey != "" && (existing.AvatarKey != avatarKey || live.AvatarURL == nil),
 	}
 }
 
@@ -163,7 +158,7 @@ func pushAchievementUpdate(ctx context.Context, write achievementWriter, achieve
 	}
 
 	if drift.avatar {
-		avatar, err := avatarUpload(entry)
+		avatar, _, err := avatarUpload(entry)
 		if err != nil {
 			return err
 		}
@@ -194,20 +189,19 @@ func pushAchievementUpdate(ctx context.Context, write achievementWriter, achieve
 // API call can clear - is still saved, so the next pass does not rediscover
 // the same difference forever.
 func reconcileAchievement(ctx context.Context, write achievementWriter, conn *gorm.DB, live *gitlab.Achievement, existing *db.AchievementDefinition, entry catalog.Entry) (bool, error) {
-	drift := detectAchievementDrift(live, existing, entry)
+	avatarKey, err := entry.AvatarKey()
+	if err != nil {
+		return false, fmt.Errorf("failed to render avatar for achievement %q: %w", entry.Name, err)
+	}
 
-	mirrorsEntry := existing.Name == entry.Name &&
-		existing.Description == entry.Description &&
-		existing.AvatarPath == entry.AvatarPath &&
-		existing.Threshold == entry.Threshold &&
-		existing.ExpReward == entry.Exp
+	drift := detectAchievementDrift(live, existing, entry, avatarKey)
 
-	if !drift.any() && mirrorsEntry {
+	if !drift.any() && rowMirrorsEntry(existing, entry, avatarKey) {
 		return false, nil
 	}
 
 	if drift.any() {
-		err := pushAchievementUpdate(ctx, write, existing.GitLabAchievementID, entry, drift)
+		err = pushAchievementUpdate(ctx, write, existing.GitLabAchievementID, entry, drift)
 		if err != nil {
 			return false, err
 		}
@@ -217,12 +211,22 @@ func reconcileAchievement(ctx context.Context, write achievementWriter, conn *go
 	existing.Description = entry.Description
 	existing.Threshold = entry.Threshold
 	existing.ExpReward = entry.Exp
-	existing.AvatarPath = entry.AvatarPath
+	existing.AvatarKey = avatarKey
 
-	err := conn.Save(existing).Error
+	err = conn.Save(existing).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to persist updated achievement definition %q: %w", entry.Name, err)
 	}
 
 	return true, nil
+}
+
+// rowMirrorsEntry reports whether existing already records everything the
+// catalog says about entry, avatarKey being entry's avatar key.
+func rowMirrorsEntry(existing *db.AchievementDefinition, entry catalog.Entry, avatarKey string) bool {
+	return existing.Name == entry.Name &&
+		existing.Description == entry.Description &&
+		existing.AvatarKey == avatarKey &&
+		existing.Threshold == entry.Threshold &&
+		existing.ExpReward == entry.Exp
 }

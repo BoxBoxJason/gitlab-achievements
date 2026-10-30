@@ -86,8 +86,8 @@ const (
 )
 
 // Criteria describes one criteria as a whole, apart from its tiers: what to
-// call the stack, which group it belongs to, and the image every tier
-// shares, empty when it has none.
+// call the stack, which group it belongs to, and the art every tier's badge
+// is drawn from, empty when it has none.
 type Criteria struct {
 	Key        string
 	Category   string
@@ -146,15 +146,31 @@ func (e Entry) HasAvatar() bool {
 	return e.AvatarPath != ""
 }
 
-// Avatar opens entry's avatar image. The caller must close the returned
-// file, and must only call this when HasAvatar reports true.
-func (e Entry) Avatar() (fs.File, error) {
-	f, err := OpenAvatar(e.AvatarPath)
+// Avatar returns the image GitLab is given for entry: its criteria's art
+// with the tier's marker drawn on (see badge.go). It must only be called
+// when HasAvatar reports true.
+func (e Entry) Avatar() (Avatar, error) {
+	rendered, err := renderBadge(e.AvatarPath, e.Tier)
 	if err != nil {
-		return nil, fmt.Errorf("%s tier %d: %w", e.CriteriaKey, e.Tier, err)
+		return Avatar{}, fmt.Errorf("%s tier %d: %w", e.CriteriaKey, e.Tier, err)
 	}
 
-	return f, nil
+	return rendered, nil
+}
+
+// AvatarKey is the Key of entry's Avatar, or empty when entry has no
+// avatar.
+func (e Entry) AvatarKey() (string, error) {
+	if !e.HasAvatar() {
+		return "", nil
+	}
+
+	rendered, err := e.Avatar()
+	if err != nil {
+		return "", err
+	}
+
+	return rendered.Key, nil
 }
 
 // V1 returns every achievement the app maintains, one Entry per tier of

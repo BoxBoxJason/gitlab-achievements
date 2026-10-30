@@ -52,6 +52,20 @@
   --c-info-bg: #e9f3fc;
   --c-tier-off: #dcdcde;
   --c-skeleton: #ececef;
+
+  /*
+   * Tier bands, the colours of the markers drawn on the GitLab badges
+   * (internal/catalog/badge.go). Fixed across themes, because the badges
+   * are PNGs and look the same on either.
+   */
+  --c-band-bronze: #cd7f32;
+  --c-band-bronze-edge: #96561e;
+  --c-band-silver: #c8ced8;
+  --c-band-silver-edge: #8c94a2;
+  --c-band-gold: #ffc828;
+  --c-band-gold-edge: #c88c00;
+  --c-band-purple: #be50ff;
+  --c-band-purple-edge: #781ebe;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -152,6 +166,14 @@
   --color-info: var(--c-info);
   --color-info-bg: var(--c-info-bg);
   --color-tier-off: var(--c-tier-off);
+  --color-band-bronze: var(--c-band-bronze);
+  --color-band-bronze-edge: var(--c-band-bronze-edge);
+  --color-band-silver: var(--c-band-silver);
+  --color-band-silver-edge: var(--c-band-silver-edge);
+  --color-band-gold: var(--c-band-gold);
+  --color-band-gold-edge: var(--c-band-gold-edge);
+  --color-band-purple: var(--c-band-purple);
+  --color-band-purple-edge: var(--c-band-purple-edge);
   --color-skeleton: var(--c-skeleton);
 }
 

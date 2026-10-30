@@ -43,10 +43,11 @@ type Template struct {
 	// or not its curve currently starts at 1, so retuning a curve can't
 	// bring the plural back.
 	First string
-	// AvatarPath is the embedded asset shown for every tier of this
-	// criteria, or empty for no avatar. Tiers deliberately share one image
-	// rather than each having their own: a criteria at eleven tiers would
-	// otherwise need eleven pieces of art before it could ship at all.
+	// AvatarPath is the embedded art every tier of this criteria is drawn
+	// from, or empty for no avatar. Tiers deliberately share one image, each
+	// told apart by the marker badge.go draws on it, rather than each having
+	// their own: a criteria at eleven tiers would otherwise need eleven
+	// pieces of art before it could ship at all.
 	AvatarPath string
 	// MinTier and MaxTier bound which tier indexes to generate, inclusive.
 	// The index feeds Curve; the name always numbers from I regardless, so
