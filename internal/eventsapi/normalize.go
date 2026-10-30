@@ -136,9 +136,11 @@ func NormalizeProjectEvent(event *gitlab.ProjectEvent) []activity.Event {
 		ProjectID:      event.ProjectID,
 	}
 
-	// A push carries no target type; everything else names the resource it
-	// acted on.
-	if event.TargetType == "" {
+	// A push is recognized by its push_data rather than by its target type.
+	// Older instances leave a push's target type empty, but GitLab 19 reports
+	// it as "Project", and either way the ref type is only ever set on a
+	// push.
+	if event.PushData.RefType != "" {
 		return pushActivities(event, base)
 	}
 
@@ -149,12 +151,6 @@ func NormalizeProjectEvent(event *gitlab.ProjectEvent) []activity.Event {
 // itself, the commits it delivered, and the branch or tag it created, if
 // any.
 func pushActivities(event *gitlab.ProjectEvent, base activity.Event) []activity.Event {
-	// An event with no target type and no ref isn't a push at all; GitLab
-	// leaves the target type empty for a few other things too.
-	if event.PushData.RefType == "" {
-		return nil
-	}
-
 	base.DedupKey = pushDedupKey(event)
 
 	activities := []activity.Event{activityFrom(base, activity.KindPush, 1)}

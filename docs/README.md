@@ -25,5 +25,6 @@
 | [Historical backfill](backfill.md) | Awarding for activity that predates the bot |
 | [Reconciliation](reconciliation.md) | Catching activity whose webhook delivery was lost |
 | [GitLab achievements API behavior](achievements-api-behavior.md) | What GitLab's achievement mutations actually do, verified on a live instance |
+| [End-to-end catalog check](e2e.md) | The suite that drives every criteria through a real GitLab, and the CI job that runs it |
 
 The pitch, the quick start and the catalog at a glance are in the [README](../README.md).

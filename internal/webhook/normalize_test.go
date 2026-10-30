@@ -694,6 +694,30 @@ func TestNormalize_EmojiAwardCountsAndRevokeDoesNot(t *testing.T) {
 	}
 }
 
+// TestNormalize_EmojiActionReadFromEventType pins the shape GitLab actually
+// delivers, observed on 19.5: the award or revoke is the payload's top-level
+// event_type, and object_attributes carries no action at all.
+func TestNormalize_EmojiActionReadFromEventType(t *testing.T) {
+	emoji := func(eventType string) *gitlab.EmojiEvent {
+		return &gitlab.EmojiEvent{
+			ObjectKind: "emoji", EventType: eventType,
+			User: gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,
+			ObjectAttributes: gitlab.EmojiEventObjectAttributes{
+				ID: 78, Name: "heart", AwardableType: "Issue", CreatedAt: "2026-10-29T21:53:36.539Z",
+			},
+		}
+	}
+
+	awarded := normalize(emoji("award"), receivedAt)
+	if len(awarded) != 1 || awarded[0].Kind != activity.KindEmojiAwarded {
+		t.Fatalf("expected an awarded reaction to count, got %v", kindsOf(awarded))
+	}
+
+	if events := normalize(emoji("revoke"), receivedAt); len(events) != 0 {
+		t.Errorf("expected a withdrawn reaction not to take anything back, got %v", kindsOf(events))
+	}
+}
+
 func TestNormalize_WikiPageCreationCountsAndEditsDoNot(t *testing.T) {
 	wiki := func(action, slug string) *gitlab.WikiPageEvent {
 		return &gitlab.WikiPageEvent{
