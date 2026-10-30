@@ -170,9 +170,11 @@ func (f *fixture) run(t *testing.T) []expectation {
 	must(t, err)
 	expect(bob, "merge_requests_approved", 1, true, false, "approve MR !1")
 
-	f.merge(t, alice, mr.IID)
-	expect(alice, "merge_requests_merged", 1, true, false, "merge MR !1")
-	expect(alice, "merge_requests_merged_fast", 1, true, true, "merge MR !1 within the hour")
+	// Bob merges, so the merge and the landing go to different people.
+	f.merge(t, bob, mr.IID)
+	expect(bob, "merge_requests_merged", 1, true, false, "merge MR !1")
+	expect(bob, "merge_requests_merged_fast", 1, true, true, "merge MR !1 within the hour")
+	expect(alice, "merge_requests_landed", 1, true, false, "her MR !1 merged by bob")
 
 	_, _, err = gl.Tags.CreateTag(pid, &gitlab.CreateTagOptions{TagName: new("v0.1.0"), Ref: new("main")}, as(alice))
 	must(t, err)
@@ -185,7 +187,7 @@ func (f *fixture) run(t *testing.T) []expectation {
 
 	f.commit(t, bob, "feat-b", "b.txt", "bob was here")
 	expect(bob, "commits", 1, false, false, "commit on feat-b")
-	expect(bob, "pushes", 2, false, false, "branch feat-b + commit")
+	expect(bob, "pushes", 3, false, false, "merge of MR !1, branch feat-b + commit")
 
 	mr2, _, err := gl.MergeRequests.CreateMergeRequest(pid, &gitlab.CreateMergeRequestOptions{
 		Title: new("Add b.txt"), SourceBranch: new("feat-b"), TargetBranch: new("main"),
@@ -259,8 +261,8 @@ func (f *fixture) run(t *testing.T) []expectation {
 	expect(alice, "pipelines_failed", 1, true, false, "one fails")
 	expect(alice, "jobs_run", 2, true, true, "one job per pipeline")
 
-	// Branch, commit, merge, tag, and the two CI commits.
-	expect(alice, "pushes", 6, false, false, "branch, commit, merge, tag, 2 CI commits")
+	// Branch, commit, tag, and the two CI commits.
+	expect(alice, "pushes", 5, false, false, "branch, commit, tag, 2 CI commits")
 
 	for _, user := range []*gitlab.User{alice, bob} {
 		expect(user, "active_days", 1, true, false, "active today")

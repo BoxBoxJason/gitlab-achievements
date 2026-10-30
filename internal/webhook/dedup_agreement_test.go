@@ -273,3 +273,20 @@ func TestDedupKeysAgree_Pipeline(t *testing.T) {
 	agreesOn(t, activity.KindPipelineRun, live, historical)
 	agreesOn(t, activity.KindPipelineSucceeded, live, historical)
 }
+
+func TestDedupKeysAgree_MergeRequestLanded(t *testing.T) {
+	live := normalize(&gitlab.MergeEvent{
+		User: &gitlab.EventUser{ID: 10, Username: "alice"},
+		ObjectAttributes: gitlab.MergeEventObjectAttributes{
+			ID: 905, TargetProjectID: 7, AuthorID: 99, Action: "merge",
+		},
+	}, receivedAt)
+
+	mergedAt := receivedAt
+	historical := eventsapi.NormalizeMergedMergeRequest(&gitlab.BasicMergeRequest{
+		ID: 905, ProjectID: 7, MergedAt: &mergedAt,
+		Author: &gitlab.BasicUser{ID: 99, Username: "carol"},
+	})
+
+	agreesOn(t, activity.KindMergeRequestLanded, live, historical)
+}

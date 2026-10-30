@@ -96,6 +96,7 @@ func TestV1_CoversEveryCriteria(t *testing.T) {
 		catalog.CriteriaTagsCreated,
 		catalog.CriteriaMergeRequestsOpened,
 		catalog.CriteriaMergeRequestsMerged,
+		catalog.CriteriaMergeRequestsLanded,
 		catalog.CriteriaMergeRequestsApproved,
 		catalog.CriteriaMergeRequestsClosed,
 		catalog.CriteriaMergeRequestsMergedFast,
@@ -229,8 +230,8 @@ func TestAllCriteria_EveryCriteriaHasACategoryAndATitle(t *testing.T) {
 	}
 
 	criteria := catalog.AllCriteria()
-	if len(criteria) != 25 {
-		t.Fatalf("expected 25 criteria, got %d", len(criteria))
+	if len(criteria) != 26 {
+		t.Fatalf("expected 26 criteria, got %d", len(criteria))
 	}
 
 	for _, entry := range criteria {

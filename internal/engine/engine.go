@@ -201,8 +201,8 @@ func (e *Engine) excluded(ctx context.Context, event activity.Event) (bool, erro
 
 // evaluate applies event to every criteria it advances, inside txn: the
 // cumulative ones its kind maps to, and the day-derived ones every dated
-// activity feeds regardless of what it was. It returns how many tiers were
-// newly awarded.
+// activity feeds regardless of what it was, so long as its actor was there
+// for it (see absentKinds). It returns how many tiers were newly awarded.
 //
 // The user's EXP total is settled here, at the end, rather than by each
 // award as it lands: one recomputation covers however many tiers an event
@@ -235,12 +235,14 @@ func evaluate(txn *gorm.DB, event activity.Event, criteria []string) (int, error
 		awarded += earned
 	}
 
-	earned, err := evaluateDays(txn, user.ID, event.OccurredAt)
-	if err != nil {
-		return 0, err
-	}
+	if presentFor(event.Kind) {
+		earned, daysErr := evaluateDays(txn, user.ID, event.OccurredAt)
+		if daysErr != nil {
+			return 0, daysErr
+		}
 
-	awarded += earned
+		awarded += earned
+	}
 
 	if awarded == 0 {
 		return 0, nil

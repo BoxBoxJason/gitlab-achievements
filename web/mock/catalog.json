@@ -511,6 +511,91 @@
       ]
     },
     {
+      "criteria_key": "merge_requests_landed",
+      "category": "merge_requests",
+      "title": "Patch Accepted",
+      "icon_url": "/api/v1/achievements/merge_requests_landed/icon",
+      "tiers": [
+        {
+          "name": "Patch Accepted I",
+          "description": "Have your first merge request merged.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Patch Accepted II",
+          "description": "Have 5 of your merge requests merged.",
+          "tier": 2,
+          "threshold": 5,
+          "exp_reward": 3
+        },
+        {
+          "name": "Patch Accepted III",
+          "description": "Have 10 of your merge requests merged.",
+          "tier": 3,
+          "threshold": 10,
+          "exp_reward": 5
+        },
+        {
+          "name": "Patch Accepted IV",
+          "description": "Have 50 of your merge requests merged.",
+          "tier": 4,
+          "threshold": 50,
+          "exp_reward": 10
+        },
+        {
+          "name": "Patch Accepted V",
+          "description": "Have 100 of your merge requests merged.",
+          "tier": 5,
+          "threshold": 100,
+          "exp_reward": 50
+        },
+        {
+          "name": "Patch Accepted VI",
+          "description": "Have 500 of your merge requests merged.",
+          "tier": 6,
+          "threshold": 500,
+          "exp_reward": 100
+        },
+        {
+          "name": "Patch Accepted VII",
+          "description": "Have 1000 of your merge requests merged.",
+          "tier": 7,
+          "threshold": 1000,
+          "exp_reward": 500
+        },
+        {
+          "name": "Patch Accepted VIII",
+          "description": "Have 5000 of your merge requests merged.",
+          "tier": 8,
+          "threshold": 5000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Patch Accepted IX",
+          "description": "Have 10000 of your merge requests merged.",
+          "tier": 9,
+          "threshold": 10000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Patch Accepted X",
+          "description": "Have 50000 of your merge requests merged.",
+          "tier": 10,
+          "threshold": 50000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Patch Accepted XI",
+          "description": "Have 100000 of your merge requests merged.",
+          "tier": 11,
+          "threshold": 100000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "merge_requests_approved",
       "category": "merge_requests",
       "title": "Stamp of Approval",

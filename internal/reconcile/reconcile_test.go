@@ -60,6 +60,7 @@ type fakeReader struct {
 	events    map[int64][]*gitlab.ProjectEvent
 	pipelines map[int64][]*gitlab.PipelineInfo
 	details   map[int64]*gitlab.Pipeline
+	merged    map[int64][]*gitlab.BasicMergeRequest
 
 	projectsErr  error
 	eventsErr    map[int64]error
@@ -68,6 +69,7 @@ type fakeReader struct {
 	projectsOpt  gitlab.ListProjectsOptions
 	eventsOpt    map[int64]gitlab.ListProjectVisibleEventsOptions
 	pipelinesOpt map[int64]gitlab.ListProjectPipelinesOptions
+	mergedOpt    map[int64]gitlab.ListProjectMergeRequestsOptions
 }
 
 func (f *fakeReader) ListProjects(opt *gitlab.ListProjectsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Project, error] {
@@ -143,6 +145,24 @@ func (f *fakeReader) GetPipeline(_ any, pipeline int64, _ ...gitlab.RequestOptio
 	}
 
 	return found, nil
+}
+
+func (f *fakeReader) ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error] {
+	projectID, _ := pid.(int64)
+
+	if f.mergedOpt == nil {
+		f.mergedOpt = map[int64]gitlab.ListProjectMergeRequestsOptions{}
+	}
+
+	f.mergedOpt[projectID] = *opt
+
+	return func(yield func(*gitlab.BasicMergeRequest, error) bool) {
+		for _, mr := range f.merged[projectID] {
+			if !yield(mr, nil) {
+				return
+			}
+		}
+	}
 }
 
 // recorder collects everything a pass hands to the achievement engine.
@@ -469,5 +489,48 @@ func TestCompletedAt_RejectsAnUnreadableWatermark(t *testing.T) {
 
 	if _, _, err := CompletedAt(conn); err == nil {
 		t.Error("expected an unparseable watermark to be reported rather than treated as absent")
+	}
+}
+
+func TestRun_CreditsMergesInTheWindowToTheirAuthors(t *testing.T) {
+	conn := testConn(t)
+
+	inWindow := startedAt.Add(-time.Hour)
+	beforeWindow := startedAt.Add(-30 * 24 * time.Hour)
+
+	read := oneProjectInstance()
+	read.merged = map[int64][]*gitlab.BasicMergeRequest{
+		1: {
+			{ID: 54, ProjectID: 1, MergedAt: &beforeWindow, Author: &gitlab.BasicUser{ID: 99}},
+			{ID: 55, ProjectID: 1, MergedAt: &inWindow, Author: &gitlab.BasicUser{ID: 99}},
+		},
+	}
+
+	processor := &recorder{}
+
+	report, err := run(t, read, conn, processor)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var landed []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindMergeRequestLanded {
+			landed = append(landed, event.DedupKey)
+		}
+	}
+
+	if len(landed) != 1 || landed[0] != "merge_request:55:landed" {
+		t.Errorf("expected only the merge in the window, got %v", landed)
+	}
+
+	if report.MergeRequests != 1 {
+		t.Errorf("expected 1 merge request in the report, got %d", report.MergeRequests)
+	}
+
+	opt := read.mergedOpt[1]
+	if opt.State == nil || *opt.State != "merged" || opt.UpdatedAfter == nil || !opt.UpdatedAfter.Equal(report.Since) {
+		t.Errorf("expected merged merge requests updated in the window to be asked for, got %+v", opt)
 	}
 }

@@ -339,6 +339,26 @@ def mropen(c):
 
 
 @icon
+def landed(c):
+    """Patch Accepted - the request page, merged.
+
+    mropen()'s page on purpose, with merge()'s purple where its green plus
+    was: the same request, further along.
+    """
+    c.rect(4, 2, 18, 27, 'W')
+    c.tri(22, 2, 22, 9, 15, 2, 'W')      # folded corner
+    c.shade('W', 'w', lambda x, y: x > 15)
+    c.rect(22, 2, 1, 7, 'w')
+    for y in range(12, 25, 4):
+        c.rect(7, y, 12, 2, 's')
+    c.disc(22, 23, 7, 'P')
+    c.shade('P', 'p', lambda x, y: x + y > 46)
+    c.line(18, 23, 21, 26, 'W', 2)
+    c.line(21, 26, 26, 20, 'W', 2)
+    c.outline()
+
+
+@icon
 def stamp(c):
     """Stamp of Approval - a stamp above a fresh green mark."""
     c.rect(11, 2, 10, 6, 'P')

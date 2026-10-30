@@ -4,7 +4,7 @@
 // The walk is instance-wide and project-driven: projects are visited in
 // ascending ID order, and each one's history is pulled from the Events API
 // (commits, merge requests, approvals, issues, notes) plus the Pipelines
-// API for what events don't cover. Users are discovered from the activity
+// and merge requests APIs for what events don't cover. Users are discovered from the activity
 // itself rather than enumerated up front, so a user who never did anything
 // costs nothing.
 //
@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go/v3"
@@ -65,6 +66,7 @@ type historyReader interface {
 	ListProjectVisibleEvents(pid any, opt *gitlab.ListProjectVisibleEventsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.ProjectEvent, error]
 	ListProjectPipelines(pid any, opt *gitlab.ListProjectPipelinesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.PipelineInfo, error]
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
+	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
 }
 
 // Options tunes a backfill run.
@@ -116,6 +118,8 @@ type Report struct {
 	Events int
 	// Pipelines counts pipelines processed.
 	Pipelines int
+	// MergeRequests counts merged merge requests processed.
+	MergeRequests int
 	// Resumed reports whether the run picked up a saved cursor rather than
 	// starting from the beginning of the instance.
 	Resumed bool
@@ -240,8 +244,25 @@ func (r *runner) walkProjects(ctx context.Context) error {
 	return nil
 }
 
-// walkProject pulls one project's history, in two phases so an interrupted
-// project doesn't re-fetch the phase that already finished.
+// projectPhase is one of the pulls a project's history is read in.
+type projectPhase struct {
+	walk func(ctx context.Context, projectID int64) error
+	name phase
+}
+
+// projectPhases lists the pulls in the order they run. New ones go at the
+// end, so a cursor saved by an older version still names a phase in the
+// order it remembers.
+func (r *runner) projectPhases() []projectPhase {
+	return []projectPhase{
+		{name: phaseEvents, walk: r.walkProjectEvents},
+		{name: phasePipelines, walk: r.walkProjectPipelines},
+		{name: phaseMergeRequests, walk: r.walkProjectMergeRequests},
+	}
+}
+
+// walkProject pulls one project's history, in phases so an interrupted
+// project doesn't re-fetch the phases that already finished.
 //
 // A project this app can't read, or that was deleted between being listed
 // and being walked, is skipped rather than failing the run: one
@@ -249,18 +270,17 @@ func (r *runner) walkProjects(ctx context.Context) error {
 func (r *runner) walkProject(ctx context.Context, projectID int64) error {
 	r.progress.startProject(projectID)
 
-	if r.progress.Phase != phasePipelines {
-		err := r.walkProjectEvents(ctx, projectID)
+	phases := r.projectPhases()
+
+	start := max(slices.IndexFunc(phases, func(p projectPhase) bool { return p.name == r.progress.Phase }), 0)
+
+	for _, current := range phases[start:] {
+		r.progress.Phase = current.name
+
+		err := current.walk(ctx, projectID)
 		if err != nil {
-			return r.handleProjectError(projectID, "events", err)
+			return r.handleProjectError(projectID, string(current.name), err)
 		}
-
-		r.progress.Phase = phasePipelines
-	}
-
-	err := r.walkProjectPipelines(ctx, projectID)
-	if err != nil {
-		return r.handleProjectError(projectID, "pipelines", err)
 	}
 
 	r.progress.finishProject(projectID)
@@ -426,6 +446,53 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 	}
 
 	r.report.Pipelines++
+
+	return nil
+}
+
+// walkProjectMergeRequests replays a project's merged merge requests, to
+// credit each one to its author: the Events API's merge event names only
+// whoever merged it.
+//
+// It keeps no cursor of its own. Listing is a request per hundred merge
+// requests, so an interrupted phase is re-listed from the start, and what
+// it had already counted is discarded by the processor.
+func (r *runner) walkProjectMergeRequests(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListProjectMergeRequestsOptions{
+		ListOptions: gitlab.ListOptions{PerPage: pageSize},
+		State:       new("merged"),
+		OrderBy:     new("created_at"),
+		Sort:        new("asc"),
+	}
+
+	// A merge request merged since the floor was updated since it too, and
+	// GitLab filters on that server-side where it can't on the merge.
+	if !r.opts.Since.IsZero() {
+		opt.UpdatedAfter = &r.opts.Since
+	}
+
+	for merged, err := range r.read.ListProjectMergeRequests(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list merge requests for project %d: %w", projectID, err)
+		}
+
+		mergedAt := eventsapi.TimeOrZero(merged.MergedAt)
+		if r.afterCeiling(mergedAt) || !r.opts.Since.IsZero() && mergedAt.Before(r.opts.Since) {
+			continue
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeMergedMergeRequest(merged))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.MergeRequests++
+
+		flushErr := r.maybeFlush()
+		if flushErr != nil {
+			return flushErr
+		}
+	}
 
 	return nil
 }

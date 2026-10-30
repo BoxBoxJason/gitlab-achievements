@@ -37,6 +37,9 @@ const (
 	// phasePipelines is the project's pipeline walk, which the Events API
 	// doesn't cover.
 	phasePipelines phase = "pipelines"
+	// phaseMergeRequests is the project's merged merge requests, which
+	// credit their authors where the Events API only names the merger.
+	phaseMergeRequests phase = "merge_requests"
 )
 
 // progress is a backfill's resumable position in the instance.

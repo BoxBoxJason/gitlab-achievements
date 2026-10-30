@@ -10,6 +10,7 @@ Per project:
 
 - **The Events API** (`GET /projects/:id/events`) for pushes and their commit counts, branch and tag creation, merge requests opened, merged, approved and closed, issues opened and closed, and comments. The [Audit Events API](https://docs.gitlab.com/api/audit_events/) would be richer, but it is Premium/Ultimate only, so a Free/CE-compatible backfill cannot rely on it.
 - **The Pipelines API**, because pipelines do not appear in the Events API at all.
+- **The merge requests API** for merged merge requests. The Events API reports a merge as the merger's, without saying whose work it was, so this is where merge requests landing for their authors come from.
 
 Between them that covers most of the catalog, including the engagement criteria: every dated activity also records the day it happened on, which is what streaks and the night owl and early bird criteria are derived from.
 
@@ -17,7 +18,7 @@ Six criteria have no Events API equivalent at all (deployments, jobs, emoji, wik
 
 ## How it behaves
 
-**It resumes.** Progress is persisted as it goes: last completed project, in-flight phase, event date cursor, last processed pipeline. An interrupted walk picks up near where it stopped. Re-walked activity is deduplicated by the engine, so a coarse cursor costs a few repeated reads and never a double-counted commit. A completion watermark records when history was walked end to end, which is what tells the app the cold start is over.
+**It resumes.** Progress is persisted as it goes: last completed project, in-flight phase (events, pipelines, merge requests), event date cursor, last processed pipeline. An interrupted walk picks up near where it stopped. Re-walked activity is deduplicated by the engine, so a coarse cursor costs a few repeated reads and never a double-counted commit. A completion watermark records when history was walked end to end, which is what tells the app the cold start is over.
 
 **It goes slowly on purpose.** This is the heaviest read workload the app ever runs against an instance it does not own, and it has no deadline. Requests are capped at `BACKFILL_RATE`, 5 per second by default, on a client of its own so a readiness probe never queues behind the walk. 429 and 5xx responses are retried using GitLab's own `Retry-After`. A project the read token cannot see is skipped rather than fatal, and projects in personal namespaces are skipped to match [what the webhooks cover](webhooks.md#two-things-to-know-before-you-deploy).
 

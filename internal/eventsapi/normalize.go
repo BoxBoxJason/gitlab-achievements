@@ -28,6 +28,7 @@
 //	issue ......... issue:<id>:<action>                (target_id)
 //	comment ....... note:<id>                          (note.id)
 //	pipeline ...... pipeline:<id>
+//	landed merge .. merge_request:<id>:landed          (merge requests API)
 //
 // A key here is a compatibility surface with the processed-event log as
 // much as with the other producer, so changing one silently re-counts
@@ -38,7 +39,9 @@
 //
 // Jobs, deployments, emoji reactions, wiki pages, resolved discussions and
 // fast merges have no Events API representation at all, so nothing here
-// produces them; they are webhook-only. A reconciliation sync consequently
+// produces them; they are webhook-only. Merge requests landing for their
+// author aren't in it either, but the merge requests API reports them, so
+// NormalizeMergedMergeRequest reads them from there. A reconciliation sync consequently
 // heals everything else and leaves those to the live path, which is the
 // safe direction to be wrong in: a missed heal undercounts, whereas a
 // mismatched key would overcount permanently.
@@ -392,6 +395,31 @@ func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
 	}
 
 	return activities
+}
+
+// NormalizeMergedMergeRequest credits a merged merge request to its author.
+//
+// The Events API can't: its merge event is the merger's, and names the
+// merge request without its author. The merge requests API names both, so
+// this is what backfill and reconciliation read the landing from, with the
+// key the webhook path gives the same merge.
+//
+// A merge request that isn't merged, or names no author, yields nothing.
+func NormalizeMergedMergeRequest(merged *gitlab.BasicMergeRequest) []activity.Event {
+	if merged == nil || merged.MergedAt == nil || merged.Author == nil || merged.Author.ID == 0 {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     *merged.MergedAt,
+		Kind:           activity.KindMergeRequestLanded,
+		DedupKey:       fmt.Sprintf("merge_request:%d:landed", merged.ID),
+		ActorUsername:  merged.Author.Username,
+		ActorAvatarURL: merged.Author.AvatarURL,
+		ActorID:        merged.Author.ID,
+		ProjectID:      merged.ProjectID,
+		Count:          1,
+	}}
 }
 
 // activityFrom specializes base to one kind, scoping its dedup key to the

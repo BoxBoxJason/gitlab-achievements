@@ -288,21 +288,61 @@ func normalizeMergeRequest(event *gitlab.MergeEvent, receivedAt time.Time) []act
 		Count:          1,
 	}
 
-	activities := []activity.Event{base}
+	if kind != activity.KindMergeRequestMerged {
+		return []activity.Event{base}
+	}
 
-	// The fast merge is credited to whoever merged rather than to the
-	// author, matching the merge itself: GitLab reports the acting user, and
-	// how quickly a merge request cleared review is the reviewer's doing at
-	// least as much as the author's.
-	if kind == activity.KindMergeRequestMerged && mergedFast(attrs.CreatedAt, attrs.UpdatedAt) {
-		fast := base
+	return append([]activity.Event{base}, mergeFollowUps(event, base)...)
+}
+
+// mergeFollowUps derives what a merge implies beyond the merge itself: that
+// it was a fast one, and that it landed for its author.
+//
+// The fast merge is credited to whoever merged rather than to the author,
+// matching the merge itself: GitLab reports the acting user, and how quickly
+// a merge request cleared review is the reviewer's doing at least as much
+// as the author's.
+func mergeFollowUps(event *gitlab.MergeEvent, merged activity.Event) []activity.Event {
+	attrs := event.ObjectAttributes
+
+	var activities []activity.Event
+
+	if mergedFast(attrs.CreatedAt, attrs.UpdatedAt) {
+		fast := merged
 		fast.Kind = activity.KindMergeRequestMergedFast
 		fast.DedupKey = fmt.Sprintf("merge_request:%d:merged_fast", attrs.ID)
 
 		activities = append(activities, fast)
 	}
 
+	if attrs.AuthorID != 0 {
+		activities = append(activities, landed(event, merged))
+	}
+
 	return activities
+}
+
+// landed credits a merged merge request to its author.
+//
+// The payload names the author by ID only. Their username and avatar are
+// taken from the top-level user when the author merged their own work, and
+// left empty otherwise rather than borrowed from the merger, as userActor
+// does for comments: the engine keys users on their GitLab ID and fills the
+// rest in the next time they do something.
+//
+// The key matches the one eventsapi.NormalizeMergedMergeRequest derives
+// from the merge requests API, which is how backfill and reconciliation
+// reach the same activity.
+func landed(event *gitlab.MergeEvent, merged activity.Event) activity.Event {
+	authorID := event.ObjectAttributes.AuthorID
+
+	author := merged
+	author.Kind = activity.KindMergeRequestLanded
+	author.DedupKey = fmt.Sprintf("merge_request:%d:landed", event.ObjectAttributes.ID)
+	author.ActorID = authorID
+	author.ActorUsername, author.ActorAvatarURL = eventUserActor(event.User, authorID)
+
+	return author
 }
 
 // mergedFast reports whether a merge request was merged within

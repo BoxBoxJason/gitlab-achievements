@@ -48,6 +48,7 @@ const (
 	CriteriaTagsCreated             = "tags_created"
 	CriteriaMergeRequestsOpened     = "merge_requests_opened"
 	CriteriaMergeRequestsMerged     = "merge_requests_merged"
+	CriteriaMergeRequestsLanded     = "merge_requests_landed"
 	CriteriaMergeRequestsApproved   = "merge_requests_approved"
 	CriteriaMergeRequestsClosed     = "merge_requests_closed"
 	CriteriaMergeRequestsMergedFast = "merge_requests_merged_fast"

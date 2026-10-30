@@ -11,7 +11,7 @@
 
 </div>
 
-Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **275 badges across 25 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
+Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **286 badges across 26 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
 
 Point it at a self-hosted GitLab and it takes care of itself. It creates the achievements, registers its own webhooks, walks your history once so nobody starts from zero, and from then on reacts to what people do as they do it.
 
@@ -27,7 +27,7 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 | Category | Criteria |
 | --- | --- |
 | **Git** | commits, pushes, branches created, tags created |
-| **Merge requests & review** | opened, merged, merged within the hour, approved, closed unmerged, comments left, discussions resolved |
+| **Merge requests & review** | opened, merged, your own merged by anyone, merged within the hour, approved, closed unmerged, comments left, discussions resolved |
 | **Issues** | opened, closed |
 | **CI/CD** | pipelines run, passed, failed, jobs run, deployments, deployments succeeded |
 | **Collaboration** | emoji reactions given, wiki pages created |
@@ -62,7 +62,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-The first start creates 275 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
+The first start creates 286 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
 
 ```bash
 curl -sf http://127.0.0.1:8080/readyz && echo ready

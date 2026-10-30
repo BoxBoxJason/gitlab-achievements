@@ -50,6 +50,15 @@ const (
 	// the same merge request; how soon "soon" is belongs to the producer,
 	// since only it can see the two timestamps.
 	KindMergeRequestMergedFast Kind = "merge_request_merged_fast"
+	// KindMergeRequestLanded is a merge request merged, credited to its
+	// author rather than to whoever merged it. It always accompanies a
+	// KindMergeRequestMerged event for the same merge request, which credits
+	// the merger.
+	//
+	// Unlike every other kind, it is not something its actor did at the
+	// time it happened: somebody else merged their work. It therefore says
+	// nothing about which days the author was active.
+	KindMergeRequestLanded Kind = "merge_request_landed"
 	// KindMergeRequestClosed is a merge request closed without merging.
 	KindMergeRequestClosed Kind = "merge_request_closed"
 	// KindDiscussionResolved is a review discussion resolved by a user,

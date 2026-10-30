@@ -476,6 +476,55 @@ func TestNormalize_FastMergeNeedsBothTimestampsToParse(t *testing.T) {
 	}
 }
 
+func TestNormalize_AMergeLandsForItsAuthor(t *testing.T) {
+	event := mergeEvent("merge")
+	event.ObjectAttributes.AuthorID = 99
+
+	events := normalize(event, receivedAt)
+
+	landed := findKind(t, events, activity.KindMergeRequestLanded)
+	if landed.ActorID != 99 {
+		t.Errorf("expected the landing credited to the author (99), got %d", landed.ActorID)
+	}
+
+	if landed.DedupKey != "merge_request:55:landed" {
+		t.Errorf("expected the landing keyed apart from the merge, got %q", landed.DedupKey)
+	}
+
+	// The payload's user is the merger, so their name must not end up on
+	// the author's row.
+	if landed.ActorUsername != "" || landed.ActorAvatarURL != "" {
+		t.Errorf("expected no profile borrowed from the merger, got %q/%q", landed.ActorUsername, landed.ActorAvatarURL)
+	}
+
+	if findKind(t, events, activity.KindMergeRequestMerged).ActorID != 10 {
+		t.Error("expected the merge itself still credited to whoever merged")
+	}
+}
+
+func TestNormalize_ASelfMergeLandsWithTheAuthorsProfile(t *testing.T) {
+	event := mergeEvent("merge")
+	event.ObjectAttributes.AuthorID = 10
+
+	landed := findKind(t, normalize(event, receivedAt), activity.KindMergeRequestLanded)
+	if landed.ActorID != 10 || landed.ActorUsername != "alice" {
+		t.Errorf("expected a self-merge to land for alice, got %d/%q", landed.ActorID, landed.ActorUsername)
+	}
+}
+
+func TestNormalize_OnlyAMergeLands(t *testing.T) {
+	for _, action := range []string{"open", "close", "approval"} {
+		event := mergeEvent(action)
+		event.ObjectAttributes.AuthorID = 99
+
+		for _, got := range normalize(event, receivedAt) {
+			if got.Kind == activity.KindMergeRequestLanded {
+				t.Errorf("action %q: expected nothing to land", action)
+			}
+		}
+	}
+}
+
 func resolvedNote(resolvedBy int64, byPush bool) *gitlab.MergeCommentEvent {
 	return &gitlab.MergeCommentEvent{
 		User: &gitlab.EventUser{ID: 10, Username: "alice"}, ProjectID: 1,

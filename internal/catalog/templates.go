@@ -193,6 +193,19 @@ var templates = []Template{
 		MaxTier:     maxTier,
 	},
 	{
+		// Merger credits whoever clicked merge, which on most teams is a
+		// reviewer or a maintainer. This is the other half: the author whose
+		// work went in.
+		CriteriaKey: CriteriaMergeRequestsLanded,
+		Category:    CategoryMergeRequests,
+		Title:       "Patch Accepted %s",
+		Description: "Have %d of your merge requests merged.",
+		First:       "Have your first merge request merged.",
+		AvatarPath:  "assets/landed.png",
+		Curve:       StandardHardCurve,
+		MaxTier:     maxTier,
+	},
+	{
 		CriteriaKey: CriteriaMergeRequestsApproved,
 		Category:    CategoryMergeRequests,
 		Title:       "Stamp of Approval %s",

@@ -20,8 +20,9 @@
 // a window webhooks already covered would inflate every counter in it, and
 // GitLab awards are never revoked, so the inflation would be permanent.
 //
-// The Events API reports pushes, merge requests, issues and comments, and
-// the Pipelines API covers pipelines. Jobs, deployments, emoji reactions,
+// The Events API reports pushes, merge requests, issues and comments, the
+// Pipelines API covers pipelines, and the merge requests API covers merge
+// requests landing for their authors. Jobs, deployments, emoji reactions,
 // wiki pages, resolved discussions and fast merges have no read-side
 // representation at all, so a lost delivery of one of those stays lost.
 // That is the safe direction: this heals what it can see and undercounts
@@ -70,6 +71,7 @@ type activityReader interface {
 	ListProjectVisibleEvents(pid any, opt *gitlab.ListProjectVisibleEventsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.ProjectEvent, error]
 	ListProjectPipelines(pid any, opt *gitlab.ListProjectPipelinesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.PipelineInfo, error]
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
+	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
 }
 
 // Options tunes a reconciliation pass.
@@ -99,6 +101,8 @@ type Report struct {
 	Events int
 	// Pipelines counts pipelines re-read.
 	Pipelines int
+	// MergeRequests counts merged merge requests re-read.
+	MergeRequests int
 	// Gap is how long it had been since the last successful pass, beyond
 	// the interval one is expected to take. A non-zero value means passes
 	// were being missed, which is what makes a lost webhook window
@@ -200,7 +204,7 @@ func (r *runner) walkProjects(ctx context.Context) error {
 	return nil
 }
 
-// walkProject re-reads one project's recent events and pipelines.
+// walkProject re-reads one project's recent events, pipelines and merges.
 //
 // A project this app can't read, or that was deleted between being listed
 // and being walked, is skipped rather than failing the pass: one
@@ -215,6 +219,11 @@ func (r *runner) walkProject(ctx context.Context, projectID int64) error {
 	err = r.walkProjectPipelines(ctx, projectID)
 	if err != nil {
 		return r.handleProjectError(projectID, "pipelines", err)
+	}
+
+	err = r.walkProjectMergeRequests(ctx, projectID)
+	if err != nil {
+		return r.handleProjectError(projectID, "merge_requests", err)
 	}
 
 	r.report.Projects++
@@ -302,6 +311,40 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 		if processErr != nil {
 			return processErr
 		}
+	}
+
+	return nil
+}
+
+// walkProjectMergeRequests re-reads the merge requests merged in the
+// window, to credit each to its author: the Events API's merge event names
+// only whoever merged it.
+//
+// The merge requests API filters on updates, not merges, so the listing is
+// narrowed by that and the merges from before the window are dropped here.
+// They were the previous passes' to count.
+func (r *runner) walkProjectMergeRequests(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListProjectMergeRequestsOptions{
+		ListOptions:  gitlab.ListOptions{PerPage: pageSize},
+		State:        new("merged"),
+		UpdatedAfter: &r.since,
+	}
+
+	for merged, err := range r.read.ListProjectMergeRequests(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list merge requests for project %d: %w", projectID, err)
+		}
+
+		if merged.MergedAt == nil || merged.MergedAt.Before(r.since) {
+			continue
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeMergedMergeRequest(merged))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.MergeRequests++
 	}
 
 	return nil

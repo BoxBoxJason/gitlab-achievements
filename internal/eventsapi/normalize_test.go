@@ -451,3 +451,48 @@ func TestNormalizeProjectEvent_TagPushCountsNoCommits(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeMergedMergeRequest_LandsForTheAuthor(t *testing.T) {
+	mergedAt := time.Date(2026, time.March, 4, 12, 30, 0, 0, time.UTC)
+
+	activities := NormalizeMergedMergeRequest(&gitlab.BasicMergeRequest{
+		ID: 55, ProjectID: 1, MergedAt: &mergedAt,
+		Author:    &gitlab.BasicUser{ID: 99, Username: "carol", AvatarURL: "https://gitlab.example.com/c.png"},
+		MergeUser: &gitlab.BasicUser{ID: 10, Username: "alice"},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one landing, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindMergeRequestLanded || got.ActorID != 99 || got.ActorUsername != "carol" {
+		t.Errorf("expected the landing credited to carol, got %+v", got)
+	}
+
+	// The webhook path's key for the same merge.
+	if got.DedupKey != "merge_request:55:landed" {
+		t.Errorf("expected the webhook path's key, got %q", got.DedupKey)
+	}
+
+	if !got.OccurredAt.Equal(mergedAt) || got.ProjectID != 1 {
+		t.Errorf("expected the merge time and project, got %v in %d", got.OccurredAt, got.ProjectID)
+	}
+}
+
+func TestNormalizeMergedMergeRequest_NeedsAMergeAndAnAuthor(t *testing.T) {
+	mergedAt := time.Date(2026, time.March, 4, 12, 30, 0, 0, time.UTC)
+
+	cases := map[string]*gitlab.BasicMergeRequest{
+		"nil":        nil,
+		"not merged": {ID: 55, Author: &gitlab.BasicUser{ID: 99}},
+		"no author":  {ID: 55, MergedAt: &mergedAt},
+		"author 0":   {ID: 55, MergedAt: &mergedAt, Author: &gitlab.BasicUser{}},
+	}
+
+	for name, mr := range cases {
+		if got := NormalizeMergedMergeRequest(mr); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}
