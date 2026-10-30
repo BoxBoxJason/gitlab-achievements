@@ -73,6 +73,7 @@ type activityReader interface {
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
 	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
 	ListReleases(pid any, opt *gitlab.ListReleasesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error]
+	LastPipelineOutcome(pid any, ref string, beforeID int64, options ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error)
 }
 
 // Options tunes a reconciliation pass.
@@ -394,6 +395,12 @@ func (r *runner) walkProjectReleases(ctx context.Context, projectID int64) error
 // processPipeline fetches the detail a pipeline's activity needs (the
 // listing carries no user) and processes it. A pipeline deleted between
 // being listed and being fetched is skipped, not fatal.
+//
+// A pipeline that passed costs one more request, to learn how the one
+// before it on its ref ended, which is what decides whether it fixed the
+// build. That predecessor is asked of GitLab rather than taken from the
+// window's own listing: a pipeline that finished before the window is not
+// in it, so the listing would name an older one in its place.
 func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int64) error {
 	pipeline, err := r.read.GetPipeline(projectID, pipelineID, gitlab.WithContext(ctx))
 	if err != nil {
@@ -409,9 +416,29 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 		return err
 	}
 
+	err = r.processPipelineFix(ctx, projectID, pipeline)
+	if err != nil {
+		return err
+	}
+
 	r.report.Pipelines++
 
 	return nil
+}
+
+// processPipelineFix counts pipeline as having fixed the build if it passed
+// where the previous pipeline on its ref had failed.
+func (r *runner) processPipelineFix(ctx context.Context, projectID int64, pipeline *gitlab.Pipeline) error {
+	if gitlab.BuildStateValue(pipeline.Status) != gitlab.Success || pipeline.Ref == "" {
+		return nil
+	}
+
+	previous, err := r.read.LastPipelineOutcome(projectID, pipeline.Ref, pipeline.ID, gitlab.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("failed to look up the pipeline before %d of project %d: %w", pipeline.ID, projectID, err)
+	}
+
+	return r.process(ctx, eventsapi.NormalizePipelineFix(pipeline, previous))
 }
 
 // process hands normalized activity to the achievement engine, which

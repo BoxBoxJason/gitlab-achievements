@@ -110,7 +110,7 @@ This is not a high-availability workload. Nothing is lost while it restarts: del
 
 ## Startup, probes and timing
 
-Bootstrap runs before the server listens. It verifies both tokens, creates 319 achievements, and registers a webhook on every group (or, on Free/CE, every project on the instance, paced at `config.hookRate` per second). Nothing answers until that finishes.
+Bootstrap runs before the server listens. It verifies both tokens, creates 330 achievements, and registers a webhook on every group (or, on Free/CE, every project on the instance, paced at `config.hookRate` per second). Nothing answers until that finishes.
 
 The startup probe is what grants it that time, 10 minutes by default. On a Free instance with thousands of projects, raise it:
 

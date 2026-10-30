@@ -35,6 +35,7 @@ var kindCriteria = map[activity.Kind][]string{
 	activity.KindPipelineRun:            {catalog.CriteriaPipelinesRun},
 	activity.KindPipelineSucceeded:      {catalog.CriteriaPipelinesSucceeded},
 	activity.KindPipelineFailed:         {catalog.CriteriaPipelinesFailed},
+	activity.KindPipelineFixed:          {catalog.CriteriaPipelinesFixed},
 	activity.KindJobRun:                 {catalog.CriteriaJobsRun},
 	activity.KindDeployment:             {catalog.CriteriaDeployments},
 	activity.KindDeploymentSucceeded:    {catalog.CriteriaDeploymentsSucceeded},

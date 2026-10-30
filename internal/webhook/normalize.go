@@ -486,6 +486,34 @@ func normalizePipeline(event *gitlab.PipelineEvent, receivedAt time.Time) []acti
 	return activities
 }
 
+// pipelinePassed reports whether a pipeline hook is a pipeline passing, and
+// names a ref to look its predecessor up on.
+func pipelinePassed(event *gitlab.PipelineEvent) bool {
+	return event != nil && event.User != nil && event.User.ID != 0 && event.Project.ID != 0 &&
+		event.ObjectAttributes.Ref != "" && gitlab.BuildStateValue(event.ObjectAttributes.Status) == gitlab.Success
+}
+
+// normalizePipelineFix reports a passing pipeline as having fixed the build,
+// given how the pipeline before it on the same ref ended, keyed as
+// eventsapi.NormalizePipelineFix keys it. Only a pass after a failure
+// counts; see there for why a retried pipeline doesn't.
+func normalizePipelineFix(event *gitlab.PipelineEvent, previous gitlab.BuildStateValue, receivedAt time.Time) []activity.Event {
+	if previous != gitlab.Failed || !pipelinePassed(event) {
+		return nil
+	}
+
+	base := activity.Event{
+		OccurredAt:     parseEventTime(event.ObjectAttributes.CreatedAt, receivedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", event.ObjectAttributes.ID),
+		ActorUsername:  event.User.Username,
+		ActorAvatarURL: event.User.AvatarURL,
+		ActorID:        event.User.ID,
+		ProjectID:      event.Project.ID,
+	}
+
+	return []activity.Event{activityFrom(base, activity.KindPipelineFixed, 1)}
+}
+
 // note is the common shape of the four comment event types, which GitLab
 // splits by what was commented on but which carry the same note fields.
 // They are nominally distinct types, and two of them type the user as

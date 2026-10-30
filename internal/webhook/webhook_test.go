@@ -436,3 +436,92 @@ func TestReceiver_AFailedReleaseReadStillAnswers200(t *testing.T) {
 		t.Errorf("expected a quiet 200 with nothing queued, got %d and %+v", resp.Code, queue.accepted())
 	}
 }
+
+// fakePipelineHistory reports one outcome for whatever it is asked.
+type fakePipelineHistory struct {
+	previous gitlab.BuildStateValue
+	err      error
+	asked    []string
+}
+
+func (f *fakePipelineHistory) LastPipelineOutcome(pid any, ref string, beforeID int64, _ ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error) {
+	f.asked = append(f.asked, fmt.Sprintf("%v/%s/%d", pid, ref, beforeID))
+
+	return f.previous, f.err
+}
+
+const pipelinePassedHook = `{
+  "object_kind": "pipeline",
+  "user": {"id": 10, "username": "alice"},
+  "project": {"id": 1},
+  "object_attributes": {"id": 600, "ref": "main", "status": "success", "created_at": "2026-03-04 11:00:00 UTC"}
+}`
+
+func fixesIn(events []activity.Event) []activity.Event {
+	var fixes []activity.Event
+
+	for _, event := range events {
+		if event.Kind == activity.KindPipelineFixed {
+			fixes = append(fixes, event)
+		}
+	}
+
+	return fixes
+}
+
+func TestReceiver_APassAfterAFailureFixesTheBuild(t *testing.T) {
+	queue := &fakeDispatcher{}
+	history := &fakePipelineHistory{previous: gitlab.Failed}
+	receiver := NewReceiver("s3cr3t", queue, WithPipelineHistory(history))
+
+	deliver(t, receiver, "s3cr3t", "Pipeline Hook", pipelinePassedHook)
+
+	if len(history.asked) != 1 || history.asked[0] != "1/main/600" {
+		t.Errorf("expected the ref's history looked up before pipeline 600, got %v", history.asked)
+	}
+
+	fixes := fixesIn(queue.accepted())
+	if len(fixes) != 1 || fixes[0].DedupKey != "pipeline:600:pipeline_fixed" || fixes[0].ActorID != 10 {
+		t.Errorf("expected alice's fix to be queued, got %+v", fixes)
+	}
+}
+
+func TestReceiver_APassAfterAPassFixesNothing(t *testing.T) {
+	queue := &fakeDispatcher{}
+	receiver := NewReceiver("s3cr3t", queue, WithPipelineHistory(&fakePipelineHistory{previous: gitlab.Success}))
+
+	deliver(t, receiver, "s3cr3t", "Pipeline Hook", pipelinePassedHook)
+
+	if fixes := fixesIn(queue.accepted()); len(fixes) != 0 {
+		t.Errorf("expected no fix, got %+v", fixes)
+	}
+
+	if len(queue.accepted()) == 0 {
+		t.Error("expected the pipeline itself still queued")
+	}
+}
+
+func TestReceiver_OnlyAPassingPipelineCostsALookup(t *testing.T) {
+	queue := &fakeDispatcher{}
+	history := &fakePipelineHistory{previous: gitlab.Failed}
+	receiver := NewReceiver("s3cr3t", queue, WithPipelineHistory(history))
+
+	for _, status := range []string{"running", "failed", "canceled"} {
+		deliver(t, receiver, "s3cr3t", "Pipeline Hook", strings.Replace(pipelinePassedHook, `"success"`, `"`+status+`"`, 1))
+	}
+
+	if len(history.asked) != 0 {
+		t.Errorf("expected no lookups, got %v", history.asked)
+	}
+}
+
+func TestReceiver_AFailedPipelineLookupKeepsThePipeline(t *testing.T) {
+	queue := &fakeDispatcher{}
+	receiver := NewReceiver("s3cr3t", queue, WithPipelineHistory(&fakePipelineHistory{err: errors.New("boom")}))
+
+	resp := deliver(t, receiver, "s3cr3t", "Pipeline Hook", pipelinePassedHook)
+
+	if resp.Code != http.StatusOK || len(queue.accepted()) == 0 || len(fixesIn(queue.accepted())) != 0 {
+		t.Errorf("expected a 200 with the pipeline but no fix, got %d and %+v", resp.Code, queue.accepted())
+	}
+}

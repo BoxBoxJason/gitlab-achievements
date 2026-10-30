@@ -333,6 +333,17 @@ var templates = []Template{
 		MaxTier:     maxTier,
 	},
 	{
+		// Firefighter rewards the fire. This rewards putting it out.
+		CriteriaKey: CriteriaPipelinesFixed,
+		Category:    CategoryCICD,
+		Title:       "Back to Green %s",
+		Description: "Fix the build %d times: pass a pipeline on a branch whose last one failed.",
+		First:       "Fix the build: pass a pipeline on a branch whose last one failed.",
+		AvatarPath:  "assets/fixed.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
 		CriteriaKey: CriteriaJobsRun,
 		Category:    CategoryCICD,
 		Title:       "Assembly Line %s",

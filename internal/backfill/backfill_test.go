@@ -842,3 +842,76 @@ func TestRun_CreditsReleasesInTheWindowToTheirAuthors(t *testing.T) {
 		t.Errorf("expected 1 release in the report, got %d", report.Releases)
 	}
 }
+
+// pipelineRun is one pipeline on ref, both as the listing reports it and as
+// its detail does.
+func pipelineRun(read *fakeReader, id int64, ref, status string) {
+	createdAt := time.Date(2024, time.May, 3, 10, 0, 0, 0, time.UTC)
+
+	read.pipelines[1] = append(read.pipelines[1], &gitlab.PipelineInfo{ID: id, ProjectID: 1, Ref: ref, Status: status})
+	read.details[id] = &gitlab.Pipeline{
+		ID: id, ProjectID: 1, Ref: ref, Status: status, CreatedAt: &createdAt,
+		User: &gitlab.BasicUser{ID: 10, Username: "alice"},
+	}
+}
+
+func fixKeys(events []activity.Event) []string {
+	var keys []string
+
+	for _, event := range events {
+		if event.Kind == activity.KindPipelineFixed {
+			keys = append(keys, event.DedupKey)
+		}
+	}
+
+	return keys
+}
+
+func TestRun_CountsAPassAfterAFailureOnTheSameRefAsAFix(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.pipelines[1] = nil
+
+	pipelineRun(read, 501, "main", "failed")
+	pipelineRun(read, 502, "feature", "success") // another ref
+	pipelineRun(read, 503, "main", "canceled")   // says nothing
+	pipelineRun(read, 504, "main", "success")    // the fix
+	pipelineRun(read, 505, "main", "success")    // already green
+
+	processor := &recorder{}
+
+	if _, err := Run(t.Context(), read, conn, processor, Options{}); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if keys := fixKeys(processor.events); len(keys) != 1 || keys[0] != "pipeline:504:pipeline_fixed" {
+		t.Errorf("expected only pipeline 504 to count as a fix, got %v", keys)
+	}
+}
+
+func TestRun_AResumedWalkStillKnowsHowTheRefsLastPipelineEnded(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.pipelines[1] = nil
+
+	pipelineRun(read, 501, "main", "failed")
+	pipelineRun(read, 502, "main", "success")
+
+	// Interrupted right after processing the failure.
+	seeded := progress{Phase: phasePipelines, CurrentProjectID: 1, LastPipelineID: 501}
+	if err := saveProgress(conn, seeded); err != nil {
+		t.Fatalf("failed to seed progress: %v", err)
+	}
+
+	processor := &recorder{}
+
+	if _, err := Run(t.Context(), read, conn, processor, Options{}); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if keys := fixKeys(processor.events); len(keys) != 1 || keys[0] != "pipeline:502:pipeline_fixed" {
+		t.Errorf("expected the re-listed failure to make 502 a fix, got %v", keys)
+	}
+}

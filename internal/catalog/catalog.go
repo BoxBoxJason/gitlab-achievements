@@ -61,6 +61,7 @@ const (
 	CriteriaPipelinesRun            = "pipelines_run"
 	CriteriaPipelinesSucceeded      = "pipelines_succeeded"
 	CriteriaPipelinesFailed         = "pipelines_failed"
+	CriteriaPipelinesFixed          = "pipelines_fixed"
 	CriteriaJobsRun                 = "jobs_run"
 	CriteriaDeployments             = "deployments"
 	CriteriaDeploymentsSucceeded    = "deployments_succeeded"

@@ -109,6 +109,7 @@ func TestV1_CoversEveryCriteria(t *testing.T) {
 		catalog.CriteriaPipelinesRun,
 		catalog.CriteriaPipelinesSucceeded,
 		catalog.CriteriaPipelinesFailed,
+		catalog.CriteriaPipelinesFixed,
 		catalog.CriteriaJobsRun,
 		catalog.CriteriaDeployments,
 		catalog.CriteriaDeploymentsSucceeded,
@@ -233,8 +234,8 @@ func TestAllCriteria_EveryCriteriaHasACategoryAndATitle(t *testing.T) {
 	}
 
 	criteria := catalog.AllCriteria()
-	if len(criteria) != 29 {
-		t.Fatalf("expected 29 criteria, got %d", len(criteria))
+	if len(criteria) != 30 {
+		t.Fatalf("expected 30 criteria, got %d", len(criteria))
 	}
 
 	for _, entry := range criteria {

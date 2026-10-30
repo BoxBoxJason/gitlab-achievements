@@ -11,7 +11,7 @@
 
 </div>
 
-Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **319 badges across 29 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
+Your instance already knows who ships code, who reviews it, and who keeps the pipelines green. This bot turns that into real [GitLab Achievements](https://docs.gitlab.com/user/profile/achievements/): **330 badges across 30 criteria**, awarded automatically, with an EXP total and an instance leaderboard on top.
 
 Point it at a self-hosted GitLab and it takes care of itself. It creates the achievements, registers its own webhooks, walks your history once so nobody starts from zero, and from then on reacts to what people do as they do it.
 
@@ -29,7 +29,7 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 | **Git** | commits, pushes, branches created, tags created, releases published |
 | **Merge requests & review** | opened, merged, your own merged by anyone, merged within the hour, approved, closed unmerged, comments left, line comments on diffs, discussions resolved |
 | **Issues** | opened, closed |
-| **CI/CD** | pipelines run, passed, failed, jobs run, deployments, deployments succeeded |
+| **CI/CD** | pipelines run, passed, failed, passed after the last one failed, jobs run, deployments, deployments succeeded |
 | **Collaboration** | emoji reactions given, wiki pages created, projects contributed to |
 | **Engagement** | days active, longest streak, night owl days, early bird days |
 
@@ -62,7 +62,7 @@ $EDITOR .env
 docker compose up -d
 ```
 
-The first start creates 319 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
+The first start creates 330 achievements and registers webhooks before it serves anything, so give it a minute (longer on Free/CE, where every project gets its own hook). Once `/readyz` answers, you are live:
 
 ```bash
 curl -sf http://127.0.0.1:8080/readyz && echo ready

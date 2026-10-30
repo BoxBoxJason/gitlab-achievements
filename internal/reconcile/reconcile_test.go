@@ -62,6 +62,10 @@ type fakeReader struct {
 	details   map[int64]*gitlab.Pipeline
 	merged    map[int64][]*gitlab.BasicMergeRequest
 	releases  map[int64][]*gitlab.Release
+	// previous is how the pipeline before each pipeline ID ended on its
+	// ref, and lookups the pipelines it was asked about.
+	previous map[int64]gitlab.BuildStateValue
+	lookups  []int64
 
 	projectsErr  error
 	eventsErr    map[int64]error
@@ -176,6 +180,12 @@ func (f *fakeReader) ListReleases(pid any, _ *gitlab.ListReleasesOptions, _ ...g
 			}
 		}
 	}
+}
+
+func (f *fakeReader) LastPipelineOutcome(_ any, _ string, beforeID int64, _ ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error) {
+	f.lookups = append(f.lookups, beforeID)
+
+	return f.previous[beforeID], nil
 }
 
 // recorder collects everything a pass hands to the achievement engine.
@@ -588,5 +598,47 @@ func TestRun_ReReadsReleasesUntilTheFirstOneBeforeTheWindow(t *testing.T) {
 	// release past it is never looked at.
 	if len(keys) != 1 || keys[0] != "release:1:v1.1" || report.Releases != 1 {
 		t.Errorf("expected only v1.1, got %v (%d in the report)", keys, report.Releases)
+	}
+}
+
+func TestRun_CountsAPassAfterAFailureAsAFix(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.details[500].Ref = "main"
+	read.previous = map[int64]gitlab.BuildStateValue{500: gitlab.Failed}
+
+	processor := &recorder{}
+
+	if _, err := run(t, read, conn, processor); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var fixes []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindPipelineFixed {
+			fixes = append(fixes, event.DedupKey)
+		}
+	}
+
+	if len(fixes) != 1 || fixes[0] != "pipeline:500:pipeline_fixed" {
+		t.Errorf("expected pipeline 500 to count as a fix, got %v", fixes)
+	}
+}
+
+func TestRun_AsksAboutPredecessorsOnlyForPassingPipelines(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.details[500].Ref = "main"
+	read.details[500].Status = "failed"
+
+	if _, err := run(t, read, conn, &recorder{}); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(read.lookups) != 0 {
+		t.Errorf("expected no lookup for a failed pipeline, got %v", read.lookups)
 	}
 }

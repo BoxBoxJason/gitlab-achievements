@@ -543,6 +543,24 @@ def firefighter(c):
 
 
 @icon
+def fixed(c):
+    """Back to Green - a wrench, and the build green again.
+
+    allgreen()'s green disc and tick, with a wrench across it so it reads as
+    green restored rather than green kept.
+    """
+    c.disc(18, 18, 12, 'G')
+    c.shade('G', 'g', lambda x, y: x + y > 40)
+    c.line(12, 18, 16, 22, 'W', 3)
+    c.line(16, 22, 24, 13, 'W', 3)
+    c.line(4, 4, 11, 11, 'S', 4)        # handle
+    c.disc(4, 4, 4, 'S')                # jaw
+    c.disc(2, 2, 2, '.')
+    c.shade('S', 's', lambda x, y: x + y > 12)
+    c.outline()
+
+
+@icon
 def gears(c):
     """Assembly Line - jobs run."""
     import math

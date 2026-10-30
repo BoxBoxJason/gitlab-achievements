@@ -26,3 +26,54 @@ func (c *ReadClient) ListProjectPipelines(pid any, opt *gitlab.ListProjectPipeli
 		return c.raw.Pipelines.ListProjectPipelines(pid, opt, withExtra(options, reqOpts...)...)
 	})
 }
+
+// previousPipelineScan bounds how many older pipelines on a ref
+// LastPipelineOutcome looks through for one that finished. Canceled,
+// skipped and manual pipelines in between are passed over, but a ref with
+// a long run of them is not worth paging through history for.
+const previousPipelineScan = 50
+
+// previousPipelinePage is the page size LastPipelineOutcome asks for. The
+// answer is nearly always the pipeline right before, so a small page is
+// one cheap request rather than a hundred records nobody reads.
+const previousPipelinePage = 20
+
+// LastPipelineOutcome reports how the most recent pipeline on ref before
+// beforeID ended: gitlab.Success or gitlab.Failed, whichever it finished
+// with. Pipelines that ended neither way (canceled, skipped, still running)
+// are passed over. It reports an empty status when no earlier pipeline on
+// the ref finished, within previousPipelineScan of it.
+func (c *ReadClient) LastPipelineOutcome(pid any, ref string, beforeID int64, options ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error) {
+	opt := &gitlab.ListProjectPipelinesOptions{
+		ListOptions: gitlab.ListOptions{PerPage: previousPipelinePage},
+		Ref:         &ref,
+		OrderBy:     new("id"),
+		Sort:        new("desc"),
+	}
+
+	scanned := 0
+
+	for info, err := range c.ListProjectPipelines(pid, opt, options...) {
+		if err != nil {
+			return "", err
+		}
+
+		if info.ID >= beforeID {
+			continue
+		}
+
+		switch status := gitlab.BuildStateValue(info.Status); status {
+		case gitlab.Success, gitlab.Failed:
+			return status, nil
+		case gitlab.Created, gitlab.WaitingForResource, gitlab.Preparing, gitlab.Pending,
+			gitlab.Running, gitlab.Canceled, gitlab.Skipped, gitlab.Manual, gitlab.Scheduled:
+		}
+
+		scanned++
+		if scanned >= previousPipelineScan {
+			break
+		}
+	}
+
+	return "", nil
+}

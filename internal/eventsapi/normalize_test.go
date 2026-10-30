@@ -571,3 +571,29 @@ func TestNormalizeRelease_NeedsAnAuthorAndATag(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizePipelineFix(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+	pipeline := func(status string) *gitlab.Pipeline {
+		return &gitlab.Pipeline{
+			ID: 600, ProjectID: 7, Ref: "main", Status: status, CreatedAt: &createdAt,
+			User: &gitlab.BasicUser{ID: 10, Username: "alice"},
+		}
+	}
+
+	fixed := NormalizePipelineFix(pipeline("success"), gitlab.Failed)
+	if len(fixed) != 1 || fixed[0].Kind != activity.KindPipelineFixed || fixed[0].DedupKey != "pipeline:600:pipeline_fixed" || fixed[0].ActorID != 10 {
+		t.Errorf("expected a pass after a failure to be a fix, got %+v", fixed)
+	}
+
+	for name, got := range map[string][]activity.Event{
+		"pass after a pass":       NormalizePipelineFix(pipeline("success"), gitlab.Success),
+		"pass, nothing prior":     NormalizePipelineFix(pipeline("success"), ""),
+		"failure after a failure": NormalizePipelineFix(pipeline("failed"), gitlab.Failed),
+		"nil":                     NormalizePipelineFix(nil, gitlab.Failed),
+	} {
+		if len(got) != 0 {
+			t.Errorf("%s: expected no fix, got %v", name, kindsOf(got))
+		}
+	}
+}

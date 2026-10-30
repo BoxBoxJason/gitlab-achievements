@@ -1,6 +1,6 @@
 # Achievements and EXP
 
-The catalog is 29 criteria, eleven tiers each, 319 GitLab achievements in total. It is generated from templates in `internal/catalog` rather than written out by hand, so adding a criteria is one template and nothing else.
+The catalog is 30 criteria, eleven tiers each, 330 GitLab achievements in total. It is generated from templates in `internal/catalog` rather than written out by hand, so adding a criteria is one template and nothing else.
 
 ## The catalog
 
@@ -9,7 +9,7 @@ The catalog is 29 criteria, eleven tiers each, 319 GitLab achievements in total.
 | **Git** | commits, pushes, branches created, tags created, releases published |
 | **Merge requests & review** | opened, merged, landed (your own merged, by whoever merged it), merged within an hour of opening, approved, closed without merging, comments left, comments on lines of a merge request diff, review discussions resolved |
 | **Issues** | opened, closed |
-| **CI/CD** | pipelines run, passed, failed, jobs run, deployments, deployments succeeded |
+| **CI/CD** | pipelines run, passed, failed, passed after the last one failed, jobs run, deployments, deployments succeeded |
 | **Collaboration** | emoji reactions given, wiki pages created, projects contributed to |
 | **Engagement** | days active, longest activity streak, night owl days, early bird days |
 
@@ -28,7 +28,7 @@ Four difficulty curves, all built from powers of 2, 5 and 10 so tiers land on nu
 
 The top tiers are out of reach on most instances, and that is the point. They exist so the one person who has been committing to the same GitLab since 2015 still has something left to earn.
 
-The catalog is compiled in rather than configurable per deployment. Thresholds are only half the contract: the other half is 319 achievement objects that already exist on your instance with awards pointing at them, so a configurable catalog is really a question about renaming and deleting live GitLab records. Worth its own issue, not v1's.
+The catalog is compiled in rather than configurable per deployment. Thresholds are only half the contract: the other half is 330 achievement objects that already exist on your instance with awards pointing at them, so a configurable catalog is really a question about renaming and deleting live GitLab records. Worth its own issue, not v1's.
 
 ## EXP
 
@@ -52,7 +52,7 @@ Every start, and again on the hourly sweep, the app lists the achievements in yo
 | The recorded achievement is gone entirely | It is created again, under a new ID. |
 | It is there, but its name, description or avatar has drifted | The catalog's version is pushed back over it. |
 
-Adoption is what makes the app survive losing its database. Which GitLab achievement belongs to which catalog entry lives in that database and nowhere else — a GitLab achievement carries no field this app could stamp its own identity into — so a store rebuilt from scratch, or restored from a backup older than the achievements it describes, would otherwise try to create all 319 again and be refused: **an achievement's name is unique within a namespace**. Matching by name instead turns that from a wedged startup into a no-op.
+Adoption is what makes the app survive losing its database. Which GitLab achievement belongs to which catalog entry lives in that database and nowhere else — a GitLab achievement carries no field this app could stamp its own identity into — so a store rebuilt from scratch, or restored from a backup older than the achievements it describes, would otherwise try to create all 330 again and be refused: **an achievement's name is unique within a namespace**. Matching by name instead turns that from a wedged startup into a no-op.
 
 It also keeps the badges. Deleting an achievement deletes every award of it, so an achievement recreated rather than adopted takes everyone's earned badge down with the original. Adoption never touches an award.
 
@@ -74,7 +74,13 @@ The streak awarded is the longest run a user ever managed, not their current one
 
 Projects contributed to works the same way, off the set of projects each user has done anything in rather than a running total, so a thousand commits to one project are one project. Activity tied to no project, which is only ever a wiki page, is left out of it.
 
-A merge request landing is the one activity that does not feed the day criteria. It is credited to the author, but somebody else merged it, and a teammate merging your work at 3am is neither your active day nor your late night.
+A merge request landing is the one activity that does not feed the day criteria.
+
+## Fixing the build
+
+A pipeline fixes the build when it passes on a branch whose previous pipeline to finish had failed. Canceled and skipped pipelines in between are passed over, since they say nothing either way. Retrying a failed pipeline into success does not count: a retry keeps the pipeline's ID, so the pipeline before it on the branch is the one it is judged against, and getting a flaky job through on its second try is not fixing anything.
+
+The live path asks GitLab how the previous pipeline ended each time one passes, one extra request per passing pipeline, as does reconciliation. The backfill walks a project's pipelines in order anyway, so it already knows. Within a bounded `BACKFILL_SINCE` window, a branch's first pipeline has no known predecessor and is not counted. It is credited to the author, but somebody else merged it, and a teammate merging your work at 3am is neither your active day nor your late night.
 
 ## What is missing, and why
 

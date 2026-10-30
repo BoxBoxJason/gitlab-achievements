@@ -82,6 +82,12 @@ type releaseSource interface {
 	GetRelease(pid any, tagName string, options ...gitlab.RequestOptionFunc) (*gitlab.Release, error)
 }
 
+// pipelineHistory reports how a ref's previous pipeline ended, satisfied by
+// *gitlabclient.ReadClient.
+type pipelineHistory interface {
+	LastPipelineOutcome(pid any, ref string, beforeID int64, options ...gitlab.RequestOptionFunc) (gitlab.BuildStateValue, error)
+}
+
 // apiFetchTimeout bounds the trip to the API a delivery may cost, well
 // inside the time GitLab waits for a hook to answer.
 const apiFetchTimeout = 5 * time.Second
@@ -91,6 +97,7 @@ type Receiver struct {
 	queue       dispatcher
 	discussions discussionSource
 	releases    releaseSource
+	pipelines   pipelineHistory
 	secret      string
 }
 
@@ -110,6 +117,14 @@ func WithDiscussions(source discussionSource) ReceiverOption {
 // releases are only counted by backfill and reconciliation.
 func WithReleases(source releaseSource) ReceiverOption {
 	return func(r *Receiver) { r.releases = source }
+}
+
+// WithPipelineHistory lets the receiver look up the pipeline before a
+// passing one, which is how it tells a pass that fixed the build from one
+// that kept it green. Without it, fixes are only counted by backfill and
+// reconciliation.
+func WithPipelineHistory(source pipelineHistory) ReceiverOption {
+	return func(r *Receiver) { r.pipelines = source }
 }
 
 // NewReceiver builds a Receiver that authenticates deliveries against
@@ -253,17 +268,58 @@ func (r *Receiver) parse(ctx context.Context, eventType gitlab.EventType, payloa
 	}
 
 	now := time.Now()
-	events := normalize(parsed, now)
 
-	if merge, ok := parsed.(*gitlab.MergeEvent); ok && r.discussions != nil && resolutionCandidate(merge) {
-		events = append(events, r.resolvedDiscussions(ctx, merge, now)...)
+	return append(normalize(parsed, now), r.lookUp(ctx, parsed, now)...), true
+}
+
+// lookUp derives the activities a delivery implies but does not describe,
+// by asking the API what the payload leaves out: which threads an update
+// resolved, who created a release, whether a pass fixed the build. Each
+// lookup is made only when its source was configured and the delivery is
+// one it could change the answer for.
+func (r *Receiver) lookUp(ctx context.Context, parsed any, receivedAt time.Time) []activity.Event {
+	switch payload := parsed.(type) {
+	case *gitlab.MergeEvent:
+		if r.discussions != nil && resolutionCandidate(payload) {
+			return r.resolvedDiscussions(ctx, payload, receivedAt)
+		}
+	case *gitlab.ReleaseEvent:
+		if r.releases != nil && releaseCreated(payload) {
+			return r.publishedRelease(ctx, payload, receivedAt)
+		}
+	case *gitlab.PipelineEvent:
+		if r.pipelines != nil && pipelinePassed(payload) {
+			return r.fixedPipeline(ctx, payload, receivedAt)
+		}
 	}
 
-	if release, ok := parsed.(*gitlab.ReleaseEvent); ok && r.releases != nil && releaseCreated(release) {
-		events = append(events, r.publishedRelease(ctx, release, now)...)
+	return nil
+}
+
+// fixedPipeline reports a passing pipeline as having fixed the build when
+// the previous pipeline on its ref had failed.
+//
+// A failed lookup is logged and costs this delivery its fix only:
+// reconciliation asks the same question of every pipeline that passed in
+// its window.
+func (r *Receiver) fixedPipeline(ctx context.Context, event *gitlab.PipelineEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
+	defer cancel()
+
+	attrs := event.ObjectAttributes
+
+	previous, err := r.pipelines.LastPipelineOutcome(event.Project.ID, attrs.Ref, attrs.ID, gitlab.WithContext(ctx))
+	if err != nil {
+		zap.L().Warn("failed to look up the pipeline before a passing one",
+			zap.Int64("project_id", event.Project.ID),
+			zap.Int64("pipeline_id", attrs.ID),
+			zap.Error(err),
+		)
+
+		return nil
 	}
 
-	return events, true
+	return normalizePipelineFix(event, previous, receivedAt)
 }
 
 // publishedRelease reads the release a creation hook is about, to credit it

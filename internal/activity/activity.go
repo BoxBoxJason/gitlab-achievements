@@ -85,6 +85,11 @@ const (
 	// KindPipelineFailed is a pipeline that finished in failure. It is
 	// always accompanied by a KindPipelineRun event for the same pipeline.
 	KindPipelineFailed Kind = "pipeline_failed"
+	// KindPipelineFixed is a pipeline that passed on a ref whose previous
+	// pipeline to finish had failed: the build was broken, and this put it
+	// right. It is always accompanied by a KindPipelineSucceeded event for
+	// the same pipeline.
+	KindPipelineFixed Kind = "pipeline_fixed"
 	// KindJobRun is a single CI job that ran, whatever its outcome. Its
 	// outcome is deliberately not reported: the pipeline the job belongs to
 	// already carries one, and a failing job in a pipeline that passes on

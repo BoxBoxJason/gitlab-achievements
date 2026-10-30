@@ -29,6 +29,7 @@
 //	comment ....... note:<id>                          (note.id)
 //	review comment  note:<id>:review_comment           (a DiffNote's note.id)
 //	pipeline ...... pipeline:<id>
+//	build fixed ... pipeline:<id>:pipeline_fixed
 //	landed merge .. merge_request:<id>:landed          (merge requests API)
 //	release ....... release:<project>:<tag>            (releases API)
 //
@@ -381,17 +382,9 @@ func normalizeTargetType(raw string) targetType {
 // Pipelines with no triggering user (schedules, API triggers with a
 // detached token) are dropped, for the same reason authorless events are.
 func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
-	if pipeline == nil || pipeline.User == nil || pipeline.User.ID == 0 {
+	base, ok := pipelineBase(pipeline)
+	if !ok {
 		return nil
-	}
-
-	base := activity.Event{
-		OccurredAt:     TimeOrZero(pipeline.CreatedAt),
-		DedupKey:       fmt.Sprintf("pipeline:%d", pipeline.ID),
-		ActorUsername:  pipeline.User.Username,
-		ActorAvatarURL: pipeline.User.AvatarURL,
-		ActorID:        pipeline.User.ID,
-		ProjectID:      pipeline.ProjectID,
 	}
 
 	activities := []activity.Event{activityFrom(base, activity.KindPipelineRun, 1)}
@@ -464,6 +457,45 @@ func NormalizeRelease(projectID int64, release *gitlab.Release) []activity.Event
 		ProjectID:      projectID,
 		Count:          1,
 	}}
+}
+
+// NormalizePipelineFix reports a passing pipeline as having fixed the build,
+// given how the pipeline before it on the same ref ended. The caller finds
+// that out, since one pipeline says nothing about its predecessors: a walk
+// over a project's pipelines in order already knows, and anyone else asks.
+//
+// Only a pass that follows a failure counts. A pipeline retried from
+// failure into success keeps its ID, so it fixes nothing by this measure
+// unless the one before it had failed too: retrying a flaky job is not
+// fixing the build.
+func NormalizePipelineFix(pipeline *gitlab.Pipeline, previous gitlab.BuildStateValue) []activity.Event {
+	if previous != gitlab.Failed || pipeline == nil || gitlab.BuildStateValue(pipeline.Status) != gitlab.Success {
+		return nil
+	}
+
+	base, ok := pipelineBase(pipeline)
+	if !ok {
+		return nil
+	}
+
+	return []activity.Event{activityFrom(base, activity.KindPipelineFixed, 1)}
+}
+
+// pipelineBase is what every activity a pipeline yields has in common,
+// reporting false for a pipeline with no triggering user to credit.
+func pipelineBase(pipeline *gitlab.Pipeline) (activity.Event, bool) {
+	if pipeline == nil || pipeline.User == nil || pipeline.User.ID == 0 {
+		return activity.Event{}, false
+	}
+
+	return activity.Event{
+		OccurredAt:     TimeOrZero(pipeline.CreatedAt),
+		DedupKey:       fmt.Sprintf("pipeline:%d", pipeline.ID),
+		ActorUsername:  pipeline.User.Username,
+		ActorAvatarURL: pipeline.User.AvatarURL,
+		ActorID:        pipeline.User.ID,
+		ProjectID:      pipeline.ProjectID,
+	}, true
 }
 
 // activityFrom specializes base to one kind, scoping its dedup key to the

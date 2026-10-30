@@ -18,6 +18,7 @@ Almost everything a pass reads is activity the live path already counted, so the
 | Comment | `note:<id>` | `note.id` |
 | Review comment | `note:<id>:review_comment` | `note.id`, of a `DiffNote` on a merge request |
 | Pipeline | `pipeline:<id>` | the pipeline's ID |
+| Build fixed | `pipeline:<id>:pipeline_fixed` | the pipeline's ID, once a lookup of the one before it on its ref finds a failure |
 | Merge request landed | `merge_request:<id>:landed` | the merge request's ID, from the merge requests API |
 | Release | `release:<project>:<tag>` | the release's project and tag, from the releases API |
 

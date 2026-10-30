@@ -265,16 +265,17 @@ func (f *fixture) run(t *testing.T) []expectation {
 	expect(alice, "deployments", 1, true, true, "deploy to production")
 	expect(alice, "deployments_succeeded", 1, true, true, "deployment succeeds")
 
-	// CI, last: two pipelines, one passing and one failing, run by a
-	// runner this suite impersonates.
+	// CI, last: three pipelines on main, passing, failing and passing again,
+	// run by a runner this suite impersonates.
 	f.runPipelines(t, alice)
-	expect(alice, "pipelines_run", 2, true, false, "two pipelines")
-	expect(alice, "pipelines_succeeded", 1, true, false, "one passes")
-	expect(alice, "pipelines_failed", 1, true, false, "one fails")
-	expect(alice, "jobs_run", 2, true, true, "one job per pipeline")
+	expect(alice, "pipelines_run", 3, true, false, "three pipelines")
+	expect(alice, "pipelines_succeeded", 2, true, false, "the first and the third pass")
+	expect(alice, "pipelines_failed", 1, true, false, "the second fails")
+	expect(alice, "pipelines_fixed", 1, true, false, "the third passes after the second failed")
+	expect(alice, "jobs_run", 3, true, true, "one job per pipeline")
 
-	// Branch, commit, tag, and the two CI commits.
-	expect(alice, "pushes", 5, false, false, "branch, commit, tag, 2 CI commits")
+	// Branch, commit, tag, and the three CI commits.
+	expect(alice, "pushes", 6, false, false, "branch, commit, tag, 3 CI commits")
 
 	for _, user := range []*gitlab.User{alice, bob} {
 		expect(user, "active_days", 1, true, false, "active today")
@@ -360,9 +361,9 @@ func (f *fixture) merge(t *testing.T, user *gitlab.User, iid int64) {
 	t.Fatalf("merge of !%d never went through: %v", iid, lastErr)
 }
 
-// runPipelines adds CI configuration, pushes once more, and plays the part
-// of a runner for the two pipelines that produces: the first passes and the
-// second fails.
+// runPipelines adds CI configuration, pushes twice more, and plays the
+// part of a runner for the three pipelines that produces: the first
+// passes, the second fails, and the third passes again, fixing the build.
 //
 // Impersonating a runner through its API rather than running one keeps the
 // suite to one container, and makes the outcomes exact. Each pipeline is
@@ -379,9 +380,10 @@ func (f *fixture) runPipelines(t *testing.T, user *gitlab.User) {
 	pushes := []func(){
 		func() { f.commit(t, user, "main", ".gitlab-ci.yml", "test:\n  script: [\"true\"]\n") },
 		func() { f.commit(t, user, "main", "c.txt", "second pipeline") },
+		func() { f.commit(t, user, "main", "d.txt", "third pipeline") },
 	}
 
-	for i, state := range []string{"success", "failed"} {
+	for i, state := range []string{"success", "failed", "success"} {
 		pushes[i]()
 
 		job := f.requestJob(t, runner.Token)
@@ -393,7 +395,7 @@ func (f *fixture) runPipelines(t *testing.T, user *gitlab.User) {
 
 		status := f.runnerAPI(t, http.MethodPut, fmt.Sprintf("/api/v4/jobs/%d", job.ID), body, nil)
 		if status != http.StatusOK {
-			t.Fatalf("finishing job %d (%d of 2) as %s: HTTP %d", job.ID, i+1, state, status)
+			t.Fatalf("finishing job %d (%d of %d) as %s: HTTP %d", job.ID, i+1, len(pushes), state, status)
 		}
 	}
 }

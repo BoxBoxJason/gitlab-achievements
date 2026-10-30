@@ -1616,6 +1616,91 @@
       ]
     },
     {
+      "criteria_key": "pipelines_fixed",
+      "category": "ci_cd",
+      "title": "Back to Green",
+      "icon_url": "/api/v1/achievements/pipelines_fixed/icon",
+      "tiers": [
+        {
+          "name": "Back to Green I",
+          "description": "Fix the build: pass a pipeline on a branch whose last one failed.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Back to Green II",
+          "description": "Fix the build 3 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Back to Green III",
+          "description": "Fix the build 5 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Back to Green IV",
+          "description": "Fix the build 10 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Back to Green V",
+          "description": "Fix the build 50 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Back to Green VI",
+          "description": "Fix the build 100 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Back to Green VII",
+          "description": "Fix the build 500 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Back to Green VIII",
+          "description": "Fix the build 1000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Back to Green IX",
+          "description": "Fix the build 5000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Back to Green X",
+          "description": "Fix the build 10000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Back to Green XI",
+          "description": "Fix the build 50000 times: pass a pipeline on a branch whose last one failed.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "jobs_run",
       "category": "ci_cd",
       "title": "Assembly Line",

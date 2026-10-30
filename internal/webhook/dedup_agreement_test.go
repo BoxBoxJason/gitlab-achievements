@@ -324,3 +324,19 @@ func TestDedupKeysAgree_Release(t *testing.T) {
 
 	agreesOn(t, activity.KindReleasePublished, live, historical)
 }
+
+func TestDedupKeysAgree_PipelineFixed(t *testing.T) {
+	live := normalizePipelineFix(&gitlab.PipelineEvent{
+		User:             &gitlab.EventUser{ID: 10, Username: "alice"},
+		Project:          gitlab.PipelineEventProject{ID: 7},
+		ObjectAttributes: gitlab.PipelineEventObjectAttributes{ID: 6600, Ref: "main", Status: "success"},
+	}, gitlab.Failed, receivedAt)
+
+	createdAt := receivedAt
+	historical := eventsapi.NormalizePipelineFix(&gitlab.Pipeline{
+		ID: 6600, ProjectID: 7, Ref: "main", Status: "success", CreatedAt: &createdAt,
+		User: &gitlab.BasicUser{ID: 10, Username: "alice"},
+	}, gitlab.Failed)
+
+	agreesOn(t, activity.KindPipelineFixed, live, historical)
+}

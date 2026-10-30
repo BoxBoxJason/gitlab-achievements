@@ -383,6 +383,12 @@ func (r *runner) advanceEventsCursor(event *gitlab.ProjectEvent) {
 // walkProjectPipelines replays a project's pipelines, which the Events API
 // doesn't report at all.
 //
+// Walking them in ID order is also what tells a pass that fixed the build
+// from one that kept it green: the walk has just seen how the ref's
+// previous pipeline ended, including on the pages a resumed walk only
+// re-lists, so it costs no request to ask. A ref's first pipeline within a
+// bounded window has no known predecessor, and is not counted as a fix.
+//
 // The pipeline list omits who triggered each run, so attributing one costs
 // a request of its own. That makes this the most expensive part of the
 // walk, and the reason the resume cursor tracks pipeline IDs: re-listing a
@@ -399,10 +405,15 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 		opt.CreatedAfter = &r.opts.Since
 	}
 
+	outcomes := map[string]gitlab.BuildStateValue{}
+
 	for info, err := range r.read.ListProjectPipelines(projectID, opt, gitlab.WithContext(ctx)) {
 		if err != nil {
 			return fmt.Errorf("failed to list pipelines for project %d: %w", projectID, err)
 		}
+
+		previous := outcomes[info.Ref]
+		recordOutcome(outcomes, info)
 
 		if info.ID <= r.progress.LastPipelineID {
 			continue
@@ -415,7 +426,7 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 			continue
 		}
 
-		processErr := r.processPipeline(ctx, projectID, info.ID)
+		processErr := r.processPipeline(ctx, projectID, info.ID, previous)
 		if processErr != nil {
 			return processErr
 		}
@@ -431,10 +442,23 @@ func (r *runner) walkProjectPipelines(ctx context.Context, projectID int64) erro
 	return nil
 }
 
+// recordOutcome remembers how a pipeline ended as the latest outcome on its
+// ref, if it ended by passing or failing. Anything else (canceled, skipped,
+// still running) says nothing about whether the build was broken.
+func recordOutcome(outcomes map[string]gitlab.BuildStateValue, info *gitlab.PipelineInfo) {
+	switch status := gitlab.BuildStateValue(info.Status); status {
+	case gitlab.Success, gitlab.Failed:
+		outcomes[info.Ref] = status
+	case gitlab.Created, gitlab.WaitingForResource, gitlab.Preparing, gitlab.Pending,
+		gitlab.Running, gitlab.Canceled, gitlab.Skipped, gitlab.Manual, gitlab.Scheduled:
+	}
+}
+
 // processPipeline fetches the detail a pipeline's activity needs (the
-// listing carries no user) and processes it. A pipeline deleted between
-// being listed and being fetched is skipped, not fatal.
-func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int64) error {
+// listing carries no user) and processes it, as a fix if it passed where
+// previous, the ref's pipeline before it, had failed. A pipeline deleted
+// between being listed and being fetched is skipped, not fatal.
+func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int64, previous gitlab.BuildStateValue) error {
 	pipeline, err := r.read.GetPipeline(projectID, pipelineID, gitlab.WithContext(ctx))
 	if err != nil {
 		if gitlabclient.IsNotFound(err) {
@@ -444,7 +468,7 @@ func (r *runner) processPipeline(ctx context.Context, projectID, pipelineID int6
 		return fmt.Errorf("failed to get pipeline %d of project %d: %w", pipelineID, projectID, err)
 	}
 
-	err = r.process(ctx, eventsapi.NormalizePipeline(pipeline))
+	err = r.process(ctx, append(eventsapi.NormalizePipeline(pipeline), eventsapi.NormalizePipelineFix(pipeline, previous)...))
 	if err != nil {
 		return err
 	}
