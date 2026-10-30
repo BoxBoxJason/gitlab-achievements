@@ -191,9 +191,12 @@ type runner struct {
 	read      historyReader
 	conn      *gorm.DB
 	processor activity.Processor
-	opts      Options
-	progress  progress
-	report    Report
+	// projectPath is the path of the project being walked, which wiki page
+	// events are keyed on and don't carry themselves.
+	projectPath string
+	opts        Options
+	progress    progress
+	report      Report
 	// sinceFlush counts records processed since the cursor was last
 	// persisted, bounding how much work an interruption can cost.
 	sinceFlush int
@@ -237,6 +240,8 @@ func (r *runner) walkProjects(ctx context.Context) error {
 
 			continue
 		}
+
+		r.projectPath = project.PathWithNamespace
 
 		err = r.walkProject(ctx, project.ID)
 		if err != nil {
@@ -348,7 +353,9 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 			continue
 		}
 
-		processErr := r.process(ctx, eventsapi.NormalizeProjectEvent(event))
+		activities := append(eventsapi.NormalizeProjectEvent(event), eventsapi.NormalizeWikiPageEvent(event, r.projectPath)...)
+
+		processErr := r.process(ctx, activities)
 		if processErr != nil {
 			return processErr
 		}

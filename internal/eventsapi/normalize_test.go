@@ -597,3 +597,67 @@ func TestNormalizePipelineFix(t *testing.T) {
 		}
 	}
 }
+
+func wikiEvent(action string) *gitlab.ProjectEvent {
+	return &gitlab.ProjectEvent{
+		ID: 920, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "WikiPage::Meta", TargetID: 3, ActionName: action, CreatedAt: "2026-03-02T11:00:00Z",
+		WikiPage: &gitlab.EventWikiPage{Slug: "home", Title: "Home"},
+	}
+}
+
+func TestNormalizeWikiPageEvent_CountsACreation(t *testing.T) {
+	activities := NormalizeWikiPageEvent(wikiEvent("created"), "team/app")
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one wiki page, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindWikiPageCreated || got.ActorID != 10 || got.DedupKey != "wiki_page:team/app:home" {
+		t.Errorf("unexpected wiki page %+v", got)
+	}
+
+	// The live path can't tie a page to a project ID, so neither does this.
+	if got.ProjectID != 0 {
+		t.Errorf("expected no project, got %d", got.ProjectID)
+	}
+}
+
+func TestNormalizeWikiPageEvent_CountsOnlyCreations(t *testing.T) {
+	for _, action := range []string{"updated", "destroyed"} {
+		if got := NormalizeWikiPageEvent(wikiEvent(action), "team/app"); len(got) != 0 {
+			t.Errorf("action %q: expected nothing, got %v", action, kindsOf(got))
+		}
+	}
+}
+
+func TestNormalizeWikiPageEvent_NeedsAPageAPathAndAWikiTarget(t *testing.T) {
+	noPage := wikiEvent("created")
+	noPage.WikiPage = nil
+
+	issue := wikiEvent("created")
+	issue.TargetType = "Issue"
+
+	cases := map[string]struct {
+		event *gitlab.ProjectEvent
+		path  string
+	}{
+		"no page":    {noPage, "team/app"},
+		"no path":    {wikiEvent("created"), ""},
+		"not a wiki": {issue, "team/app"},
+		"nil event":  {nil, "team/app"},
+	}
+
+	for name, tc := range cases {
+		if got := NormalizeWikiPageEvent(tc.event, tc.path); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}
+
+func TestNormalizeProjectEvent_LeavesWikiPagesToTheirOwnNormalizer(t *testing.T) {
+	if got := NormalizeProjectEvent(wikiEvent("created")); len(got) != 0 {
+		t.Errorf("expected nothing without the project's path, got %v", kindsOf(got))
+	}
+}

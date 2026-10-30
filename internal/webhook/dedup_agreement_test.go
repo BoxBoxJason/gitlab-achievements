@@ -340,3 +340,20 @@ func TestDedupKeysAgree_PipelineFixed(t *testing.T) {
 
 	agreesOn(t, activity.KindPipelineFixed, live, historical)
 }
+
+func TestDedupKeysAgree_WikiPage(t *testing.T) {
+	hook := &gitlab.WikiPageEvent{User: &gitlab.EventUser{ID: 10, Username: "alice"}}
+	hook.Project.PathWithNamespace = "team/app"
+	hook.ObjectAttributes.Action = "create"
+	hook.ObjectAttributes.Slug = "home"
+
+	live := normalize(hook, receivedAt)
+
+	historical := eventsapi.NormalizeWikiPageEvent(&gitlab.ProjectEvent{
+		ID: 920, ProjectID: 7, AuthorID: 10, AuthorUsername: "alice",
+		TargetType: "WikiPage::Meta", ActionName: "created",
+		WikiPage: &gitlab.EventWikiPage{Slug: "home"},
+	}, "team/app")
+
+	agreesOn(t, activity.KindWikiPageCreated, live, historical)
+}

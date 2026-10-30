@@ -32,6 +32,7 @@
 //	build fixed ... pipeline:<id>:pipeline_fixed
 //	landed merge .. merge_request:<id>:landed          (merge requests API)
 //	release ....... release:<project>:<tag>            (releases API)
+//	wiki page ..... wiki_page:<project path>:<slug>    (wiki_page.slug)
 //
 // A key here is a compatibility surface with the processed-event log as
 // much as with the other producer, so changing one silently re-counts
@@ -40,8 +41,8 @@
 //
 // # What the Events API cannot report
 //
-// Jobs, deployments, emoji reactions, wiki pages, resolved discussions and
-// fast merges have no Events API representation at all, so nothing here
+// Jobs, deployments, emoji reactions, resolved discussions and fast merges
+// have no Events API representation at all, so nothing here
 // produces them; they are webhook-only. Merge requests landing for their
 // author aren't in it either, but the merge requests API reports them, so
 // NormalizeMergedMergeRequest reads them from there. A reconciliation sync consequently
@@ -405,6 +406,44 @@ func NormalizePipeline(pipeline *gitlab.Pipeline) []activity.Event {
 	}
 
 	return activities
+}
+
+// actionCreated is the action_name the Events API gives a wiki page being
+// created, where it says "opened" for an issue or a merge request.
+const actionCreated = "created"
+
+// NormalizeWikiPageEvent counts a wiki page a user created, from a project
+// event whose project lives at projectPath.
+//
+// It is apart from NormalizeProjectEvent because the key needs something the
+// event doesn't carry. The live path keys a page on its project's path and
+// slug, the only identifiers the wiki hook has, so this has to spell the
+// same key from the path the caller listed the project under. A project
+// renamed between the hook and a reconciliation pass re-reading it would
+// count the page twice; that is a rename inside the look-back window, and
+// the price of agreeing with a hook that names no project ID.
+//
+// Like the live path, it ties the page to no project, so the two paths
+// agree on what it adds to the projects a user has contributed to.
+func NormalizeWikiPageEvent(event *gitlab.ProjectEvent, projectPath string) []activity.Event {
+	if event == nil || event.AuthorID == 0 || projectPath == "" || event.WikiPage == nil || event.WikiPage.Slug == "" {
+		return nil
+	}
+
+	folded := strings.ToLower(strings.ReplaceAll(event.TargetType, "_", ""))
+	if !strings.HasPrefix(folded, "wikipage") || strings.ToLower(event.ActionName) != actionCreated {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     ParseEventTime(event.CreatedAt),
+		Kind:           activity.KindWikiPageCreated,
+		DedupKey:       fmt.Sprintf("wiki_page:%s:%s", projectPath, event.WikiPage.Slug),
+		ActorUsername:  eventAuthorUsername(event),
+		ActorAvatarURL: event.Author.AvatarURL,
+		ActorID:        event.AuthorID,
+		Count:          1,
+	}}
 }
 
 // NormalizeMergedMergeRequest credits a merged merge request to its author.

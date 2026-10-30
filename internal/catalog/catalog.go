@@ -37,10 +37,10 @@ var avatarAssets embed.FS
 //
 // Not every criteria is observable by both activity producers. The
 // historical backfill reads GitLab's Events API, which reports pushes,
-// merge requests, issues, and notes but not deployments, jobs, emoji,
-// discussion resolutions, or wiki pages. Those advance from live webhook
-// deliveries only, so on a freshly bootstrapped instance they start from
-// zero however long the instance has existed.
+// merge requests, issues, notes and wiki pages but not deployments, jobs,
+// emoji, discussion resolutions, or fast merges. Those advance from live
+// webhook deliveries only, so on a freshly bootstrapped instance they start
+// from zero however long the instance has existed.
 const (
 	CriteriaCommits                 = "commits"
 	CriteriaPushes                  = "pushes"

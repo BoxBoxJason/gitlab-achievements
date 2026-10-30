@@ -15,7 +15,7 @@ Each criteria is checked on four paths, every one against a database of its own:
 
 Most expectations are exact, so a criteria that counts one action twice fails as surely as one that does not count it at all. Pushes and commits are floors, because GitLab adds pushes of its own (a merge is one, carrying every commit it brings in).
 
-The criteria the Events API has no record of (jobs, deployments, emoji, wiki pages, resolved discussions, fast merges) are reported as `n/a` on the read paths. Night owl and early bird are not asserted, because whether they move depends on when the suite runs.
+The criteria the Events API has no record of (jobs, deployments, emoji, resolved discussions, fast merges) are reported as `n/a` on the read paths. Night owl and early bird are not asserted, because whether they move depends on when the suite runs.
 
 The run prints a criteria-by-phase table and writes it to `report.md`, and to the job summary in CI.
 

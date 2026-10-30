@@ -915,3 +915,33 @@ func TestRun_AResumedWalkStillKnowsHowTheRefsLastPipelineEnded(t *testing.T) {
 		t.Errorf("expected the re-listed failure to make 502 a fix, got %v", keys)
 	}
 }
+
+func TestRun_KeysWikiPagesOnThePathTheProjectWasListedUnder(t *testing.T) {
+	conn := testConn(t)
+
+	read := oneProjectInstance()
+	read.projects[0].PathWithNamespace = "team/app"
+	read.events[1] = append(read.events[1], &gitlab.ProjectEvent{
+		ID: 101, AuthorID: 10, AuthorUsername: "alice", ProjectID: 1,
+		TargetType: "WikiPage::Meta", ActionName: "created", CreatedAt: "2024-05-03T11:00:00Z",
+		WikiPage: &gitlab.EventWikiPage{Slug: "home"},
+	})
+
+	processor := &recorder{}
+
+	if _, err := Run(t.Context(), read, conn, processor, Options{}); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var keys []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindWikiPageCreated {
+			keys = append(keys, event.DedupKey)
+		}
+	}
+
+	if len(keys) != 1 || keys[0] != "wiki_page:team/app:home" {
+		t.Errorf("expected the page keyed on the project's path, got %v", keys)
+	}
+}

@@ -248,7 +248,7 @@ func (f *fixture) run(t *testing.T) []expectation {
 	// Wiki.
 	_, _, err = gl.Wikis.CreateWikiPage(pid, &gitlab.CreateWikiPageOptions{Title: new("Home"), Content: new("Welcome")}, as(alice))
 	must(t, err)
-	expect(alice, "wiki_pages_created", 1, true, true, "create wiki page")
+	expect(alice, "wiki_pages_created", 1, true, false, "create wiki page")
 
 	// Deployments, recorded through the API: moving one from running to
 	// success is the transition GitLab delivers a hook for.

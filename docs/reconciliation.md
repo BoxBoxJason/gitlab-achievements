@@ -21,6 +21,7 @@ Almost everything a pass reads is activity the live path already counted, so the
 | Build fixed | `pipeline:<id>:pipeline_fixed` | the pipeline's ID, once a lookup of the one before it on its ref finds a failure |
 | Merge request landed | `merge_request:<id>:landed` | the merge request's ID, from the merge requests API |
 | Release | `release:<project>:<tag>` | the release's project and tag, from the releases API |
+| Wiki page | `wiki_page:<project path>:<slug>` | `wiki_page.slug`, and the path the project was listed under |
 
 The engine keeps a processed-event log keyed on exactly that, so a pass over a window the webhooks covered correctly is a no-op.
 
@@ -28,7 +29,7 @@ This matters more than it looks. GitLab never revokes an award, so a counter inf
 
 ## What it cannot heal
 
-The Events API has no representation for jobs, deployments, emoji reactions, wiki pages, resolved discussions or fast merges, so a lost delivery of one of those stays lost. That is the right direction to be wrong in: the sync undercounts what it cannot see rather than guessing at it under a key that would not match.
+The Events API has no representation for jobs, deployments, emoji reactions, resolved discussions or fast merges, so a lost delivery of one of those stays lost. That is the right direction to be wrong in: the sync undercounts what it cannot see rather than guessing at it under a key that would not match.
 
 ## Running it
 

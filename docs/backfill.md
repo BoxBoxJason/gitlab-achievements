@@ -8,14 +8,14 @@ It reads every group-owned project the read token can see, in ascending project 
 
 Per project:
 
-- **The Events API** (`GET /projects/:id/events`) for pushes and their commit counts, branch and tag creation, merge requests opened, merged, approved and closed, issues opened and closed, and comments, including which of them were left on a merge request's diff. The [Audit Events API](https://docs.gitlab.com/api/audit_events/) would be richer, but it is Premium/Ultimate only, so a Free/CE-compatible backfill cannot rely on it.
+- **The Events API** (`GET /projects/:id/events`) for pushes and their commit counts, branch and tag creation, merge requests opened, merged, approved and closed, issues opened and closed, comments, including which of them were left on a merge request's diff, and wiki pages created. The [Audit Events API](https://docs.gitlab.com/api/audit_events/) would be richer, but it is Premium/Ultimate only, so a Free/CE-compatible backfill cannot rely on it.
 - **The Pipelines API**, because pipelines do not appear in the Events API at all.
 - **The releases API**, the only place releases and their authors are recorded.
 - **The merge requests API** for merged merge requests. The Events API reports a merge as the merger's, without saying whose work it was, so this is where merge requests landing for their authors come from.
 
 Between them that covers most of the catalog, including the engagement criteria: every dated activity also records the day it happened on, which is what streaks and the night owl and early bird criteria are derived from.
 
-Six criteria have no Events API equivalent at all (deployments, jobs, emoji, wiki pages, discussion resolutions, fast merges). Those only ever advance from live deliveries, so they start at zero on a freshly bootstrapped instance however long it has existed.
+Five criteria have no Events API equivalent at all (deployments, jobs, emoji, discussion resolutions, fast merges). Those only ever advance from live deliveries, so they start at zero on a freshly bootstrapped instance however long it has existed.
 
 ## How it behaves
 

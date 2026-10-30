@@ -20,11 +20,12 @@
 // a window webhooks already covered would inflate every counter in it, and
 // GitLab awards are never revoked, so the inflation would be permanent.
 //
-// The Events API reports pushes, merge requests, issues and comments, the
-// Pipelines API covers pipelines, the merge requests API covers merge
-// requests landing for their authors, and the releases API covers releases. Jobs, deployments, emoji reactions,
-// wiki pages, resolved discussions and fast merges have no read-side
-// representation at all, so a lost delivery of one of those stays lost.
+// The Events API reports pushes, merge requests, issues, comments and wiki
+// pages, the Pipelines API covers pipelines, the merge requests API covers
+// merge requests landing for their authors, and the releases API covers
+// releases. Jobs, deployments, emoji reactions, resolved discussions and
+// fast merges have no read-side representation at all, so a lost delivery
+// of one of those stays lost.
 // That is the safe direction: this heals what it can see and undercounts
 // the rest, rather than guessing.
 //
@@ -158,8 +159,11 @@ func Run(ctx context.Context, read activityReader, conn *gorm.DB, processor acti
 type runner struct {
 	read      activityReader
 	processor activity.Processor
-	since     time.Time
-	report    Report
+	// projectPath is the path of the project being walked, which wiki page
+	// events are keyed on and don't carry themselves.
+	projectPath string
+	since       time.Time
+	report      Report
 }
 
 // walkProjects visits every project that has seen activity since the
@@ -198,6 +202,8 @@ func (r *runner) walkProjects(ctx context.Context) error {
 
 			continue
 		}
+
+		r.projectPath = project.PathWithNamespace
 
 		err = r.walkProject(ctx, project.ID)
 		if err != nil {
@@ -285,7 +291,9 @@ func (r *runner) walkProjectEvents(ctx context.Context, projectID int64) error {
 			return fmt.Errorf("failed to list events for project %d: %w", projectID, err)
 		}
 
-		processErr := r.process(ctx, eventsapi.NormalizeProjectEvent(event))
+		activities := append(eventsapi.NormalizeProjectEvent(event), eventsapi.NormalizeWikiPageEvent(event, r.projectPath)...)
+
+		processErr := r.process(ctx, activities)
 		if processErr != nil {
 			return processErr
 		}
