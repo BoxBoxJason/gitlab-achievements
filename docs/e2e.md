@@ -44,4 +44,6 @@ In CI, the **End-to-end** workflow runs the same script. It is manual only (Acti
 
 ## Resolved discussions on GitLab 19.5
 
-Resolving a thread on 19.5 sends a single merge request hook with `action: update` and empty `changes`, and no note hook. That hook names neither the thread nor who resolved it, so when the app receives such an update it reads the merge request's discussions through the API and counts every resolved one for its resolver. The suite asserts this on the webhook phases, which is what keeps it honest if a later release changes what it sends.
+Resolving a thread on 19.5 sends no note hook. When it resolves the merge request's last open thread, it sends a single merge request hook with `action: update` and empty `changes`, which names neither the thread nor who resolved it. When other threads stay open, it sends nothing at all.
+
+So the app reads the merge request's discussions through the API, and counts every resolved one for its resolver, on two occasions: such a bare update, and the merge request being merged or closed. A resolution that left threads open is counted at the latest when the merge request ends, dated by when it happened. The suite resolves a thread while another stays open and asserts it on the webhook phases, which is what keeps this honest if a later release changes what it sends.

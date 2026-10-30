@@ -153,16 +153,16 @@ func (f *fixture) run(t *testing.T) []expectation {
 		&gitlab.CreateMergeRequestDiscussionOptions{Body: new("One nit before this goes in")}, as(bob))
 	must(t, err)
 
+	f.diffNote(t, bob, mr.IID, "a.txt", "Typo on this line")
+	expect(bob, "review_comments", 1, true, false, "line comment on MR !1's diff")
+
+	// The line comment's thread stays open, so GitLab 19.5 sends no hook
+	// for this resolution at all: it is only seen when the merge request is
+	// merged, further down.
 	_, _, err = gl.Discussions.ResolveMergeRequestDiscussion(pid, mr.IID, discussion.ID,
 		&gitlab.ResolveMergeRequestDiscussionOptions{Resolved: new(true)}, as(alice))
 	must(t, err)
-	expect(alice, "discussions_resolved", 1, true, true, "resolve bob's MR thread")
-
-	// After the resolution, not before: a line comment opens a thread of its
-	// own, and GitLab 19.5 only sends the hook a resolution is seen by once
-	// every thread on the merge request is resolved.
-	f.diffNote(t, bob, mr.IID, "a.txt", "Typo on this line")
-	expect(bob, "review_comments", 1, true, false, "line comment on MR !1's diff")
+	expect(alice, "discussions_resolved", 1, true, true, "resolve bob's MR thread, another left open")
 
 	_, _, err = gl.AwardEmoji.CreateMergeRequestAwardEmojiOnNote(pid, mr.IID, mrNote.ID,
 		&gitlab.CreateAwardEmojiOptions{Name: "thumbsup"}, as(alice))

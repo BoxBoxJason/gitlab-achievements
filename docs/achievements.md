@@ -86,6 +86,8 @@ The live path asks GitLab how the previous pipeline ended each time one passes, 
 
 **Five criteria advance from live webhook deliveries only.** The Events API the backfill reads reports pushes, merge requests, issues, notes and wiki pages, but not deployments, jobs, emoji, resolved discussions or fast merges. Those start at zero on a freshly bootstrapped instance however long it has existed.
 
+**A resolved discussion can arrive late.** GitLab 19.5 sends no webhook for resolving a thread while others on the merge request stay open, so the app reads the merge request's discussions when its last thread is resolved and when it is merged or closed. A resolution is counted at the latest then, dated by when it happened.
+
 **Anything that needs to watch an editor is gone.** Lines of code, files created, per-language breakdowns, tabs, extensions, themes, debugger sessions, terminal tasks, time spent: the VS Code extension has all of them and a server has no equivalent for any of them.
 
 **Two git criteria are missing for subtler reasons.** An amend is indistinguishable from an ordinary commit once pushed, and the Events API does not report whether a push was forced.

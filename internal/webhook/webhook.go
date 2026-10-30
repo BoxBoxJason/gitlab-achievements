@@ -106,7 +106,7 @@ type ReceiverOption func(*Receiver)
 
 // WithDiscussions lets the receiver read a merge request's discussions,
 // which is the only way to see a thread being resolved on a GitLab that
-// reports it as a bare merge request update. Without it, resolutions are
+// reports it as a bare merge request update, or not at all. Without it, resolutions are
 // only counted from the note hooks older versions send.
 func WithDiscussions(source discussionSource) ReceiverOption {
 	return func(r *Receiver) { r.discussions = source }
@@ -346,8 +346,8 @@ func (r *Receiver) publishedRelease(ctx context.Context, event *gitlab.ReleaseEv
 	return normalizeRelease(event, release, receivedAt)
 }
 
-// resolvedDiscussions reads the discussions of the merge request an update
-// hook is about and reports the resolved ones.
+// resolvedDiscussions reads the discussions of the merge request a hook is
+// about and reports the resolved ones.
 //
 // A failed read is logged and costs only this delivery's resolutions: the
 // next update of the merge request reads the same threads again, and the

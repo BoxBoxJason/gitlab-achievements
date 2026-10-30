@@ -525,3 +525,24 @@ func TestReceiver_AFailedPipelineLookupKeepsThePipeline(t *testing.T) {
 		t.Errorf("expected a 200 with the pipeline but no fix, got %d and %+v", resp.Code, queue.accepted())
 	}
 }
+
+func TestReceiver_AMergeCatchesUpOnResolutionsGitLabSentNoHookFor(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeDiscussions{discussions: resolvedByAlice()}
+	receiver := NewReceiver("s3cr3t", queue, WithDiscussions(source))
+
+	merged := strings.Replace(bareMergeRequestUpdate, `"action": "update"`, `"action": "merge", "author_id": 10`, 1)
+	deliver(t, receiver, "s3cr3t", "Merge Request Hook", merged)
+
+	var resolved int
+
+	for _, event := range queue.accepted() {
+		if event.Kind == activity.KindDiscussionResolved && event.ActorID == 10 {
+			resolved++
+		}
+	}
+
+	if source.calls != 1 || resolved != 1 {
+		t.Errorf("expected the merge to read discussions once and count alice's resolution, got %d reads and %+v", source.calls, queue.accepted())
+	}
+}

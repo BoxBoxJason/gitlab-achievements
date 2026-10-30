@@ -701,11 +701,25 @@ func TestResolutionCandidate(t *testing.T) {
 		t.Error("expected an update that changed something to be left alone")
 	}
 
-	opened := update()
-	opened.ObjectAttributes.Action = "open"
+	for _, action := range []string{"open", "reopen", "approval", "approved", "unapproval"} {
+		other := update()
+		other.ObjectAttributes.Action = action
 
-	if resolutionCandidate(opened) {
-		t.Error("expected only updates to be candidates")
+		if resolutionCandidate(other) {
+			t.Errorf("action %q: expected no candidate", action)
+		}
+	}
+
+	// GitLab says nothing when a resolution leaves other threads open, so
+	// the end of the merge request is when those are caught up on.
+	for _, action := range []string{"merge", "close"} {
+		ended := update()
+		ended.ObjectAttributes.Action = action
+		ended.Changes.Title.Current = "changed alongside"
+
+		if !resolutionCandidate(ended) {
+			t.Errorf("action %q: expected a candidate", action)
+		}
 	}
 }
 

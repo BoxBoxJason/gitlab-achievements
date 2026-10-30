@@ -30,6 +30,10 @@ const (
 	// mapped onto one activity with one dedup key rather than counted twice.
 	actionApproval = "approval"
 	actionApproved = "approved"
+	// actionUpdate is anything else about a merge request changing, which on
+	// GitLab 19.5 includes a thread on it being resolved (see
+	// resolutionCandidate).
+	actionUpdate = "update"
 )
 
 // Emoji, release and wiki page actions, as they appear in a payload's
@@ -615,8 +619,9 @@ func discussionResolvedKey(discussionID string) string {
 //
 // GitLab 19.5 reports a resolution as a merge request hook with
 // `action: update` and empty `changes`, which names neither the thread nor
-// who resolved it, so the receiver reads the merge request's discussions
-// instead. A discussion counts when every one of its resolvable notes is
+// who resolved it, and only when no thread is left open; see
+// resolutionCandidate for when the receiver reads the merge request's
+// discussions instead. A discussion counts when every one of its resolvable notes is
 // resolved, credited to whoever resolved the last of them. Everything that
 // was already counted deduplicates on the discussion, so it does no harm
 // that each fetch reports threads resolved long ago.
@@ -672,12 +677,30 @@ func normalizeDiscussions(discussions []*gitlab.Discussion, projectID int64, rec
 	return events
 }
 
-// resolutionCandidate reports whether a merge request hook might be a
-// thread being resolved: an update that changed nothing the payload can
-// describe. Updates that did change something (a title, a label, a state)
-// are not worth a trip to the API.
+// resolutionCandidate reports whether a merge request hook is worth reading
+// the merge request's discussions for.
+//
+// One kind is a thread being resolved: an update that changed nothing the
+// payload can describe. Updates that did change something (a title, a
+// label) are not worth a trip to the API.
+//
+// The other is the merge request being merged or closed. GitLab 19.5 sends
+// the bare update only for the resolution that leaves no thread open, and
+// nothing at all for one that leaves others open, so those resolutions
+// would otherwise never be seen. Every merge request is eventually merged
+// or closed, and by then each thread that was going to be resolved is.
+// A resolution counted late is still dated by its own resolved_at, and one
+// the bare update already counted is not counted again.
 func resolutionCandidate(event *gitlab.MergeEvent) bool {
-	if event == nil || event.ObjectAttributes.Action != "update" || event.ObjectAttributes.IID == 0 {
+	if event == nil || event.ObjectAttributes.IID == 0 {
+		return false
+	}
+
+	switch event.ObjectAttributes.Action {
+	case actionMerge, actionClose:
+		return true
+	case actionUpdate:
+	default:
 		return false
 	}
 
