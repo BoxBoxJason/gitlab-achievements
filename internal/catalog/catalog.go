@@ -46,6 +46,7 @@ const (
 	CriteriaPushes                  = "pushes"
 	CriteriaBranchesCreated         = "branches_created"
 	CriteriaTagsCreated             = "tags_created"
+	CriteriaReleasesPublished       = "releases_published"
 	CriteriaMergeRequestsOpened     = "merge_requests_opened"
 	CriteriaMergeRequestsMerged     = "merge_requests_merged"
 	CriteriaMergeRequestsLanded     = "merge_requests_landed"

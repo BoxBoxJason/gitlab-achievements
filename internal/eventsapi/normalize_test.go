@@ -535,3 +535,39 @@ func TestNormalizeProjectEvent_ADiscussionNoteIsNoReview(t *testing.T) {
 		t.Errorf("expected only a comment, got %v", kindsOf(activities))
 	}
 }
+
+func TestNormalizeRelease_CreditsTheAuthor(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+	releasedAt := createdAt.AddDate(-3, 0, 0)
+
+	activities := NormalizeRelease(7, &gitlab.Release{
+		TagName: "v1.0.0", CreatedAt: &createdAt, ReleasedAt: &releasedAt,
+		Author: gitlab.BasicUser{ID: 10, Username: "alice"},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("expected one release, got %v", kindsOf(activities))
+	}
+
+	got := activities[0]
+	if got.Kind != activity.KindReleasePublished || got.ActorID != 10 || got.DedupKey != "release:7:v1.0.0" || got.ProjectID != 7 {
+		t.Errorf("unexpected release %+v", got)
+	}
+
+	// released_at is whatever its author typed; creation is when it happened.
+	if !got.OccurredAt.Equal(createdAt) {
+		t.Errorf("expected the creation time, got %v", got.OccurredAt)
+	}
+}
+
+func TestNormalizeRelease_NeedsAnAuthorAndATag(t *testing.T) {
+	for name, release := range map[string]*gitlab.Release{
+		"nil":       nil,
+		"no author": {TagName: "v1"},
+		"no tag":    {Author: gitlab.BasicUser{ID: 10}},
+	} {
+		if got := NormalizeRelease(7, release); len(got) != 0 {
+			t.Errorf("%s: expected nothing, got %v", name, kindsOf(got))
+		}
+	}
+}

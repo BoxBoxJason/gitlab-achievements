@@ -1,12 +1,12 @@
 # Achievements and EXP
 
-The catalog is 28 criteria, eleven tiers each, 308 GitLab achievements in total. It is generated from templates in `internal/catalog` rather than written out by hand, so adding a criteria is one template and nothing else.
+The catalog is 29 criteria, eleven tiers each, 319 GitLab achievements in total. It is generated from templates in `internal/catalog` rather than written out by hand, so adding a criteria is one template and nothing else.
 
 ## The catalog
 
 | Category | Criteria |
 | --- | --- |
-| **Git** | commits, pushes, branches created, tags created |
+| **Git** | commits, pushes, branches created, tags created, releases published |
 | **Merge requests & review** | opened, merged, landed (your own merged, by whoever merged it), merged within an hour of opening, approved, closed without merging, comments left, comments on lines of a merge request diff, review discussions resolved |
 | **Issues** | opened, closed |
 | **CI/CD** | pipelines run, passed, failed, jobs run, deployments, deployments succeeded |
@@ -28,7 +28,7 @@ Four difficulty curves, all built from powers of 2, 5 and 10 so tiers land on nu
 
 The top tiers are out of reach on most instances, and that is the point. They exist so the one person who has been committing to the same GitLab since 2015 still has something left to earn.
 
-The catalog is compiled in rather than configurable per deployment. Thresholds are only half the contract: the other half is 308 achievement objects that already exist on your instance with awards pointing at them, so a configurable catalog is really a question about renaming and deleting live GitLab records. Worth its own issue, not v1's.
+The catalog is compiled in rather than configurable per deployment. Thresholds are only half the contract: the other half is 319 achievement objects that already exist on your instance with awards pointing at them, so a configurable catalog is really a question about renaming and deleting live GitLab records. Worth its own issue, not v1's.
 
 ## EXP
 
@@ -52,7 +52,7 @@ Every start, and again on the hourly sweep, the app lists the achievements in yo
 | The recorded achievement is gone entirely | It is created again, under a new ID. |
 | It is there, but its name, description or avatar has drifted | The catalog's version is pushed back over it. |
 
-Adoption is what makes the app survive losing its database. Which GitLab achievement belongs to which catalog entry lives in that database and nowhere else — a GitLab achievement carries no field this app could stamp its own identity into — so a store rebuilt from scratch, or restored from a backup older than the achievements it describes, would otherwise try to create all 308 again and be refused: **an achievement's name is unique within a namespace**. Matching by name instead turns that from a wedged startup into a no-op.
+Adoption is what makes the app survive losing its database. Which GitLab achievement belongs to which catalog entry lives in that database and nowhere else — a GitLab achievement carries no field this app could stamp its own identity into — so a store rebuilt from scratch, or restored from a backup older than the achievements it describes, would otherwise try to create all 319 again and be refused: **an achievement's name is unique within a namespace**. Matching by name instead turns that from a wedged startup into a no-op.
 
 It also keeps the badges. Deleting an achievement deletes every award of it, so an achievement recreated rather than adopted takes everyone's earned badge down with the original. Adoption never touches an award.
 
@@ -84,6 +84,6 @@ A merge request landing is the one activity that does not feed the day criteria.
 
 **Two git criteria are missing for subtler reasons.** An amend is indistinguishable from an ordinary commit once pushed, and the Events API does not report whether a push was forced.
 
-**Four event types the hooks subscribe to earn nothing**, for want of anyone to credit. Release and vulnerability payloads carry no user at all. Member payloads name the member rather than whoever added them. Feature flag payloads carry a user but no identifier for the change, so a second toggle of one flag cannot be told apart from a redelivery of the first. Milestone events have no payload type in the API client to parse.
+**Three event types the hooks subscribe to earn nothing**, for want of anyone to credit. Vulnerability payloads carry no user at all. Release payloads do not either, but the releases API names the author, so a release hook is followed by one read of the release it announces. Member payloads name the member rather than whoever added them. Feature flag payloads carry a user but no identifier for the change, so a second toggle of one flag cannot be told apart from a redelivery of the first. Milestone events have no payload type in the API client to parse.
 
 The hooks stay subscribed to all of them, so adding a criteria later is a code change rather than a re-registration across every project on your instance.

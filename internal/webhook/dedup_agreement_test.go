@@ -308,3 +308,19 @@ func TestDedupKeysAgree_ReviewComment(t *testing.T) {
 	agreesOn(t, activity.KindComment, live, historical)
 	agreesOn(t, activity.KindReviewComment, live, historical)
 }
+
+func TestDedupKeysAgree_Release(t *testing.T) {
+	createdAt := receivedAt
+	release := &gitlab.Release{
+		TagName: "v1.0.0", CreatedAt: &createdAt,
+		Author: gitlab.BasicUser{ID: 10, Username: "alice"},
+	}
+
+	hook := &gitlab.ReleaseEvent{Action: "create", Tag: "v1.0.0"}
+	hook.Project.ID = 7
+
+	live := normalizeRelease(hook, release, receivedAt)
+	historical := eventsapi.NormalizeRelease(7, release)
+
+	agreesOn(t, activity.KindReleasePublished, live, historical)
+}

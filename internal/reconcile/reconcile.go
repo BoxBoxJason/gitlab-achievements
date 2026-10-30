@@ -21,8 +21,8 @@
 // GitLab awards are never revoked, so the inflation would be permanent.
 //
 // The Events API reports pushes, merge requests, issues and comments, the
-// Pipelines API covers pipelines, and the merge requests API covers merge
-// requests landing for their authors. Jobs, deployments, emoji reactions,
+// Pipelines API covers pipelines, the merge requests API covers merge
+// requests landing for their authors, and the releases API covers releases. Jobs, deployments, emoji reactions,
 // wiki pages, resolved discussions and fast merges have no read-side
 // representation at all, so a lost delivery of one of those stays lost.
 // That is the safe direction: this heals what it can see and undercounts
@@ -72,6 +72,7 @@ type activityReader interface {
 	ListProjectPipelines(pid any, opt *gitlab.ListProjectPipelinesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.PipelineInfo, error]
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
 	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
+	ListReleases(pid any, opt *gitlab.ListReleasesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error]
 }
 
 // Options tunes a reconciliation pass.
@@ -103,6 +104,8 @@ type Report struct {
 	Pipelines int
 	// MergeRequests counts merged merge requests re-read.
 	MergeRequests int
+	// Releases counts releases re-read.
+	Releases int
 	// Gap is how long it had been since the last successful pass, beyond
 	// the interval one is expected to take. A non-zero value means passes
 	// were being missed, which is what makes a lost webhook window
@@ -204,7 +207,8 @@ func (r *runner) walkProjects(ctx context.Context) error {
 	return nil
 }
 
-// walkProject re-reads one project's recent events, pipelines and merges.
+// walkProject re-reads one project's recent events, pipelines, merges and
+// releases.
 //
 // A project this app can't read, or that was deleted between being listed
 // and being walked, is skipped rather than failing the pass: one
@@ -224,6 +228,11 @@ func (r *runner) walkProject(ctx context.Context, projectID int64) error {
 	err = r.walkProjectMergeRequests(ctx, projectID)
 	if err != nil {
 		return r.handleProjectError(projectID, "merge_requests", err)
+	}
+
+	err = r.walkProjectReleases(ctx, projectID)
+	if err != nil {
+		return r.handleProjectError(projectID, "releases", err)
 	}
 
 	r.report.Projects++
@@ -345,6 +354,38 @@ func (r *runner) walkProjectMergeRequests(ctx context.Context, projectID int64) 
 		}
 
 		r.report.MergeRequests++
+	}
+
+	return nil
+}
+
+// walkProjectReleases re-reads the releases created in the window.
+//
+// GitLab offers no date filter on releases, so they are listed newest
+// first and the listing is abandoned at the first one older than the
+// window: the rest are older still.
+func (r *runner) walkProjectReleases(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListReleasesOptions{
+		ListOptions: gitlab.ListOptions{PerPage: pageSize},
+		OrderBy:     new("created_at"),
+		Sort:        new("desc"),
+	}
+
+	for release, err := range r.read.ListReleases(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list releases for project %d: %w", projectID, err)
+		}
+
+		if release.CreatedAt != nil && release.CreatedAt.Before(r.since) {
+			break
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeRelease(projectID, release))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.Releases++
 	}
 
 	return nil

@@ -316,6 +316,22 @@ def tag(c):
     c.outline()
 
 
+@icon
+def release(c):
+    """Release Manager - a wrapped package, ready to go out."""
+    c.rect(4, 13, 24, 16, 'N')
+    c.shade('N', 'n', lambda x, y: x > 18)
+    c.rect(2, 8, 28, 6, 'N')
+    c.shade('N', 'n', lambda x, y: y > 11 and x > 18)
+    c.rect(14, 8, 4, 21, 'R')           # ribbon
+    c.shade('R', 'r', lambda x, y: y > 13)
+    c.disc(11, 5, 4, 'R')               # bow
+    c.disc(21, 5, 4, 'R')
+    c.disc(11, 5, 1.6, '.')
+    c.disc(21, 5, 1.6, '.')
+    c.outline()
+
+
 # ------------------------------------------- MERGE REQUESTS & REVIEW
 
 @icon

@@ -62,6 +62,7 @@ var subscribedEvents = map[gitlab.EventType]bool{
 	gitlab.EventTypeDeployment:    true,
 	gitlab.EventTypeEmoji:         true,
 	gitlab.EventTypeWikiPage:      true,
+	gitlab.EventTypeRelease:       true,
 }
 
 // dispatcher is what the receiver hands normalized activity to, satisfied
@@ -76,14 +77,20 @@ type discussionSource interface {
 	ListMergeRequestDiscussions(pid any, mergeRequest int64, opt *gitlab.ListMergeRequestDiscussionsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Discussion, error]
 }
 
-// discussionFetchTimeout bounds the trip to the API a delivery may cost,
-// well inside the time GitLab waits for a hook to answer.
-const discussionFetchTimeout = 5 * time.Second
+// releaseSource reads a release, satisfied by *gitlabclient.ReadClient.
+type releaseSource interface {
+	GetRelease(pid any, tagName string, options ...gitlab.RequestOptionFunc) (*gitlab.Release, error)
+}
+
+// apiFetchTimeout bounds the trip to the API a delivery may cost, well
+// inside the time GitLab waits for a hook to answer.
+const apiFetchTimeout = 5 * time.Second
 
 // Receiver handles GitLab webhook deliveries.
 type Receiver struct {
 	queue       dispatcher
 	discussions discussionSource
+	releases    releaseSource
 	secret      string
 }
 
@@ -96,6 +103,13 @@ type ReceiverOption func(*Receiver)
 // only counted from the note hooks older versions send.
 func WithDiscussions(source discussionSource) ReceiverOption {
 	return func(r *Receiver) { r.discussions = source }
+}
+
+// WithReleases lets the receiver read a release, which is the only way to
+// learn who created one: the release hook names nobody. Without it,
+// releases are only counted by backfill and reconciliation.
+func WithReleases(source releaseSource) ReceiverOption {
+	return func(r *Receiver) { r.releases = source }
 }
 
 // NewReceiver builds a Receiver that authenticates deliveries against
@@ -245,7 +259,35 @@ func (r *Receiver) parse(ctx context.Context, eventType gitlab.EventType, payloa
 		events = append(events, r.resolvedDiscussions(ctx, merge, now)...)
 	}
 
+	if release, ok := parsed.(*gitlab.ReleaseEvent); ok && r.releases != nil && releaseCreated(release) {
+		events = append(events, r.publishedRelease(ctx, release, now)...)
+	}
+
 	return events, true
+}
+
+// publishedRelease reads the release a creation hook is about, to credit it
+// to its author.
+//
+// A failed read is logged and costs this delivery its release. GitLab sends
+// no second creation hook, so the release is left to the next
+// reconciliation pass, which reads it from the same API.
+func (r *Receiver) publishedRelease(ctx context.Context, event *gitlab.ReleaseEvent, receivedAt time.Time) []activity.Event {
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
+	defer cancel()
+
+	release, err := r.releases.GetRelease(event.Project.ID, event.Tag, gitlab.WithContext(ctx))
+	if err != nil {
+		zap.L().Warn("failed to read a release to credit its author",
+			zap.Int64("project_id", event.Project.ID),
+			zap.String("tag", event.Tag),
+			zap.Error(err),
+		)
+
+		return nil
+	}
+
+	return normalizeRelease(event, release, receivedAt)
 }
 
 // resolvedDiscussions reads the discussions of the merge request an update
@@ -255,7 +297,7 @@ func (r *Receiver) parse(ctx context.Context, eventType gitlab.EventType, payloa
 // next update of the merge request reads the same threads again, and the
 // resolution deduplicates on its discussion, so nothing is counted twice.
 func (r *Receiver) resolvedDiscussions(ctx context.Context, event *gitlab.MergeEvent, receivedAt time.Time) []activity.Event {
-	ctx, cancel := context.WithTimeout(ctx, discussionFetchTimeout)
+	ctx, cancel := context.WithTimeout(ctx, apiFetchTimeout)
 	defer cancel()
 
 	projectID := event.ObjectAttributes.TargetProjectID

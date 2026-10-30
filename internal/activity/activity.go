@@ -38,6 +38,8 @@ const (
 	KindBranchCreated Kind = "branch_created"
 	// KindTagCreated is a tag created by a push.
 	KindTagCreated Kind = "tag_created"
+	// KindReleasePublished is a release created by a user.
+	KindReleasePublished Kind = "release_published"
 	// KindMergeRequestOpened is a merge request opened by its author.
 	KindMergeRequestOpened Kind = "merge_request_opened"
 	// KindMergeRequestMerged is a merge request merged (GitLab reports the

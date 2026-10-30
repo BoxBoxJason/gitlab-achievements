@@ -32,11 +32,11 @@ const (
 	actionApproved = "approved"
 )
 
-// Emoji and wiki page actions, as they appear in a payload's
-// object_attributes.action.
+// Emoji, release and wiki page actions, as they appear in a payload's
+// object_attributes.action (a release's at the top level).
 //
 // Unlike deployment and pipeline statuses, which client-go models as typed
-// enums this package switches on, these two are plain strings on both the
+// enums this package switches on, these are plain strings on both the
 // payload struct and the API, with no constants anywhere in client-go to
 // borrow.
 const (
@@ -48,6 +48,9 @@ const (
 	// also models an object_attributes.action, which 19.5 does not send;
 	// it is still read as a fallback, for whichever instance does.
 	emojiActionAward = "award"
+	// releaseActionCreate is a release being created. Updates and deletions
+	// are not tracked, as for wiki pages.
+	releaseActionCreate = "create"
 	// wikiActionCreate is a wiki page being created. The paired "update" and
 	// "delete" are not tracked, for want of a stable identifier: a wiki
 	// payload carries no revision ID, so two edits of one page and a
@@ -795,6 +798,40 @@ func normalizeWikiPage(event *gitlab.WikiPageEvent, receivedAt time.Time) []acti
 		ActorUsername:  event.User.Username,
 		ActorAvatarURL: event.User.AvatarURL,
 		ActorID:        event.User.ID,
+		Count:          1,
+	}}
+}
+
+// releaseCreated reports whether a release hook is a release being created,
+// and names one to look up.
+func releaseCreated(event *gitlab.ReleaseEvent) bool {
+	return event != nil && event.Action == releaseActionCreate && event.Project.ID != 0 && event.Tag != ""
+}
+
+// normalizeRelease credits a release to its author, read from the releases
+// API since the hook names nobody.
+//
+// The key is built from the hook's own project and tag rather than the
+// API's, matching eventsapi.NormalizeRelease, so a release counted live is
+// recognized when reconciliation lists it again.
+func normalizeRelease(event *gitlab.ReleaseEvent, release *gitlab.Release, receivedAt time.Time) []activity.Event {
+	if release == nil || release.Author.ID == 0 {
+		return nil
+	}
+
+	occurredAt := receivedAt
+	if release.CreatedAt != nil {
+		occurredAt = *release.CreatedAt
+	}
+
+	return []activity.Event{{
+		OccurredAt:     occurredAt,
+		Kind:           activity.KindReleasePublished,
+		DedupKey:       fmt.Sprintf("release:%d:%s", event.Project.ID, event.Tag),
+		ActorUsername:  release.Author.Username,
+		ActorAvatarURL: release.Author.AvatarURL,
+		ActorID:        release.Author.ID,
+		ProjectID:      event.Project.ID,
 		Count:          1,
 	}}
 }

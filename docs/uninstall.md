@@ -1,6 +1,6 @@
 # Uninstalling
 
-Retiring the deployment leaves its footprint on GitLab: webhooks pointing at a URL that no longer answers, and 308 achievement definitions in your namespace. The `uninstall` subcommand takes both off.
+Retiring the deployment leaves its footprint on GitLab: webhooks pointing at a URL that no longer answers, and 319 achievement definitions in your namespace. The `uninstall` subcommand takes both off.
 
 ```bash
 gitlab-achievements uninstall --dry-run          # report what would go, call nothing

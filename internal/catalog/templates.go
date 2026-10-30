@@ -117,10 +117,11 @@ const maxTier = 10
 // observable: an amend is indistinguishable from an ordinary commit once
 // pushed, and GitLab's Events API doesn't report whether a push was forced.
 //
-// Four of the event types the hooks subscribe to are absent for a different
-// reason: nobody to credit. Release and vulnerability payloads carry no
-// user at all, member payloads name the member rather than whoever added
-// them, and feature flag payloads carry a user but no identifier for the
+// Three of the event types the hooks subscribe to are absent for a different
+// reason: nobody to credit. Vulnerability payloads carry no user at all
+// (release payloads don't either, but the releases API names the author,
+// so a release hook is followed by a lookup), member payloads name the
+// member rather than whoever added them, and feature flag payloads carry a user but no identifier for the
 // change, so repeated toggles of one flag can't be told apart from a
 // redelivery of the first. Milestone events have no payload type in
 // client-go to parse at all. The hooks stay subscribed to them so that
@@ -167,6 +168,16 @@ var templates = []Template{
 		Description: "Create %d tags.",
 		First:       "Create your first tag.",
 		AvatarPath:  "assets/tag.png",
+		Curve:       StandardInfernalCurve,
+		MaxTier:     maxTier,
+	},
+	{
+		CriteriaKey: CriteriaReleasesPublished,
+		Category:    CategoryGit,
+		Title:       "Release Manager %s",
+		Description: "Publish %d releases.",
+		First:       "Publish your first release.",
+		AvatarPath:  "assets/release.png",
 		Curve:       StandardInfernalCurve,
 		MaxTier:     maxTier,
 	},

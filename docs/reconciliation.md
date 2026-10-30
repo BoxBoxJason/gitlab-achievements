@@ -4,7 +4,7 @@ Webhooks are best-effort. GitLab retries a delivery a few times and then gives u
 
 The reconciliation sync is the safety net. Once a day (`RECONCILE_INTERVAL`, default `24h`) it asks GitLab what actually happened over the last two days (`RECONCILE_LOOKBACK`, default `48h`) and replays it through the achievement engine.
 
-It reads the same sources the backfill does, the Events API, the Pipelines API and the merge requests API, but only over projects GitLab reports as active in the window. A quiet instance costs almost nothing however many projects it holds.
+It reads the same sources the backfill does, the Events, Pipelines, merge requests and releases APIs, but only over projects GitLab reports as active in the window. A quiet instance costs almost nothing however many projects it holds.
 
 ## Deduplication
 
@@ -19,6 +19,7 @@ Almost everything a pass reads is activity the live path already counted, so the
 | Review comment | `note:<id>:review_comment` | `note.id`, of a `DiffNote` on a merge request |
 | Pipeline | `pipeline:<id>` | the pipeline's ID |
 | Merge request landed | `merge_request:<id>:landed` | the merge request's ID, from the merge requests API |
+| Release | `release:<project>:<tag>` | the release's project and tag, from the releases API |
 
 The engine keeps a processed-event log keyed on exactly that, so a pass over a window the webhooks covered correctly is a no-op.
 

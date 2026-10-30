@@ -40,6 +40,9 @@ const (
 	// phaseMergeRequests is the project's merged merge requests, which
 	// credit their authors where the Events API only names the merger.
 	phaseMergeRequests phase = "merge_requests"
+	// phaseReleases is the project's releases, which only the releases API
+	// reports.
+	phaseReleases phase = "releases"
 )
 
 // progress is a backfill's resumable position in the instance.

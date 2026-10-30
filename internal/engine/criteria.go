@@ -20,6 +20,7 @@ var kindCriteria = map[activity.Kind][]string{
 	activity.KindPush:                   {catalog.CriteriaPushes},
 	activity.KindBranchCreated:          {catalog.CriteriaBranchesCreated},
 	activity.KindTagCreated:             {catalog.CriteriaTagsCreated},
+	activity.KindReleasePublished:       {catalog.CriteriaReleasesPublished},
 	activity.KindMergeRequestOpened:     {catalog.CriteriaMergeRequestsOpened},
 	activity.KindMergeRequestMerged:     {catalog.CriteriaMergeRequestsMerged},
 	activity.KindMergeRequestMergedFast: {catalog.CriteriaMergeRequestsMergedFast},

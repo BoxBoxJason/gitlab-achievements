@@ -30,6 +30,7 @@
 //	review comment  note:<id>:review_comment           (a DiffNote's note.id)
 //	pipeline ...... pipeline:<id>
 //	landed merge .. merge_request:<id>:landed          (merge requests API)
+//	release ....... release:<project>:<tag>            (releases API)
 //
 // A key here is a compatibility surface with the processed-event log as
 // much as with the other producer, so changing one silently re-counts
@@ -434,6 +435,33 @@ func NormalizeMergedMergeRequest(merged *gitlab.BasicMergeRequest) []activity.Ev
 		ActorAvatarURL: merged.Author.AvatarURL,
 		ActorID:        merged.Author.ID,
 		ProjectID:      merged.ProjectID,
+		Count:          1,
+	}}
+}
+
+// NormalizeRelease credits a release to whoever created it.
+//
+// The Events API has no record of releases at all, so backfill and
+// reconciliation list them per project through the releases API, which is
+// also the only place the author is named: the release hook leaves it out.
+// A release is keyed on its project and tag because that is what both the
+// API and the hook identify it by; neither reports an ID.
+//
+// It is dated by creation rather than by released_at, which whoever creates
+// a release may set to any moment they like, past or future.
+func NormalizeRelease(projectID int64, release *gitlab.Release) []activity.Event {
+	if release == nil || release.Author.ID == 0 || release.TagName == "" {
+		return nil
+	}
+
+	return []activity.Event{{
+		OccurredAt:     TimeOrZero(release.CreatedAt),
+		Kind:           activity.KindReleasePublished,
+		DedupKey:       fmt.Sprintf("release:%d:%s", projectID, release.TagName),
+		ActorUsername:  release.Author.Username,
+		ActorAvatarURL: release.Author.AvatarURL,
+		ActorID:        release.Author.ID,
+		ProjectID:      projectID,
 		Count:          1,
 	}}
 }

@@ -41,6 +41,7 @@ type fakeReader struct {
 	pipelines map[int64][]*gitlab.PipelineInfo
 	details   map[int64]*gitlab.Pipeline
 	merged    map[int64][]*gitlab.BasicMergeRequest
+	releases  map[int64][]*gitlab.Release
 
 	projectsErr  error
 	eventsErr    map[int64]error
@@ -146,6 +147,18 @@ func (f *fakeReader) ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMe
 	return func(yield func(*gitlab.BasicMergeRequest, error) bool) {
 		for _, mr := range f.merged[projectID] {
 			if !yield(mr, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (f *fakeReader) ListReleases(pid any, _ *gitlab.ListReleasesOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error] {
+	projectID, _ := pid.(int64)
+
+	return func(yield func(*gitlab.Release, error) bool) {
+		for _, release := range f.releases[projectID] {
+			if !yield(release, nil) {
 				return
 			}
 		}
@@ -788,5 +801,44 @@ func TestRun_LeavesMergesOutsideTheWindowToTheirOwners(t *testing.T) {
 
 	if opt := read.mergedOpt[1]; opt.UpdatedAfter == nil || !opt.UpdatedAfter.Equal(since) {
 		t.Errorf("expected the window's floor applied server-side, got %v", opt.UpdatedAfter)
+	}
+}
+
+func release(tag string, createdAt time.Time) *gitlab.Release {
+	return &gitlab.Release{TagName: tag, CreatedAt: &createdAt, Author: gitlab.BasicUser{ID: 10, Username: "alice"}}
+}
+
+func TestRun_CreditsReleasesInTheWindowToTheirAuthors(t *testing.T) {
+	conn := testConn(t)
+
+	since := time.Date(2024, time.May, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2024, time.May, 10, 0, 0, 0, 0, time.UTC)
+
+	read := oneProjectInstance()
+	read.releases = map[int64][]*gitlab.Release{
+		1: {release("v0.9", since.AddDate(0, 0, -1)), release("v1.0", since.AddDate(0, 0, 1)), release("v1.1", until)},
+	}
+
+	processor := &recorder{}
+
+	report, err := Run(t.Context(), read, conn, processor, Options{Since: since, Until: until})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var keys []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindReleasePublished {
+			keys = append(keys, event.DedupKey)
+		}
+	}
+
+	if len(keys) != 1 || keys[0] != "release:1:v1.0" {
+		t.Errorf("expected only the release inside the window, got %v", keys)
+	}
+
+	if report.Releases != 1 {
+		t.Errorf("expected 1 release in the report, got %d", report.Releases)
 	}
 }

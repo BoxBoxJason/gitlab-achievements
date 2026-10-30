@@ -4,7 +4,7 @@
 // The walk is instance-wide and project-driven: projects are visited in
 // ascending ID order, and each one's history is pulled from the Events API
 // (commits, merge requests, approvals, issues, notes) plus the Pipelines
-// and merge requests APIs for what events don't cover. Users are discovered from the activity
+// merge requests and releases APIs for what events don't cover. Users are discovered from the activity
 // itself rather than enumerated up front, so a user who never did anything
 // costs nothing.
 //
@@ -67,6 +67,7 @@ type historyReader interface {
 	ListProjectPipelines(pid any, opt *gitlab.ListProjectPipelinesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.PipelineInfo, error]
 	GetPipeline(pid any, pipeline int64, options ...gitlab.RequestOptionFunc) (*gitlab.Pipeline, error)
 	ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMergeRequestsOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.BasicMergeRequest, error]
+	ListReleases(pid any, opt *gitlab.ListReleasesOptions, options ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error]
 }
 
 // Options tunes a backfill run.
@@ -120,6 +121,8 @@ type Report struct {
 	Pipelines int
 	// MergeRequests counts merged merge requests processed.
 	MergeRequests int
+	// Releases counts releases processed.
+	Releases int
 	// Resumed reports whether the run picked up a saved cursor rather than
 	// starting from the beginning of the instance.
 	Resumed bool
@@ -258,6 +261,7 @@ func (r *runner) projectPhases() []projectPhase {
 		{name: phaseEvents, walk: r.walkProjectEvents},
 		{name: phasePipelines, walk: r.walkProjectPipelines},
 		{name: phaseMergeRequests, walk: r.walkProjectMergeRequests},
+		{name: phaseReleases, walk: r.walkProjectReleases},
 	}
 }
 
@@ -487,6 +491,44 @@ func (r *runner) walkProjectMergeRequests(ctx context.Context, projectID int64) 
 		}
 
 		r.report.MergeRequests++
+
+		flushErr := r.maybeFlush()
+		if flushErr != nil {
+			return flushErr
+		}
+	}
+
+	return nil
+}
+
+// walkProjectReleases replays a project's releases, which the Events API
+// has no record of. Like the merge requests phase it keeps no cursor: a
+// project has few releases, and re-listing them is cheap.
+//
+// GitLab offers no date filter on releases, so the window is applied here.
+func (r *runner) walkProjectReleases(ctx context.Context, projectID int64) error {
+	opt := &gitlab.ListReleasesOptions{
+		ListOptions: gitlab.ListOptions{PerPage: pageSize},
+		OrderBy:     new("created_at"),
+		Sort:        new("asc"),
+	}
+
+	for release, err := range r.read.ListReleases(projectID, opt, gitlab.WithContext(ctx)) {
+		if err != nil {
+			return fmt.Errorf("failed to list releases for project %d: %w", projectID, err)
+		}
+
+		createdAt := eventsapi.TimeOrZero(release.CreatedAt)
+		if r.afterCeiling(createdAt) || !r.opts.Since.IsZero() && createdAt.Before(r.opts.Since) {
+			continue
+		}
+
+		processErr := r.process(ctx, eventsapi.NormalizeRelease(projectID, release))
+		if processErr != nil {
+			return processErr
+		}
+
+		r.report.Releases++
 
 		flushErr := r.maybeFlush()
 		if flushErr != nil {

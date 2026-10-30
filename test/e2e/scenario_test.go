@@ -186,6 +186,12 @@ func (f *fixture) run(t *testing.T) []expectation {
 	must(t, err)
 	expect(alice, "tags_created", 1, true, false, "create tag v0.1.0")
 
+	_, _, err = gl.Releases.CreateRelease(pid, &gitlab.CreateReleaseOptions{
+		TagName: new("v0.1.0"), Name: new("First"), Description: new("The first one."),
+	}, as(alice))
+	must(t, err)
+	expect(alice, "releases_published", 1, true, false, "publish release v0.1.0")
+
 	// A second merge request, closed without merging.
 	_, _, err = gl.Branches.CreateBranch(pid, &gitlab.CreateBranchOptions{Branch: new("feat-b"), Ref: new("main")}, as(bob))
 	must(t, err)

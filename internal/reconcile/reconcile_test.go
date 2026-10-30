@@ -61,6 +61,7 @@ type fakeReader struct {
 	pipelines map[int64][]*gitlab.PipelineInfo
 	details   map[int64]*gitlab.Pipeline
 	merged    map[int64][]*gitlab.BasicMergeRequest
+	releases  map[int64][]*gitlab.Release
 
 	projectsErr  error
 	eventsErr    map[int64]error
@@ -159,6 +160,18 @@ func (f *fakeReader) ListProjectMergeRequests(pid any, opt *gitlab.ListProjectMe
 	return func(yield func(*gitlab.BasicMergeRequest, error) bool) {
 		for _, mr := range f.merged[projectID] {
 			if !yield(mr, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (f *fakeReader) ListReleases(pid any, _ *gitlab.ListReleasesOptions, _ ...gitlab.RequestOptionFunc) iter.Seq2[*gitlab.Release, error] {
+	projectID, _ := pid.(int64)
+
+	return func(yield func(*gitlab.Release, error) bool) {
+		for _, release := range f.releases[projectID] {
+			if !yield(release, nil) {
 				return
 			}
 		}
@@ -532,5 +545,48 @@ func TestRun_CreditsMergesInTheWindowToTheirAuthors(t *testing.T) {
 	opt := read.mergedOpt[1]
 	if opt.State == nil || *opt.State != "merged" || opt.UpdatedAfter == nil || !opt.UpdatedAfter.Equal(report.Since) {
 		t.Errorf("expected merged merge requests updated in the window to be asked for, got %+v", opt)
+	}
+}
+
+func TestRun_ReReadsReleasesUntilTheFirstOneBeforeTheWindow(t *testing.T) {
+	conn := testConn(t)
+
+	at := func(ago time.Duration) *time.Time {
+		moment := startedAt.Add(-ago)
+
+		return &moment
+	}
+
+	author := gitlab.BasicUser{ID: 10, Username: "alice"}
+
+	read := oneProjectInstance()
+	read.releases = map[int64][]*gitlab.Release{
+		// Newest first, as asked for.
+		1: {
+			{TagName: "v1.1", CreatedAt: at(time.Hour), Author: author},
+			{TagName: "v1.0", CreatedAt: at(30 * 24 * time.Hour), Author: author},
+			{TagName: "v0.9", CreatedAt: at(time.Minute), Author: author},
+		},
+	}
+
+	processor := &recorder{}
+
+	report, err := run(t, read, conn, processor)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	var keys []string
+
+	for _, event := range processor.events {
+		if event.Kind == activity.KindReleasePublished {
+			keys = append(keys, event.DedupKey)
+		}
+	}
+
+	// v0.9 is out of order on purpose: the listing stops at v1.0, so a
+	// release past it is never looked at.
+	if len(keys) != 1 || keys[0] != "release:1:v1.1" || report.Releases != 1 {
+		t.Errorf("expected only v1.1, got %v (%d in the report)", keys, report.Releases)
 	}
 }

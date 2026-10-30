@@ -341,6 +341,91 @@
       ]
     },
     {
+      "criteria_key": "releases_published",
+      "category": "git",
+      "title": "Release Manager",
+      "icon_url": "/api/v1/achievements/releases_published/icon",
+      "tiers": [
+        {
+          "name": "Release Manager I",
+          "description": "Publish your first release.",
+          "tier": 1,
+          "threshold": 1,
+          "exp_reward": 1
+        },
+        {
+          "name": "Release Manager II",
+          "description": "Publish 3 releases.",
+          "tier": 2,
+          "threshold": 3,
+          "exp_reward": 3
+        },
+        {
+          "name": "Release Manager III",
+          "description": "Publish 5 releases.",
+          "tier": 3,
+          "threshold": 5,
+          "exp_reward": 5
+        },
+        {
+          "name": "Release Manager IV",
+          "description": "Publish 10 releases.",
+          "tier": 4,
+          "threshold": 10,
+          "exp_reward": 10
+        },
+        {
+          "name": "Release Manager V",
+          "description": "Publish 50 releases.",
+          "tier": 5,
+          "threshold": 50,
+          "exp_reward": 50
+        },
+        {
+          "name": "Release Manager VI",
+          "description": "Publish 100 releases.",
+          "tier": 6,
+          "threshold": 100,
+          "exp_reward": 100
+        },
+        {
+          "name": "Release Manager VII",
+          "description": "Publish 500 releases.",
+          "tier": 7,
+          "threshold": 500,
+          "exp_reward": 500
+        },
+        {
+          "name": "Release Manager VIII",
+          "description": "Publish 1000 releases.",
+          "tier": 8,
+          "threshold": 1000,
+          "exp_reward": 1000
+        },
+        {
+          "name": "Release Manager IX",
+          "description": "Publish 5000 releases.",
+          "tier": 9,
+          "threshold": 5000,
+          "exp_reward": 5000
+        },
+        {
+          "name": "Release Manager X",
+          "description": "Publish 10000 releases.",
+          "tier": 10,
+          "threshold": 10000,
+          "exp_reward": 10000
+        },
+        {
+          "name": "Release Manager XI",
+          "description": "Publish 50000 releases.",
+          "tier": 11,
+          "threshold": 50000,
+          "exp_reward": 50000
+        }
+      ]
+    },
+    {
       "criteria_key": "merge_requests_opened",
       "category": "merge_requests",
       "title": "Merge Request Opener",

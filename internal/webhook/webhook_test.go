@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -354,5 +355,84 @@ func TestReceiver_WithoutADiscussionSourceAnUpdateIsIgnored(t *testing.T) {
 
 	if len(queue.accepted()) != 0 {
 		t.Errorf("expected nothing without a source, got %+v", queue.accepted())
+	}
+}
+
+// fakeReleases serves one release, or an error.
+type fakeReleases struct {
+	release *gitlab.Release
+	err     error
+	asked   []string
+}
+
+func (f *fakeReleases) GetRelease(pid any, tagName string, _ ...gitlab.RequestOptionFunc) (*gitlab.Release, error) {
+	f.asked = append(f.asked, fmt.Sprintf("%v/%s", pid, tagName))
+
+	return f.release, f.err
+}
+
+const releaseCreatedHook = `{
+  "object_kind": "release",
+  "action": "create",
+  "tag": "v1.0.0",
+  "project": {"id": 1}
+}`
+
+func aliceRelease() *gitlab.Release {
+	createdAt := time.Date(2026, time.March, 2, 11, 0, 0, 0, time.UTC)
+
+	return &gitlab.Release{
+		TagName: "v1.0.0", CreatedAt: &createdAt,
+		Author: gitlab.BasicUser{ID: 10, Username: "alice"},
+	}
+}
+
+func TestReceiver_AReleaseIsCreditedToTheAuthorTheAPINames(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeReleases{release: aliceRelease()}
+	receiver := NewReceiver("s3cr3t", queue, WithReleases(source))
+
+	resp := deliver(t, receiver, "s3cr3t", "Release Hook", releaseCreatedHook)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+
+	if len(source.asked) != 1 || source.asked[0] != "1/v1.0.0" {
+		t.Errorf("expected the release looked up by project and tag, got %v", source.asked)
+	}
+
+	events := queue.accepted()
+	if len(events) != 1 || events[0].Kind != activity.KindReleasePublished || events[0].ActorID != 10 {
+		t.Fatalf("expected alice's release to be queued, got %+v", events)
+	}
+
+	if events[0].DedupKey != "release:1:v1.0.0" {
+		t.Errorf("expected the release keyed on project and tag, got %q", events[0].DedupKey)
+	}
+}
+
+func TestReceiver_OnlyACreatedReleaseCostsALookup(t *testing.T) {
+	queue := &fakeDispatcher{}
+	source := &fakeReleases{release: aliceRelease()}
+	receiver := NewReceiver("s3cr3t", queue, WithReleases(source))
+
+	for _, action := range []string{"update", "delete"} {
+		deliver(t, receiver, "s3cr3t", "Release Hook", strings.Replace(releaseCreatedHook, `"create"`, `"`+action+`"`, 1))
+	}
+
+	if len(source.asked) != 0 || len(queue.accepted()) != 0 {
+		t.Errorf("expected updates and deletions to be ignored, got lookups %v and %+v", source.asked, queue.accepted())
+	}
+}
+
+func TestReceiver_AFailedReleaseReadStillAnswers200(t *testing.T) {
+	queue := &fakeDispatcher{}
+	receiver := NewReceiver("s3cr3t", queue, WithReleases(&fakeReleases{err: errors.New("boom")}))
+
+	resp := deliver(t, receiver, "s3cr3t", "Release Hook", releaseCreatedHook)
+
+	if resp.Code != http.StatusOK || len(queue.accepted()) != 0 {
+		t.Errorf("expected a quiet 200 with nothing queued, got %d and %+v", resp.Code, queue.accepted())
 	}
 }
