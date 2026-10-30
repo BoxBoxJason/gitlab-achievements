@@ -42,6 +42,10 @@ const (
 	// emojiActionAward is a reaction being added. The paired "revoke" is
 	// deliberately not tracked: an award, once earned, is never taken back,
 	// so a criteria that could fall would be meaningless.
+	//
+	// GitLab reports it as the payload's top-level event_type. client-go
+	// also models an object_attributes.action, which 19.5 does not send;
+	// it is still read as a fallback, for whichever instance does.
 	emojiActionAward = "award"
 	// wikiActionCreate is a wiki page being created. The paired "update" and
 	// "delete" are not tracked, for want of a stable identifier: a wiki
@@ -593,7 +597,12 @@ func normalizeEmoji(event *gitlab.EmojiEvent, receivedAt time.Time) []activity.E
 
 	attrs := event.ObjectAttributes
 
-	if attrs.Action != emojiActionAward {
+	action := event.EventType
+	if action == "" {
+		action = attrs.Action
+	}
+
+	if action != emojiActionAward {
 		return nil
 	}
 

@@ -64,6 +64,14 @@ func TestNormalizeProjectEvent(t *testing.T) {
 			want: []kindWeight{{activity.KindPush, 1}},
 		},
 		{
+			name: "push GitLab 19 reports against the project as its target",
+			event: &gitlab.ProjectEvent{
+				ID: 17, AuthorID: 10, ActionName: "pushed new", TargetType: "Project",
+				PushData: gitlab.ProjectEventPushData{Action: "created", RefType: "branch", CommitCount: 1},
+			},
+			want: []kindWeight{{activity.KindPush, 1}, {activity.KindBranchCreated, 1}, {activity.KindCommit, 1}},
+		},
+		{
 			name:  "an event with neither a target type nor a ref is not a push",
 			event: &gitlab.ProjectEvent{ID: 16, AuthorID: 10, ActionName: "joined"},
 			want:  []kindWeight{},

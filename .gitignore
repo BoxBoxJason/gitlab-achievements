@@ -46,3 +46,6 @@ web/node_modules/
 !web/dist/
 web/dist/*
 !web/dist/.gitkeep
+
+# End-to-end suite output (test/e2e/run.sh)
+e2e-artifacts/
