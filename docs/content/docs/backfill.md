@@ -1,5 +1,6 @@
 ---
 title: Historical backfill
+description: "Award achievements for work done before the bot existed: how the one-shot backfill replays each project's history through the achievement engine."
 weight: 120
 ---
 

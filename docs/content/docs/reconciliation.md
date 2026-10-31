@@ -1,5 +1,6 @@
 ---
 title: Reconciliation
+description: "The daily reconciliation sync replays the last two days of GitLab activity, so webhook deliveries lost to outages still count toward achievements."
 weight: 130
 ---
 

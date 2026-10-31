@@ -1,5 +1,6 @@
 ---
 title: End-to-end catalog check
+description: "How the end-to-end catalog check runs every achievement criteria against a real GitLab, to catch payload changes in new GitLab releases."
 weight: 145
 ---
 

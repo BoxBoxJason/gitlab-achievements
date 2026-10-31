@@ -1,5 +1,6 @@
 ---
 title: How it works
+description: "How GitLab Achievements works end to end: bootstrap, webhook registration, live event processing, awarding tiers and keeping GitLab in sync."
 weight: 70
 ---
 

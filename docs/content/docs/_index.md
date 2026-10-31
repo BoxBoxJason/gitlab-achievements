@@ -1,5 +1,6 @@
 ---
 title: Documentation
+description: "Documentation for GitLab Achievements: GitLab setup, deployment, configuration, the achievement catalog, the API, webhooks, backfill and operations."
 ---
 
 ## Getting it running

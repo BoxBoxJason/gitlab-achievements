@@ -1,5 +1,6 @@
 ---
 title: Who takes part
+description: "Who earns GitLab achievements: everyone active except bots, accounts listed by the operator, and users who opt out, and what exclusion means."
 weight: 80
 ---
 

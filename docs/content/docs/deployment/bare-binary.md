@@ -1,5 +1,6 @@
 ---
 title: Bare binary (systemd)
+description: "Run GitLab Achievements without containers: install the static binary from a release, a systemd unit, an environment file and your database."
 weight: 3
 ---
 

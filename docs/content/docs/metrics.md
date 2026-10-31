@@ -1,5 +1,6 @@
 ---
 title: Metrics
+description: "Prometheus metrics exported by GitLab Achievements on a dedicated listener: readiness, webhook deliveries, awards, GitLab requests and job runs."
 weight: 50
 ---
 

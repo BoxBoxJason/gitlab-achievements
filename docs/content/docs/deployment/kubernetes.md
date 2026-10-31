@@ -1,5 +1,6 @@
 ---
 title: Kubernetes
+description: "Install GitLab Achievements on Kubernetes with its Helm chart: SQLite on a PVC or an external database, secrets, ingress and a backfill Job."
 weight: 1
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Docker Compose
+description: "Self-contained GitLab Achievements on one host with Docker Compose: the app and a PostgreSQL database for its state, from one file."
 weight: 2
 ---
 

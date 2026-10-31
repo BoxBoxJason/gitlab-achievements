@@ -50,5 +50,11 @@ enableRobotsTXT = true
       icon = "github"
 
 [params]
+  description = "GitLab Achievements turns a self-hosted GitLab into a game: tiered badges and EXP for real work, awarded live from webhooks."
+  images = ["images/social.png"]
+  [params.project]
+    repository = "https://github.com/BoxBoxJason/gitlab-achievements"
+    license = "https://opensource.org/license/mit"
+    programmingLanguage = "Go"
   [params.editURL]
     base = "https://github.com/BoxBoxJason/gitlab-achievements/edit/main/docs/content"

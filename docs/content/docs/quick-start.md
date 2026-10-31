@@ -1,5 +1,6 @@
 ---
 title: Quick start
+description: "Get GitLab Achievements running in minutes with Docker Compose on a self-hosted GitLab 16.6 or later, from tokens to the first awarded badge."
 weight: 15
 ---
 

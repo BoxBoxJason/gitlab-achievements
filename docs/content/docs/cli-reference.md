@@ -1,5 +1,6 @@
 ---
 title: CLI reference
+description: "Generated reference of every gitlab-achievements flag: the server, and the backfill, reconcile and uninstall subcommands."
 weight: 150
 ---
 

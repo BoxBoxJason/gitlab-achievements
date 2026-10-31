@@ -1,5 +1,6 @@
 ---
 title: The frontend
+description: "The built-in GitLab Achievements web frontend: leaderboards, personal progress toward the next tier, the catalog, and sign-in with GitLab."
 weight: 40
 ---
 
