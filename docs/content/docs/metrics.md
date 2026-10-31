@@ -1,4 +1,7 @@
-# Metrics
+---
+title: Metrics
+weight: 50
+---
 
 The server exports Prometheus metrics at `/metrics` on a listener of its own, `METRICS_ADDR` (`:9464` by default). It is kept off `LISTEN_ADDR` on purpose: that port is what an ingress exposes to GitLab and to browsers, and metrics are for the cluster only. Set `METRICS_ADDR=off` to serve none.
 
@@ -33,7 +36,7 @@ Every metric is prefixed `gitlab_achievements_`. Label values come from fixed se
 | `queue_pending` | gauge | | Activities waiting to be evaluated |
 | `queue_capacity` | gauge | | How many the queue holds before deliveries are refused |
 | `queue_evaluation_duration_seconds` | histogram | | Time to evaluate one activity, retries included |
-| `engine_events_total` | counter | `outcome` | Activities evaluated, from every source (webhooks, backfill, reconciliation): `counted`, `duplicate`, `untracked`, `excluded` (the actor is [left out](participation.md)) |
+| `engine_events_total` | counter | `outcome` | Activities evaluated, from every source (webhooks, backfill, reconciliation): `counted`, `duplicate`, `untracked`, `excluded` (the actor is [left out]({{< relref "/docs/participation" >}})) |
 | `engine_tiers_awarded_total` | counter | | Achievement tiers newly earned |
 | `awards_deliveries_total` | counter | `result` | Award changes pushed to GitLab: `confirmed`, `adopted`, `superseded`, `failed` |
 | `job_runs_total` | counter | `job`, `result` | Background runs by `success` or `failure`. A run cut short by shutdown is not counted |

@@ -1,5 +1,5 @@
 # Default values for gitlab-achievements.
-# See docs/deployment/kubernetes.md for a walkthrough, and docs/configuration.md
+# See docs/content/docs/deployment/kubernetes.md for a walkthrough, and docs/content/docs/configuration.md
 # for what every setting under `config` does.
 
 # -- Overrides the chart name used in object names and labels.
@@ -83,7 +83,7 @@ config:
     # e.g. a page of your own on another host.
     returnOrigins: []
     #  - https://rankings.example.com
-  # Who takes part. See docs/participation.md.
+  # Who takes part. See docs/content/docs/participation.md.
   exclusions:
     # -- Leave out accounts GitLab flags as bots: access token users, service accounts and
     # GitLab's own bots.
@@ -172,7 +172,7 @@ service:
 
 metrics:
   # -- Serve Prometheus metrics on a port of their own, on a ClusterIP Service of their own, so neither
-  # the Ingress nor a LoadBalancer/NodePort app Service ever exposes them. See docs/metrics.md.
+  # the Ingress nor a LoadBalancer/NodePort app Service ever exposes them. See docs/content/docs/metrics.md.
   enabled: true
   # -- Port the metrics are served on.
   port: 9464

@@ -1,4 +1,7 @@
-# Reconciliation
+---
+title: Reconciliation
+weight: 130
+---
 
 Webhooks are best-effort. GitLab retries a delivery a few times and then gives up, so a network blip, a deploy or an instance restart is enough to lose one for good. Nothing in the live path notices, because a delivery that never arrives leaves no trace of having been missed.
 

@@ -10,6 +10,6 @@
 // users, and reads the resulting counters back through the app's own API.
 //
 // It is behind the e2e build tag and skips unless pointed at an instance.
-// See test/e2e/run.sh for bringing one up, and docs/e2e.md for what it
+// See test/e2e/run.sh for bringing one up, and docs/content/docs/e2e.md for what it
 // covers and what it deliberately does not.
 package e2e

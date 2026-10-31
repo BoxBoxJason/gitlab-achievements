@@ -2,7 +2,7 @@
 {{- include "gitlab-achievements.validateSecrets" . }}
 {{- /* frontend.* was removed in 0.4.0: the image now serves its own frontend. Fail rather than silently replace a custom one. */}}
 {{- if (.Values.frontend).enabled }}
-{{- fail "frontend.* was removed in chart 0.4.0: the image now serves its own frontend at /. To serve a different one, set FRONTEND_DIR through config.extraEnv and mount the files yourself (see docs/frontend.md)." }}
+{{- fail "frontend.* was removed in chart 0.4.0: the image now serves its own frontend at /. To serve a different one, set FRONTEND_DIR through config.extraEnv and mount the files yourself (see docs/content/docs/frontend.md)." }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment

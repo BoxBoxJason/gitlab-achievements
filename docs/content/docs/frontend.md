@@ -1,4 +1,7 @@
-# The frontend
+---
+title: The frontend
+weight: 40
+---
 
 The binary serves a web frontend at `/`: the leaderboard (all time, or over the last day, week, 30 or 365 days), each person's achievements and their progress toward the next tier, the catalog with a ranking for every achievement, and a page to opt out or back in. It looks and behaves like GitLab, in light and dark, because the people using it spend their day in GitLab.
 
@@ -12,7 +15,7 @@ With `API_AUTH=gitlab`, the frontend shows a "Sign in with GitLab" page until th
 
 ## What it shows that GitLab does not
 
-Achievements land on GitLab hidden until their recipient accepts them from the email GitLab sends, and [GitLab offers no other way to do that](achievements-api-behavior.md). On your own page, the frontend marks every top tier GitLab still holds hidden, so people know why their profile looks emptier than this page.
+Achievements land on GitLab hidden until their recipient accepts them from the email GitLab sends, and [GitLab offers no other way to do that]({{< relref "/docs/achievements-api-behavior" >}}). On your own page, the frontend marks every top tier GitLab still holds hidden, so people know why their profile looks emptier than this page.
 
 Avatars come from GitLab: the app records each person's avatar URL from the activity it already receives (webhooks, the historical backfill, reconciliation), so nobody's face costs a GitLab call. Somebody whose activity predates this feature shows GitLab's initial-on-a-tint placeholder until their next activity carries their avatar.
 
@@ -24,7 +27,7 @@ Its hashed assets (`/assets/*`) are cached for a year as immutable; `index.html`
 
 ## Working on it
 
-The source is in [`web/`](../web): Vue 3, TypeScript, Tailwind CSS, built with Vite. GitLab's own fonts (`@gitlab/fonts`) and icons (`@gitlab/svgs`) come from npm and are bundled, so nothing loads from a third party at runtime.
+The source is in [`web/`](https://github.com/BoxBoxJason/gitlab-achievements/tree/main/web): Vue 3, TypeScript, Tailwind CSS, built with Vite. GitLab's own fonts (`@gitlab/fonts`) and icons (`@gitlab/svgs`) come from npm and are bundled, so nothing loads from a third party at runtime.
 
 ```bash
 make web/dev    # http://localhost:5173, against fixture data, no GitLab needed
@@ -71,8 +74,8 @@ if (res.ok) render(await res.json());
 await fetch("/oauth/logout", { method: "POST" });
 ```
 
-After logging in, the browser comes back to `return_to`. Only paths on this app and URLs on allowed origins are accepted; see [Coming back to your page](api.md#coming-back-to-your-page). If your page is served from another host, list its origin in `OAUTH_RETURN_ORIGINS` so the login can return there. API calls from that host still will not carry the cookie, which is why the options above keep everything on one origin.
+After logging in, the browser comes back to `return_to`. Only paths on this app and URLs on allowed origins are accepted; see [Coming back to your page]({{< relref "/docs/api#coming-back-to-your-page" >}}). If your page is served from another host, list its origin in `OAUTH_RETURN_ORIGINS` so the login can return there. API calls from that host still will not carry the cookie, which is why the options above keep everything on one origin.
 
 Sessions renew their GitLab token on their own and last `SESSION_LIFETIME`, a week by default. A frontend never deals with tokens, only with `/me` answering `401` once a session has ended.
 
-For what to render, see [the API reference](api.md#rankings). `/api/v1/instance` gives the GitLab URL to link profiles to.
+For what to render, see [the API reference]({{< relref "/docs/api#rankings" >}}). `/api/v1/instance` gives the GitLab URL to link profiles to.

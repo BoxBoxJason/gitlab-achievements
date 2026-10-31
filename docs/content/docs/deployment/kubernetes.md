@@ -1,6 +1,9 @@
-# Kubernetes
+---
+title: Kubernetes
+weight: 1
+---
 
-A Helm chart lives in [`chart/`](../../chart). By default it deploys the app plus a small PVC for a self-contained SQLite database; point it at a PostgreSQL, MySQL, or SQL Server you already manage instead if you'd rather. Work through [GitLab-side setup](../gitlab-setup.md) first.
+A Helm chart lives in [`chart/`](https://github.com/BoxBoxJason/gitlab-achievements/tree/main/chart). By default it deploys the app plus a small PVC for a self-contained SQLite database; point it at a PostgreSQL, MySQL, or SQL Server you already manage instead if you'd rather. Work through [GitLab-side setup]({{< relref "/docs/gitlab-setup" >}}) first.
 
 ## Install
 
@@ -53,7 +56,7 @@ ingress:
         - achievements.example.com
 ```
 
-Every value is documented with comments in the chart's [values.yaml](../../chart/values.yaml); what the settings underneath them do is in [configuration.md](../configuration.md).
+Every value is listed in [Helm chart values]({{< relref "/docs/deployment/helm-values" >}}), generated from the comments of the chart's [values.yaml](https://github.com/BoxBoxJason/gitlab-achievements/blob/main/chart/values.yaml); what the settings underneath them do is in [configuration.md]({{< relref "/docs/configuration" >}}).
 
 ## Credentials
 
@@ -98,7 +101,7 @@ The chart never creates a Secret and has no values for the credentials themselve
 
 By default the chart runs SQLite: `persistence.enabled: true` creates a 1Gi PVC (`persistence.size`), mounted at `persistence.mountPath` (`/data`), and no DSN provided resolves to a file on it. Nothing external to stand up, patch, or CVE-track for a workload this small; a single-replica `Recreate` Deployment is exactly what a SQLite file wants, since it is never opened by two writers at once. The file is the only copy of every user's EXP, so back up the volume — a `VolumeSnapshot`, or whatever your storage class supports — the same as you would a database.
 
-Provide `DATABASE_DSN` through `secrets.refs.databaseDsn` (or an `existingSecret`) to point at a PostgreSQL, MySQL, or SQL Server you manage instead, and set `persistence.enabled: false` so the release doesn't carry an unused PVC. Any of the schemes in [configuration.md](../configuration.md#databases) works; PostgreSQL is what this is tested against outside of SQLite. The app creates its own schema at startup, so an empty database and a user that owns it are enough.
+Provide `DATABASE_DSN` through `secrets.refs.databaseDsn` (or an `existingSecret`) to point at a PostgreSQL, MySQL, or SQL Server you manage instead, and set `persistence.enabled: false` so the release doesn't carry an unused PVC. Any of the schemes in [configuration.md]({{< relref "/docs/configuration#databases" >}}) works; PostgreSQL is what this is tested against outside of SQLite. The app creates its own schema at startup, so an empty database and a user that owns it are enough.
 
 `persistence.existingClaim` mounts a PVC you already created instead of one the chart manages, e.g. to pick a specific storage class or reuse one across upgrades independent of the release.
 
@@ -106,7 +109,7 @@ Provide `DATABASE_DSN` through `secrets.refs.databaseDsn` (or an `existingSecret
 
 `replicaCount` defaults to 1 and the update strategy to `Recreate`. The process is a singleton: it registers the instance's webhooks, runs the hourly sweeps, and walks history. A second replica would do all three again against the same GitLab, which buys you duplicate API load and two writers racing over the same rows.
 
-This is not a high-availability workload. Nothing is lost while it restarts: deliveries GitLab cannot make are retried on its side, and anything missed entirely is what the [reconciliation sync](../reconciliation.md) is for.
+This is not a high-availability workload. Nothing is lost while it restarts: deliveries GitLab cannot make are retried on its side, and anything missed entirely is what the [reconciliation sync]({{< relref "/docs/reconciliation" >}}) is for.
 
 ## Startup, probes and timing
 
@@ -123,7 +126,7 @@ Liveness and readiness only start once it passes, so they need no adjusting. Rea
 
 ## Ingress and reachability
 
-`config.webhookUrl` is what the app registers its webhooks against, so GitLab has to resolve and reach it. It defaults to `config.publicUrl`. A cluster-internal hostname works only if GitLab runs in the same cluster and outbound local-network requests are allowed on the instance. See [GitLab-side setup](../gitlab-setup.md#6-make-the-app-reachable-from-gitlab).
+`config.webhookUrl` is what the app registers its webhooks against, so GitLab has to resolve and reach it. It defaults to `config.publicUrl`. A cluster-internal hostname works only if GitLab runs in the same cluster and outbound local-network requests are allowed on the instance. See [GitLab-side setup]({{< relref "/docs/gitlab-setup#6-make-the-app-reachable-from-gitlab" >}}).
 
 The chart's Ingress is optional and plain. A Gateway API route, a `LoadBalancer` Service or a service mesh works just as well: set `ingress.enabled: false` and route to the Service yourself. Whatever fronts it has to handle one path prefix for everything, because webhooks, the API and the probes all share a port.
 
@@ -159,7 +162,7 @@ On a first install both the Job and the Deployment start at once and both want t
 
 ## The reconciliation sync
 
-The serving pod re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, picking up webhook deliveries GitLab never managed to make. See [Reconciliation](../reconciliation.md) for what it does and does not heal.
+The serving pod re-reads the last 48 hours of activity a few minutes after startup and once a day thereafter, picking up webhook deliveries GitLab never managed to make. See [Reconciliation]({{< relref "/docs/reconciliation" >}}) for what it does and does not heal.
 
 The chart ships no CronJob for it and does not need one: the Deployment is a single pod, and the startup pass means a rollout does not cost you a day's worth of healing. Tune it with `config.reconcile.interval` and `config.reconcile.lookback`, keeping the look-back the wider of the two.
 
@@ -207,7 +210,7 @@ helm uninstall gitlab-achievements --namespace gitlab-achievements
 
 Scaling to zero first matters: a running pod re-registers the hooks on its next sweep and recreates the achievements on its next start, so removing them underneath it accomplishes nothing.
 
-The Job is opt-in rather than a `pre-delete` hook on purpose. Deleting an achievement deletes every award of it, and `helm uninstall` is too ordinary a thing to type for it to be what wipes your team's badges. Set `uninstallJob.keepAchievements: true` to take only the hooks and leave people what they earned, or `uninstallJob.sweep: true` to also hunt down what the database has no record of. Full details in [Uninstalling](../uninstall.md).
+The Job is opt-in rather than a `pre-delete` hook on purpose. Deleting an achievement deletes every award of it, and `helm uninstall` is too ordinary a thing to type for it to be what wipes your team's badges. Set `uninstallJob.keepAchievements: true` to take only the hooks and leave people what they earned, or `uninstallJob.sweep: true` to also hunt down what the database has no record of. Full details in [Uninstalling]({{< relref "/docs/uninstall" >}}).
 
 Letting the chart render it is what keeps it working. It inherits the release's image, its GitLab URL, achievements namespace and `WEBHOOK_URL` — the hooks can only be found under the URL they were registered against — its credentials Secret, and its pod labels. That last one matters more than it looks: a hand-written Job carries none of the labels a NetworkPolicy selects on, so it is denied its way to GitLab and fails on a connection timeout that reads like a GitLab outage.
 
@@ -215,4 +218,4 @@ The database is yours and is left alone. It is also what the removal reads from,
 
 ## The frontend
 
-The image serves the web frontend at `/`, so the Ingress that exposes the API exposes the frontend too, on the same origin, with nothing to configure. Upgrading the image upgrades both together. [The frontend](../frontend.md) covers serving a different one.
+The image serves the web frontend at `/`, so the Ingress that exposes the API exposes the frontend too, on the same origin, with nothing to configure. Upgrading the image upgrades both together. [The frontend]({{< relref "/docs/frontend" >}}) covers serving a different one.

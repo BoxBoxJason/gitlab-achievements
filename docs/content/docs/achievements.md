@@ -1,4 +1,7 @@
-# Achievements and EXP
+---
+title: Achievements and EXP
+weight: 90
+---
 
 The catalog is 30 criteria, eleven tiers each, 330 GitLab achievements in total. It is generated from templates in `internal/catalog` rather than written out by hand, so adding a criteria is one template and nothing else.
 
@@ -77,7 +80,7 @@ Only the top tier a user has reached in each criteria is ever pushed. Every tier
 
 That split exists because GitLab draws the line somewhere unexpected. An awarded achievement is invisible until its recipient accepts it, only the recipient can accept it, and every award emails them. This app can award and revoke; it cannot decide what anybody's profile shows, and it cannot batch the notifications. Pushing every reached tier would mean emailing a long-serving user roughly a hundred times on the first backfill, to no visible end.
 
-Awarding is also not idempotent on GitLab's side, so delivery matches against what GitLab already holds for a user instead of retrying blind. The full findings, and how to re-verify them on a throwaway instance, are in [GitLab achievements API behavior](achievements-api-behavior.md).
+Awarding is also not idempotent on GitLab's side, so delivery matches against what GitLab already holds for a user instead of retrying blind. The full findings, and how to re-verify them on a throwaway instance, are in [GitLab achievements API behavior]({{< relref "/docs/achievements-api-behavior" >}}).
 
 ## Engagement criteria, and projects
 

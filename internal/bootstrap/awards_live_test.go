@@ -22,7 +22,7 @@ import (
 // It skips unless LIVE_GITLAB_URL and LIVE_GITLAB_TOKEN name a throwaway
 // instance and an admin token on it. The run leaves a group, a user and
 // four achievements behind, so point it at an instance you can discard.
-// See docs/achievements-api-behavior.md for what it was written from, and
+// See docs/content/docs/achievements-api-behavior.md for what it was written from, and
 // for how to bring such an instance up.
 func TestLiveAwardDelivery(t *testing.T) {
 	baseURL := os.Getenv("LIVE_GITLAB_URL")

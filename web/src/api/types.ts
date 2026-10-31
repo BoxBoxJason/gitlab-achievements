@@ -1,4 +1,4 @@
-// The API's wire shapes, as docs/api.md describes them.
+// The API's wire shapes, as docs/content/docs/api.md describes them.
 
 export interface Summary {
   username: string

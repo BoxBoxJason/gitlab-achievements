@@ -1,4 +1,7 @@
-# End-to-end catalog check
+---
+title: End-to-end catalog check
+weight: 145
+---
 
 Unit tests pin the normalizers against payloads written from GitLab's documentation. They cannot tell you when GitLab starts sending something else, and that is how a criteria goes quiet on a newer release without a single test failing. `test/e2e` closes that gap: it boots a real GitLab, performs one of every activity the catalog tracks as two ordinary users, and reads each counter back through the app's own API.
 

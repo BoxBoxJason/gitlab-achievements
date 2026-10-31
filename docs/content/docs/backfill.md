@@ -1,4 +1,7 @@
-# Historical backfill
+---
+title: Historical backfill
+weight: 120
+---
 
 Before the bot existed, people were already working. The backfill walks that history once and awards for it, so a mature instance does not start everybody at zero.
 
@@ -21,15 +24,15 @@ Five criteria have no Events API equivalent at all (deployments, jobs, emoji, di
 
 **It resumes.** Progress is persisted as it goes: last completed project, in-flight phase (events, pipelines, merge requests, releases), event date cursor, last processed pipeline. An interrupted walk picks up near where it stopped. Re-walked activity is deduplicated by the engine, so a coarse cursor costs a few repeated reads and never a double-counted commit. A completion watermark records when history was walked end to end, which is what tells the app the cold start is over.
 
-**It goes slowly on purpose.** This is the heaviest read workload the app ever runs against an instance it does not own, and it has no deadline. Requests are capped at `BACKFILL_RATE`, 5 per second by default, on a client of its own so a readiness probe never queues behind the walk. 429 and 5xx responses are retried using GitLab's own `Retry-After`. A project the read token cannot see is skipped rather than fatal, and projects in personal namespaces are skipped to match [what the webhooks cover](webhooks.md#two-things-to-know-before-you-deploy).
+**It goes slowly on purpose.** This is the heaviest read workload the app ever runs against an instance it does not own, and it has no deadline. Requests are capped at `BACKFILL_RATE`, 5 per second by default, on a client of its own so a readiness probe never queues behind the walk. 429 and 5xx responses are retried using GitLab's own `Retry-After`. A project the read token cannot see is skipped rather than fatal, and projects in personal namespaces are skipped to match [what the webhooks cover]({{< relref "/docs/webhooks#two-things-to-know-before-you-deploy" >}}).
 
 **You can bound it.** `BACKFILL_SINCE` caps how far back the walk reaches, as a date (`2024-01-01`) or a duration (`720h`). It is passed to GitLab as a server-side filter, so a narrower window means proportionally fewer requests rather than fetching everything and throwing most of it away. Unset walks the full history.
 
 ## The gap, and how it closes
 
-The walk stops at the moment the process started, just before hooks were registered, so it does not spend requests re-reading a window live ingestion already covers. That ceiling is about request budget, not correctness: both paths derive the [same deduplication key](reconciliation.md#deduplication) for the same activity, so anything either has counted is discarded whichever one sees it again.
+The walk stops at the moment the process started, just before hooks were registered, so it does not spend requests re-reading a window live ingestion already covers. That ceiling is about request budget, not correctness: both paths derive the [same deduplication key]({{< relref "/docs/reconciliation#deduplication" >}}) for the same activity, so anything either has counted is discarded whichever one sees it again.
 
-There is a real gap, though, and it is the registration sweep's duration. Hooks start delivering as the sweep reaches them, not all at once when the process starts, so activity between startup and a given hook's registration is seen by neither path at the time. The [daily reconciliation](reconciliation.md) closes it on its first pass. Bootstrap logs the window's width as `uncovered_window`: seconds on a paid instance, however long a full project sweep takes on a Free one.
+There is a real gap, though, and it is the registration sweep's duration. Hooks start delivering as the sweep reaches them, not all at once when the process starts, so activity between startup and a given hook's registration is seen by neither path at the time. The [daily reconciliation]({{< relref "/docs/reconciliation" >}}) closes it on its first pass. Bootstrap logs the window's width as `uncovered_window`: seconds on a paid instance, however long a full project sweep takes on a Free one.
 
 ## Running it
 
@@ -45,4 +48,4 @@ Same flags and environment as the server. It runs bootstrap first, so it does no
 
 Awards the walk records are pushed to GitLab as soon as it finishes, instead of waiting for the hourly award reconciliation to notice them.
 
-Each deployment guide has the target-specific version: a [Kubernetes Job](deployment/kubernetes.md#running-the-backfill-as-a-job), a [compose run](deployment/docker-compose.md#running-the-backfill-separately), a [systemd-run unit](deployment/bare-binary.md#running-the-backfill-separately).
+Each deployment guide has the target-specific version: a [Kubernetes Job]({{< relref "/docs/deployment/kubernetes#running-the-backfill-as-a-job" >}}), a [compose run]({{< relref "/docs/deployment/docker-compose#running-the-backfill-separately" >}}), a [systemd-run unit]({{< relref "/docs/deployment/bare-binary#running-the-backfill-separately" >}}).

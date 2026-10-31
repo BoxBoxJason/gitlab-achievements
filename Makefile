@@ -85,6 +85,22 @@ test: deps
 	@echo "Coverage report generated: codequality/coverage.html"
 
 
+# Regenerate the documentation pages derived from the CLI definition (docs/content/docs/cli-reference.md).
+# `make test` fails when the committed page is stale.
+docs-generate:
+	@echo "Regenerating the generated documentation pages..."
+	UPDATE_DOCS=1 $(GO) test ./cmd -run '^TestCLIReference$$' -count=1
+
+# Build the documentation site into docs/public (needs the extended Hugo, see CONTRIBUTING.md).
+docs: docs-generate
+	@command -v hugo >/dev/null 2>&1 || { echo "hugo (extended) is required, see https://gohugo.io/installation/"; exit 1; }
+	hugo --source docs --gc --minify
+
+# Serve the documentation site with live reload.
+docs-serve:
+	@command -v hugo >/dev/null 2>&1 || { echo "hugo (extended) is required, see https://gohugo.io/installation/"; exit 1; }
+	hugo server --source docs
+
 # Docker target
 package:
 	@echo "Building Docker image..."
@@ -112,4 +128,4 @@ helm/docs:
 	helm-docs --chart-search-root $(CHART_DIR)
 
 # Phony targets
-.PHONY: deps build build/all lint vulncheck dependency-check test package helm/lint helm/template helm/docs web/deps web/build web/test web/dev
+.PHONY: deps build build/all lint vulncheck dependency-check test docs-generate docs docs-serve package helm/lint helm/template helm/docs web/deps web/build web/test web/dev

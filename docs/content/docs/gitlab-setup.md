@@ -1,8 +1,11 @@
-# GitLab-side setup
+---
+title: GitLab-side setup
+weight: 10
+---
 
 Everything that has to exist on your GitLab instance before the app starts. None of it is deployment-specific: the same group, the same two credentials and the same reachable URL are what Kubernetes, Docker Compose and a systemd unit all end up pointing at.
 
-Work through it once, then pick a target: [Kubernetes](deployment/kubernetes.md), [Docker Compose](deployment/docker-compose.md), [bare binary](deployment/bare-binary.md).
+Work through it once, then pick a target: [Kubernetes]({{< relref "/docs/deployment/kubernetes" >}}), [Docker Compose]({{< relref "/docs/deployment/docker-compose" >}}), [bare binary]({{< relref "/docs/deployment/bare-binary" >}}).
 
 ## What you need
 
@@ -24,9 +27,9 @@ Feature.enabled?(:achievements)
 Feature.enable(:achievements)
 ```
 
-Being an Experiment also means the API can change between majors. What was verified, on which version, and how to re-verify it is in [GitLab achievements API behavior](achievements-api-behavior.md).
+Being an Experiment also means the API can change between majors. What was verified, on which version, and how to re-verify it is in [GitLab achievements API behavior]({{< relref "/docs/achievements-api-behavior" >}}).
 
-Group webhooks are a Premium/Ultimate feature. On Free/CE the app registers one webhook per project instead, which works on every tier and is what `HOOK_SCOPE=auto` falls back to. Nothing else about the setup changes. See [Webhooks](webhooks.md) for the details.
+Group webhooks are a Premium/Ultimate feature. On Free/CE the app registers one webhook per project instead, which works on every tier and is what `HOOK_SCOPE=auto` falls back to. Nothing else about the setup changes. See [Webhooks]({{< relref "/docs/webhooks" >}}) for the details.
 
 ## 2. Create the achievements group
 
