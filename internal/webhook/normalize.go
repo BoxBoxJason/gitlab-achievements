@@ -629,52 +629,63 @@ func normalizeDiscussions(discussions []*gitlab.Discussion, projectID int64, rec
 	var events []activity.Event
 
 	for _, discussion := range discussions {
-		if discussion == nil || discussion.IndividualNote || discussion.ID == "" {
-			continue
+		if event, ok := normalizeDiscussion(discussion, projectID, receivedAt); ok {
+			events = append(events, event)
 		}
-
-		var last *gitlab.Note
-
-		resolved := true
-
-		for _, entry := range discussion.Notes {
-			if entry == nil || !entry.Resolvable {
-				continue
-			}
-
-			if !entry.Resolved || entry.ResolvedBy.ID == 0 {
-				resolved = false
-
-				break
-			}
-
-			if last == nil || entry.ResolvedAt != nil && (last.ResolvedAt == nil || entry.ResolvedAt.After(*last.ResolvedAt)) {
-				last = entry
-			}
-		}
-
-		if !resolved || last == nil {
-			continue
-		}
-
-		occurredAt := receivedAt
-		if last.ResolvedAt != nil {
-			occurredAt = *last.ResolvedAt
-		}
-
-		events = append(events, activity.Event{
-			OccurredAt:     occurredAt,
-			Kind:           activity.KindDiscussionResolved,
-			DedupKey:       discussionResolvedKey(discussion.ID),
-			ActorUsername:  last.ResolvedBy.Username,
-			ActorAvatarURL: last.ResolvedBy.AvatarURL,
-			ActorID:        last.ResolvedBy.ID,
-			ProjectID:      projectID,
-			Count:          1,
-		})
 	}
 
 	return events
+}
+
+// normalizeDiscussion turns one discussion into a resolution event, and
+// reports false when the discussion is not fully resolved.
+func normalizeDiscussion(discussion *gitlab.Discussion, projectID int64, receivedAt time.Time) (activity.Event, bool) {
+	if discussion == nil || discussion.IndividualNote || discussion.ID == "" {
+		return activity.Event{}, false
+	}
+
+	last := lastResolvedNote(discussion.Notes)
+	if last == nil {
+		return activity.Event{}, false
+	}
+
+	occurredAt := receivedAt
+	if last.ResolvedAt != nil {
+		occurredAt = *last.ResolvedAt
+	}
+
+	return activity.Event{
+		OccurredAt:     occurredAt,
+		Kind:           activity.KindDiscussionResolved,
+		DedupKey:       discussionResolvedKey(discussion.ID),
+		ActorUsername:  last.ResolvedBy.Username,
+		ActorAvatarURL: last.ResolvedBy.AvatarURL,
+		ActorID:        last.ResolvedBy.ID,
+		ProjectID:      projectID,
+		Count:          1,
+	}, true
+}
+
+// lastResolvedNote returns the resolvable note resolved last, or nil when
+// there is none or any resolvable note is still open.
+func lastResolvedNote(notes []*gitlab.Note) *gitlab.Note {
+	var last *gitlab.Note
+
+	for _, entry := range notes {
+		if entry == nil || !entry.Resolvable {
+			continue
+		}
+
+		if !entry.Resolved || entry.ResolvedBy.ID == 0 {
+			return nil
+		}
+
+		if last == nil || entry.ResolvedAt != nil && (last.ResolvedAt == nil || entry.ResolvedAt.After(*last.ResolvedAt)) {
+			last = entry
+		}
+	}
+
+	return last
 }
 
 // resolutionCandidate reports whether a merge request hook is worth reading
