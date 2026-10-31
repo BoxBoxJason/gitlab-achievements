@@ -92,6 +92,9 @@ type pipelineHistory interface {
 // inside the time GitLab waits for a hook to answer.
 const apiFetchTimeout = 5 * time.Second
 
+// discussionsPerPage is the page size of the merge request discussions fetch.
+const discussionsPerPage = 100
+
 // Receiver handles GitLab webhook deliveries.
 type Receiver struct {
 	queue       dispatcher
@@ -363,7 +366,7 @@ func (r *Receiver) resolvedDiscussions(ctx context.Context, event *gitlab.MergeE
 
 	var discussions []*gitlab.Discussion
 
-	opts := &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: 100}}
+	opts := &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: discussionsPerPage}}
 
 	for discussion, err := range r.discussions.ListMergeRequestDiscussions(projectID, event.ObjectAttributes.IID, opts, gitlab.WithContext(ctx)) {
 		if err != nil {
