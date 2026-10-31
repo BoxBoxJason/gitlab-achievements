@@ -1,5 +1,6 @@
 ---
 title: "GitLab achievements API: confirmed behavior"
+description: "What the GitLab achievements API really does, verified on GitLab CE: awards stay hidden until the recipient accepts them, and only they can."
 weight: 140
 ---
 

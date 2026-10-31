@@ -1,5 +1,6 @@
 ---
 title: The API
+description: "The read-only GitLab Achievements REST API under /api/v1: leaderboards, users, EXP and achievement progress, served from the local database."
 weight: 100
 ---
 

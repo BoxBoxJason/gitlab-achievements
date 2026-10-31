@@ -1,5 +1,6 @@
 ---
 title: Achievements and EXP
+description: "The full GitLab Achievements catalog: 30 criteria with eleven tiers each, 330 badges, how EXP is computed and how tiers are awarded and revoked."
 weight: 90
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: GitLab Achievements
+description: "Turn your self-hosted GitLab into a game: GitLab Achievements awards tiered badges and EXP for real work, from merge requests to green pipelines."
 layout: hextra-home
 ---
 

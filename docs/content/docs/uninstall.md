@@ -1,5 +1,6 @@
 ---
 title: Uninstalling
+description: "Remove GitLab Achievements cleanly: the uninstall subcommand deletes its webhooks and the 330 achievement definitions it created on GitLab."
 weight: 60
 ---
 

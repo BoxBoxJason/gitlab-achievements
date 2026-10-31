@@ -1,5 +1,6 @@
 ---
 title: Webhooks
+description: "How GitLab Achievements registers and maintains its own GitLab webhooks, which hook tier it uses, and how deliveries are verified and processed."
 weight: 110
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: GitLab-side setup
+description: "Prepare your GitLab instance for GitLab Achievements: the achievements group, the two access tokens, the webhook secret and a reachable URL."
 weight: 10
 ---
 

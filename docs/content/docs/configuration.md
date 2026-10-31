@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: "Configure GitLab Achievements with flags or environment variables: required settings, database, API authentication, intervals and defaults."
 weight: 20
 ---
 
