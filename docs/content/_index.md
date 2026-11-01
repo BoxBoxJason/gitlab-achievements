@@ -35,4 +35,4 @@ layout: hextra-home
 
 {{< spacer "3rem" >}}
 
-![The leaderboard, ranked by EXP](/screenshots/leaderboard.png)
+{{< video "videos/discover.mp4" >}}
