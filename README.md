@@ -20,7 +20,7 @@ It grew out of [BoxBoxJason/achievements](https://github.com/boxboxjason/achieve
 > [!NOTE]
 > Early days. Everything described here is implemented and covered by tests, but the project is young and GitLab's achievements API is still marked Experiment. Bug reports and [issues](https://github.com/BoxBoxJason/gitlab-achievements/issues) are very welcome.
 
-<video src="https://github.com/BoxBoxJason/gitlab-achievements/raw/main/docs/static/videos/discover.mp4" controls playsinline width="100%"></video>
+[![Watch the gitlab-achievements video](./docs/static/images/discover.jpg)](https://boxboxjason.github.io/gitlab-achievements/videos/discover.mp4)
 
 Every one of the 30 criteria (commits, merge requests, reviews, pipelines, deployments, streaks, ...) stacks eleven tiers with names people actually want to collect: *Committer*, *Friend of the Trees*, *Rubber Stamp*, *Firefighter*, *Stuck the Landing*, *Night Owl*. Each tier is worth EXP, and the binary serves the instance leaderboard and everyone's progress toward their next tier. [The full catalog](https://boxboxjason.github.io/gitlab-achievements/docs/achievements/).
 
