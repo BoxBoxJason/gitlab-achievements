@@ -33,6 +33,7 @@
     "enabled": true,
     "automerge": true
   },
+  "npmrc": "allow-remote=all",
   "updateInternalDeps": true,
   "dependencyDashboardAutoclose": true,
   "dependencyDashboardLabels": [
