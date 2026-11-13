@@ -130,7 +130,7 @@ separately, so they never appear in a pod spec.
 - name: SESSION_LIFETIME
   value: {{ .Values.config.api.sessionLifetime | quote }}
 - name: OAUTH_RETURN_ORIGINS
-  value: {{ join "," (tpl .Values.config.api.returnOrigins $) | quote }}
+  value: {{ join "," (tpl ( toYaml .Values.config.api.returnOrigins) $) | quote }}
 {{- with include "gitlab-achievements.defaultDsn" . }}
 - name: DATABASE_DSN
   value: {{ tpl . $ | quote }}
