@@ -20,7 +20,9 @@ spec:
       {{- end }}
       labels:
         {{- include "gitlab-achievements.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: backfill
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       # The walk is resumable: a killed pod picks up near where it stopped
       # rather than starting over, so a restart is cheap and safe.
