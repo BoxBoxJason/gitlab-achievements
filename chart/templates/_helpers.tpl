@@ -85,13 +85,13 @@ separately, so they never appear in a pod spec.
 */}}
 {{- define "gitlab-achievements.env" -}}
 - name: GITLAB_URL
-  value: {{ required "config.gitlabUrl is required: the base URL of the GitLab instance to mirror" .Values.config.gitlabUrl | quote }}
+  value: {{ required "config.gitlabUrl is required: the base URL of the GitLab instance to mirror" (tpl .Values.config.gitlabUrl $) | quote }}
 - name: ACHIEVEMENTS_NAMESPACE
   value: {{ required "config.achievementsNamespace is required: the full path of the namespace that owns the achievement definitions" .Values.config.achievementsNamespace | quote }}
 - name: PUBLIC_URL
-  value: {{ required "config.publicUrl is required: GitLab OAuth redirects are built from it" .Values.config.publicUrl | quote }}
+  value: {{ required "config.publicUrl is required: GitLab OAuth redirects are built from it" (tpl .Values.config.publicUrl $) | quote }}
 - name: WEBHOOK_URL
-  value: {{ .Values.config.webhookUrl | quote }}
+  value: {{ tpl .Values.config.webhookUrl $ | quote }}
 - name: LISTEN_ADDR
   value: ":{{ include "gitlab-achievements.containerPort" . }}"
 - name: LOG_LEVEL
@@ -130,10 +130,10 @@ separately, so they never appear in a pod spec.
 - name: SESSION_LIFETIME
   value: {{ .Values.config.api.sessionLifetime | quote }}
 - name: OAUTH_RETURN_ORIGINS
-  value: {{ join "," .Values.config.api.returnOrigins | quote }}
+  value: {{ join "," (tpl ( toYaml .Values.config.api.returnOrigins) $) | quote }}
 {{- with include "gitlab-achievements.defaultDsn" . }}
 - name: DATABASE_DSN
-  value: {{ . | quote }}
+  value: {{ tpl . $ | quote }}
 {{- end }}
 - name: EXCLUDE_BOTS
   value: {{ .Values.config.exclusions.bots | quote }}
